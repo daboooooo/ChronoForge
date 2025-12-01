@@ -5,6 +5,7 @@ import logging
 import subprocess
 import sys
 import time
+from datetime import datetime, timedelta
 import requests
 import traceback
 from rich.console import Console
@@ -33,7 +34,8 @@ STATUS_COLORS = {
 }
 
 # API基础URL
-API_BASE_URL = "http://localhost:8000/api"
+# API_BASE_URL = "http://localhost:8000/api"
+API_BASE_URL = "http://192.168.1.22:8000/api"
 
 # 直接使用正确格式的symbol，包含交易所信息
 crypto_symbols = ['binance:BTC/USDT', 'okx:ETH/USDT']
@@ -299,7 +301,7 @@ def add_tasks():
             },
             "symbols": um_future_symbols,
             "timeframe": "1h",
-            "timerange_str": "20251101-",
+            "timerange_str": f"{(datetime.now() - timedelta(days=29)).strftime('%Y%m%d')}-",  # only support last 30 days
         },
         {
             "name": "bitcoin_fgi",

@@ -43,6 +43,9 @@ dev = [
   "isort>=5.10.0",
 ]
 
+[project.scripts]
+chronoforge = "chronoforge.cli:main"
+
 [tool.black]
 line-length = 100
 target-version = ["py38"]
