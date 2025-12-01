@@ -15,14 +15,23 @@ ChronoForge 是一个异步、插件式的时间序列数据处理框架，专�
 
 ## 📦 安装
 
-使用 pip 安装 ChronoForge：
+### 1. 从源码安装
+
+如果您下载了源代码，可以使用以下命令安装：
 
 ```bash
-# 从源码安装
+# 从源码安装（开发模式）
 pip install -e .
 
 # 或使用 requirements.txt 安装依赖
 pip install -r requirements.txt
+```
+
+### 2. 从PyPI安装（未来支持）
+
+```bash
+# 从PyPI安装（未来支持）
+# pip install chronoforge
 ```
 
 ## 🧱 核心架构
@@ -75,7 +84,9 @@ pip install -r requirements.txt
 
 ## 🚦 快速开始
 
-以下是一个简单的示例，展示如何使用 ChronoForge 获取加密货币数据：
+### 1. 嵌入模式
+
+以下是一个简单的示例，展示如何在嵌入模式下使用 ChronoForge 获取加密货币数据：
 
 ```python
 import asyncio
@@ -113,13 +124,140 @@ async def main():
 asyncio.run(main())
 ```
 
+### 2. 自运行模式
+
+ChronoForge 还支持作为独立服务运行，通过 RESTful API 提供访问。
+
+#### 2.1 启动服务
+
+##### 2.1.1 安装包后启动服务
+
+如果您已经通过 `pip install -e .` 或 `pip install chronoforge` 安装了 ChronoForge，可以直接使用 `chronoforge` 命令启动服务：
+
+```bash
+# 基本用法（默认主机：127.0.0.1，默认端口：8000）
+chronoforge serve
+
+# 自定义主机和端口
+chronoforge serve --host 0.0.0.0 --port 8000
+
+# 开发模式（代码修改时自动重载）
+chronoforge serve --reload
+
+# 指定工作进程数
+chronoforge serve --workers 4
+```
+
+##### 2.1.2 下载源代码后启动服务
+
+如果您下载了源代码但尚未安装，可以使用以下方式启动服务：
+
+```bash
+# 使用 python -m 方式启动服务
+python -m chronoforge.cli serve --host 0.0.0.0 --port 8000
+
+# 或直接运行 cli.py 文件
+python chronoforge/cli.py serve --host 0.0.0.0 --port 8000
+```
+
+##### 2.1.3 服务启动参数
+
+| 参数 | 描述 | 默认值 |
+|------|------|--------|
+| `--host` | 服务绑定的主机地址 | `127.0.0.1` |
+| `--port` | 服务绑定的端口 | `8000` |
+| `--reload` | 开发模式，代码修改时自动重载 | `False` |
+| `--workers` | 工作进程数 | `1` |
+
+#### 2.2 API 访问
+
+服务启动后，可以通过以下地址访问 API：
+
+- **服务地址**: http://localhost:8000
+- **API文档**: http://localhost:8000/docs （Swagger UI）
+- **ReDoc文档**: http://localhost:8000/redoc
+
+#### 2.3 核心 API 端点
+
+| 方法 | 端点 | 描述 |
+|------|------|------|
+| GET | /api/status | 获取服务状态 |
+| GET | /api/tasks | 列出所有任务 |
+| POST | /api/tasks | 创建新任务 |
+| GET | /api/tasks/{task_name} | 获取任务详情 |
+| DELETE | /api/tasks/{task_name} | 删除任务 |
+| POST | /api/tasks/{task_name}/start | 启动任务 |
+| POST | /api/tasks/{task_name}/stop | 停止任务 |
+| GET | /api/plugins | 列出所有支持的插件 |
+| GET | /api/plugins/{plugin_type} | 按类型列出插件 |
+
+#### 2.4 API 示例
+
+##### 获取服务状态
+
+```bash
+curl http://localhost:8000/api/status
+```
+
+##### 列出所有插件
+
+```bash
+curl http://localhost:8000/api/plugins
+```
+
+##### 创建新任务
+
+```bash
+curl -X POST http://localhost:8000/api/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "test_task",
+    "data_source_name": "CryptoSpotDataSource",
+    "data_source_config": {},
+    "storage_name": "LocalFileStorage",
+    "storage_config": {},
+    "time_slot": {
+      "start": "00:00",
+      "end": "23:59"
+    },
+    "symbols": ["binance:BTC/USDT"],
+    "timeframe": "1d",
+    "timerange_str": "20240101-"
+  }'
+```
+
+##### 列出所有任务
+
+```bash
+curl http://localhost:8000/api/tasks
+```
+
+#### 2.4 使用示例
+
+ChronoForge 提供了示例文件，展示如何使用 RESTful API 与服务交互：
+
+```bash
+# 运行 RESTful API 示例
+python examples/restful_api.py
+```
+
+该示例文件将：
+
+- 检查 ChronoForge 服务是否正在运行
+- 如果服务未运行，则启动服务
+- 向服务添加多个任务
+- 监控任务状态变化
+- 运行一段时间后停止服务（如果是示例启动的服务）
+
 ## 📁 项目结构
 
 ```
+
 ChronoForge/
 ├── chronoforge/          # 主包
 │   ├── __init__.py       # 包初始化
 │   ├── scheduler.py      # 调度器实现
+│   ├── cli.py            # 命令行工具
 │   ├── utils.py          # 工具函数
 │   ├── data_source/      # 数据源插件
 │   │   ├── __init__.py   # 数据源包初始化
@@ -127,12 +265,25 @@ ChronoForge/
 │   │   ├── crypto_spot.py # 加密货币现货数据源
 │   │   ├── fred.py       # FRED经济数据源
 │   │   └── ...           # 其他数据源
-│   └── storage/          # 存储插件
-│       ├── __init__.py   # 存储包初始化
-│       ├── base.py       # 存储基类
-│       ├── localfile.py  # 本地文件存储
-│       ├── duckdb.py     # DuckDB存储
-│       └── redisdb.py    # Redis存储
+│   ├── storage/          # 存储插件
+│   │   ├── __init__.py   # 存储包初始化
+│   │   ├── base.py       # 存储基类
+│   │   ├── localfile.py  # 本地文件存储
+│   │   ├── duckdb.py     # DuckDB存储
+│   │   └── redisdb.py    # Redis存储
+│   └── server/           # HTTP服务
+│       ├── __init__.py   # 服务包初始化
+│       ├── main.py       # FastAPI应用入口
+│       ├── dependencies.py # 依赖管理
+│       ├── api/          # API路由
+│       │   ├── __init__.py
+│       │   ├── tasks.py  # 任务管理API
+│       │   ├── plugins.py # 插件管理API
+│       │   └── status.py # 状态查询API
+│       └── models/       # Pydantic模型
+│           ├── __init__.py
+│           ├── task.py   # 任务相关模型
+│           └── plugin.py # 插件相关模型
 ├── examples/             # 示例代码
 ├── tests/                # 测试代码
 ├── data/                 # 数据目录

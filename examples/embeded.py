@@ -1,8 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-示例：使用CCXT从加密货币交易所获取数据并存储到本地文件（简化修复版）
-"""
+
 import logging
 import sys
 import time

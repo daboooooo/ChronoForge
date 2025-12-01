@@ -327,6 +327,39 @@ class Scheduler:
             logger.error("Unsupported instance type: %s", type(plugin))
             return False, "Unsupported instance type"
 
+    def delete_task(self, name: str) -> None:
+        """删除任务
+
+        Args:
+            name: 任务名称
+        """
+        logger.info(f"Deleting task: {name}")
+
+        # 检查任务是否存在
+        if name not in self.tasks:
+            raise ValueError(f"Task {name} not found")
+
+        # 更新任务状态为已删除
+        if name in self.task_states:
+            self.task_states[name].update({
+                'status': 'deleted',
+                'last_updated_at': time.time()
+            })
+
+        # 删除时间槽
+        self.time_slot_manager.delete_slot(name)
+
+        # 删除任务实例引用
+        if name in self.data_source_instances:
+            del self.data_source_instances[name]
+        if name in self.storage_instances:
+            del self.storage_instances[name]
+
+        # 删除任务
+        del self.tasks[name]
+
+        logger.info(f"Task {name} deleted successfully")
+
     def add_task(self, name: str,
                  data_source_name: str, data_source_config: Dict[str, Any],
                  storage_name: str, storage_config: Dict[str, Any],
@@ -355,7 +388,11 @@ class Scheduler:
         # 检查任务名称是否已存在
         if not name:
             raise ValueError("Task name cannot be empty")
-        if not inplace and name in self.tasks:
+
+        # 检查任务是否已存在
+        is_replacing = name in self.tasks
+
+        if not inplace and is_replacing:
             raise ValueError(f"Task name {name} already exists")
 
         logger.debug(f"Task name '{name}' validation passed")
@@ -425,7 +462,21 @@ class Scheduler:
             timeframe=timeframe,
             timerange=timerange,
         )
-        logger.info(f"Task '{name}' added successfully. Total tasks: {len(self.tasks)}")
+
+        # 更新任务状态
+        status = "replaced" if is_replacing else "created"
+        self.task_states[name] = {
+            'status': status,
+            'created_at': time.time(),
+            'last_updated_at': time.time(),
+            'next_run_time': None,
+            'run_count': 0,
+            'last_run_time': None,
+            'last_run_status': None,
+            'error_message': None
+        }
+
+        logger.info(f"Task '{name}' {status} successfully. Total tasks: {len(self.tasks)}")
 
     def start(self) -> None:
         """启动调度器，在线程中运行run方法"""
@@ -449,37 +500,59 @@ class Scheduler:
 
                 # 调试日志：显示当前时间和任务列表
                 current_time = datetime.now()
-                logger.info(f"Current time: {current_time} ({current_time.timestamp() * 1000})")
-                logger.info(f"Found {len(self.tasks)} Tasks: {self.tasks.keys()}")
+                logger.debug(f"Current time: {current_time} ({current_time.timestamp() * 1000})")
+                logger.debug(f"Found {len(self.tasks)} Tasks: {self.tasks.keys()}")
 
                 for task_name, task in list(self.tasks.items()):
+                    # 确保任务状态存在
+                    if task_name not in self.task_states:
+                        self.task_states[task_name] = {
+                            'status': 'created',
+                            'created_at': time.time(),
+                            'last_updated_at': time.time(),
+                            'next_run_time': None,
+                            'run_count': 0,
+                            'last_run_time': None,
+                            'last_run_status': None,
+                            'error_message': None
+                        }
+
                     # 检查时间槽
                     is_in_slot = self.time_slot_manager.is_in_timeslot(name=task_name, once=True)
-                    logger.info(f"Task {task_name}: is_in_timeslot={is_in_slot}, "
-                                f"time_slot={task.time_slot}")
-                    if is_in_slot:
-                        # 检查任务是否已在运行
-                        if task_name in self.task_states:
-                            # 检查任务状态类型
-                            task_state = self.task_states[task_name]
-                            # 检查是否为线程池任务
-                            if isinstance(task_state, dict) and 'future' in task_state:
-                                if not task_state['future'].done():
-                                    logger.debug(f"Task {task_name} is already running "
-                                                 "in thread pool, skipping")
-                                    continue
-                    else:
+                    logger.debug(f"Task {task_name}: is_in_timeslot={is_in_slot}, "
+                                 f"time_slot={task.time_slot}")
+
+                    # 更新任务状态为等待下次执行
+                    if not is_in_slot:
                         logger.debug(f"Task {task_name} is not in timeslot, skipping")
+                        # 更新任务状态为等待
+                        if self.task_states[task_name]['status'] not in ['waiting', 'created',
+                                                                         'replaced']:
+                            self.task_states[task_name].update({
+                                'status': 'waiting',
+                                'last_updated_at': time.time()
+                            })
                         continue
+
+                    # 检查任务是否已在运行
+                    task_state = self.task_states[task_name]
+                    if 'future' in task_state and isinstance(task_state['future'], cf.Future):
+                        if not task_state['future'].done():
+                            logger.debug(f"Task {task_name} is already running "
+                                         "in thread pool, skipping")
+                            continue
 
                     # 使用线程池执行任务
                     future = self.thread_pool.submit(self.execute_task, task)
-                    self.task_states[task_name] = {
+
+                    # 更新任务状态为运行中
+                    self.task_states[task_name].update({
                         'future': future,
-                        'start_time': time.time(),
-                        'status': 'running'
-                    }
-                    logger.info(f"Task {task_name} submitted to thread pool")
+                        'status': 'running',
+                        'last_updated_at': time.time()
+                    })
+
+                    logger.debug(f"Task {task_name} submitted to thread pool")
                     time.sleep(0.1)
                 # 每5秒检查一次
                 time.sleep(5)
@@ -489,19 +562,13 @@ class Scheduler:
             logger.info("Scheduler run loop exited")
 
     def _clean_completed_tasks(self) -> None:
-        """清理已完成的任务状态"""
-        completed_tasks = []
+        """清理已完成的任务状态，只清理future对象，保留任务历史状态"""
         for task_name, state in self.task_states.items():
             if isinstance(state, dict) and 'future' in state:
                 if state['future'].done():
-                    completed_tasks.append(task_name)
-
-        for task_name in completed_tasks:
-            try:
-                self.task_states.pop(task_name)
-                logger.debug(f"Cleaned up state for completed task: {task_name}")
-            except Exception as e:
-                logger.error(f"Error cleaning up task {task_name}: {e}")
+                    # 清理future对象，但保留其他状态信息
+                    del state['future']
+                    logger.debug(f"Cleaned up future for completed task: {task_name}")
 
     def stop(self) -> None:
         """停止调度器"""
@@ -514,16 +581,29 @@ class Scheduler:
 
             # 关闭数据源连接
             logger.info("Closing data source connections...")
-            for name, data_source in self.data_source_instances.items():
+            for name, data_source in list(self.data_source_instances.items()):
                 try:
-                    # 创建一个新的事件循环来运行异步方法
-                    loop = asyncio.new_event_loop()
+                    # 检查当前是否已经有事件循环在运行
                     try:
-                        asyncio.set_event_loop(loop)
-                        loop.run_until_complete(data_source.close_all_connections())
+                        loop = asyncio.get_event_loop()
+                        is_loop_running = loop.is_running()
+                    except RuntimeError:
+                        # 如果没有事件循环，创建一个新的
+                        loop = None
+                        is_loop_running = False
+
+                    if is_loop_running:
+                        # 如果当前已经有事件循环在运行，使用当前循环
+                        # 由于我们在同步方法中，不能直接await，所以只能创建任务
+                        loop.create_task(data_source.close_all_connections())
+                        logger.info(f"Scheduled closing connections for data source: {name}")
+                    else:
+                        # 如果没有事件循环，使用asyncio.run()
+                        asyncio.run(data_source.close_all_connections())
                         logger.info(f"Closed connections for data source: {name}")
-                    finally:
-                        loop.close()
+
+                    # 从实例字典中移除已关闭的数据源
+                    del self.data_source_instances[name]
                 except Exception as e:
                     logger.error(f"Error closing connections for data source {name}: "
                                  f"{e}")
@@ -572,21 +652,55 @@ class Scheduler:
         logger.info(f"Executing task: {task_name}")
 
         try:
-            # 检查任务状态
-            if task_name in self.task_states:
-                self.task_states[task_name]['status'] = 'executing'
+            # 确保任务状态存在
+            if task_name not in self.task_states:
+                self.task_states[task_name] = {
+                    'status': 'created',
+                    'created_at': time.time(),
+                    'last_updated_at': time.time(),
+                    'next_run_time': None,
+                    'run_count': 0,
+                    'last_run_time': None,
+                    'last_run_status': None,
+                    'error_message': None
+                }
+
+            # 更新任务状态为执行中
+            self.task_states[task_name].update({
+                'status': 'executing',
+                'last_updated_at': time.time(),
+                'last_run_time': time.time(),
+                'error_message': None
+            })
 
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
                 loop.run_until_complete(self._execute_task(task))
+
+                # 更新任务状态为完成
                 if task_name in self.task_states:
-                    self.task_states[task_name]['status'] = 'completed'
+                    self.task_states[task_name].update({
+                        'status': 'completed',
+                        'last_updated_at': time.time(),
+                        'run_count': self.task_states[task_name].get('run_count', 0) + 1,
+                        'last_run_status': 'success',
+                        'error_message': None
+                    })
                 logger.info(f"Task {task_name} completed successfully")
             except Exception as e:
+                error_msg = str(e)
                 logger.exception(f"Task {task_name} execution error: {e}")
+
+                # 更新任务状态为失败
                 if task_name in self.task_states:
-                    self.task_states[task_name]['status'] = 'failed'
+                    self.task_states[task_name].update({
+                        'status': 'failed',
+                        'last_updated_at': time.time(),
+                        'run_count': self.task_states[task_name].get('run_count', 0) + 1,
+                        'last_run_status': 'failed',
+                        'error_message': error_msg
+                    })
                 raise
             finally:
                 try:
@@ -599,7 +713,18 @@ class Scheduler:
                 except Exception as cleanup_error:
                     logger.error(f"Error during loop cleanup for task {task_name}: {cleanup_error}")
         except Exception as outer_e:
+            error_msg = str(outer_e)
             logger.error(f"Unhandled exception in task {task_name}: {outer_e}")
+
+            # 更新任务状态为失败
+            if task_name in self.task_states:
+                self.task_states[task_name].update({
+                    'status': 'failed',
+                    'last_updated_at': time.time(),
+                    'run_count': self.task_states[task_name].get('run_count', 0) + 1,
+                    'last_run_status': 'failed',
+                    'error_message': error_msg
+                })
         finally:
             # 确保即使发生异常也不会阻止任务状态清理
             pass

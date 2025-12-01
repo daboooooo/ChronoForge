@@ -32,15 +32,9 @@ class CryptoSpotDataSource(DataSourceBase):
     def __del__(self):
         """析构函数，清理资源"""
         try:
-            # 清理交易所实例
-            for exchange_name, exchange_instance in self.exchange_instances.items():
-                try:
-                    # 尝试调用close方法关闭连接
-                    if hasattr(exchange_instance, 'close'):
-                        # 在同步上下文中，我们无法直接await，所以这里只是记录警告
-                        logger.warning(f"请在异步代码中手动调用 await {exchange_name}.close() 来关闭连接")
-                except Exception as e:
-                    logger.warning(f"关闭交易所连接 {exchange_name} 时出错: {str(e)}")
+            # 清理交易所实例引用，但不在析构函数中执行复杂操作
+            # 析构函数中不应使用日志，因为Python关闭时日志系统可能已不可用
+            self.exchange_instances.clear()
         except Exception:
             # 析构函数中不应抛出异常
             pass

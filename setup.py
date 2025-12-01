@@ -41,6 +41,10 @@ setup(
         "pycoingecko==3.2.0",
         "fredapi==0.5.2",
         "binance-futures-connector==4.1.0",
+        "fastapi>=0.120.0",
+        "uvicorn>=0.38.0",
+        "pydantic>=2.12.5",
+        "rich>=14.2.0",
     ],
     extras_require={
         "dev": [
@@ -48,6 +52,11 @@ setup(
             "pytest-asyncio>=0.18.0",
             "black>=23.0.0",
             "isort>=5.10.0",
+        ],
+    },
+    entry_points={
+        "console_scripts": [
+            "chronoforge=chronoforge.cli:main",
         ],
     },
 )
