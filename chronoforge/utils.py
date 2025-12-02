@@ -221,22 +221,24 @@ class TimeRange:
 
         start_str, end_str = timerange_str.split('-', 1)
 
+        # 处理开始时间
         if not start_str:
             start_str = '20240101_000000'
         else:
             if '_' not in start_str:
                 start_str += '_000000'
-        if not end_str:
-            end_str = datetime.now(tz=timezone.utc).strftime('%Y%m%d_%H%M%S')
-        else:
-            if '_' not in end_str:
-                end_str += '_235959'
-
-        # 使用UTC时间解析字符串
         start_ts_ms = int(datetime.strptime(
             start_str, '%Y%m%d_%H%M%S').replace(tzinfo=timezone.utc).timestamp() * 1000)
-        end_ts_ms = int(datetime.strptime(
-            end_str, '%Y%m%d_%H%M%S').replace(tzinfo=timezone.utc).timestamp() * 1000)
+
+        # 处理结束时间
+        if end_str:
+            if '_' not in end_str:
+                end_str += '_235959'
+            end_ts_ms = int(datetime.strptime(
+                end_str, '%Y%m%d_%H%M%S').replace(tzinfo=timezone.utc).timestamp() * 1000)
+        else:
+            # 当不设置结束时间时，应视为结束时间是不断更新的当前时间，不能设置为固定时间
+            end_ts_ms = None
 
         return cls(start_ts_ms, end_ts_ms)
 

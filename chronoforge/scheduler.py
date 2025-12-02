@@ -67,7 +67,19 @@ async def _load_data_for_updating(
         sub: Optional[str] = None,
         timerange: Optional[TimeRange] = None) -> Tuple[Optional[pd.DataFrame],
                                                         Optional[TimeRange]]:
-    """加载缓存数据并计算需要更新的时间范围"""
+    """加载缓存数据并计算需要更新的时间范围
+
+        Args:
+            storage (StorageBase): 数据存储实例
+            symbol (str): 交易对符号
+            timeframe (str): 时间周期
+            sub (Optional[str], optional): 子类型. Defaults to None.
+            timerange (Optional[TimeRange], optional): 时间范围. Defaults to None.
+
+        Returns:
+            Tuple[Optional[pd.DataFrame], Optional[TimeRange]]: 
+                缓存数据、需要更新的时间范围
+    """
     try:
         # 获取存储锁 - 支持单写多读模式
         storage_lock = lock_manager.get_lock(storage.name)
@@ -100,7 +112,7 @@ async def _load_data_for_updating(
         timeframe_ms = parse_timeframe_to_milliseconds(timeframe)
 
         # 计算下一个数据点的起始时间戳（加一个时间周期）
-        next_cached_ts_ms = max_cached_ts_ms + timeframe_ms
+        next_ts_ms = max_cached_ts_ms + timeframe_ms
 
         # 计算指定的结束时间戳（如果没有指定，则使用当前时间）
         if timerange and timerange.end_ts_ms:
@@ -109,15 +121,15 @@ async def _load_data_for_updating(
             # 使用当前时间作为结束时间
             specified_end_time_ms = int(time.time() * 1000)
 
-        # 判断是否需要下载新数据
-        need_download = next_cached_ts_ms < (specified_end_time_ms - timeframe_ms)
+        # 判断是否需要下载新数据，落后两个时间周期才需要更新
+        need_download = next_ts_ms < (specified_end_time_ms - timeframe_ms)
 
         if not need_download:
             return cached_data, None
 
         # 创建新的时间范围对象
         updated_timerange = TimeRange(
-            start_ts_ms=next_cached_ts_ms,
+            start_ts_ms=next_ts_ms,
             end_ts_ms=specified_end_time_ms
         )
 
@@ -151,7 +163,7 @@ async def _update_data(
 
         # 如果updated_timerange为None，表示不需要下载新数据
         if updated_timerange is None:
-            return True, f"✅ {symbol} - {timeframe} 数据已是最新"
+            return True, f"✅ {symbol} - {timeframe} 数据符合time range: {timerange}"
 
         logger.info(
             "%s - %s - %s - 更新范围: %s",
@@ -419,7 +431,7 @@ class Scheduler:
         if not timerange_str:
             timerange_str = "20220101-"
         timerange = TimeRange.parse_timerange(timerange_str)
-        logger.debug(f"Task '{name}' timerange parsed from '{timerange_str}'")
+        logger.debug(f"Task '{name}' timerange: {timerange}")
 
         # 创建 plugin 实例
         try:
