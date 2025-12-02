@@ -219,9 +219,14 @@ async def get_task_data_info(task_name: str, scheduler: Scheduler = Depends(get_
         time_range = await storage.get_time_range(id=data_name, sub=task.sub)
 
         if time_range:
-            # 格式化时间
-            start_time = time_range["start_time"].strftime("%Y-%m-%d %H:%M:%S") if time_range["start_time"] else "未知"
-            end_time = time_range["end_time"].strftime("%Y-%m-%d %H:%M:%S") if time_range["end_time"] else "至今"
+            if time_range["start_time"]:
+                start_time = time_range["start_time"].strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                start_time = "未知"
+            if time_range["end_time"]:
+                end_time = time_range["end_time"].strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                end_time = "至今"
         else:
             start_time = "无法获取"
             end_time = "无法获取"

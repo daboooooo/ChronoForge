@@ -77,7 +77,7 @@ async def _load_data_for_updating(
             timerange (Optional[TimeRange], optional): 时间范围. Defaults to None.
 
         Returns:
-            Tuple[Optional[pd.DataFrame], Optional[TimeRange]]: 
+            Tuple[Optional[pd.DataFrame], Optional[TimeRange]]:
                 缓存数据、需要更新的时间范围
     """
     try:

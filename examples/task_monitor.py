@@ -96,14 +96,14 @@ def monitor_server(base_url, duration=None, interval=2):
 
         # 打印页眉
         console.print("=" * 70)
-        console.print(f"[bold cyan]ChronoForge 服务器监控[/bold cyan]")
+        console.print("[bold cyan]ChronoForge 服务器监控[/bold cyan]")
         console.print(f"[bold cyan]监控地址: {base_url}[/bold cyan]")
         console.print(f"[bold cyan]监控间隔: {interval}秒[/bold cyan]")
         if duration:
             remaining_time = max(0, int(end_time - time.time()))
             console.print(f"[bold cyan]监控时长: {duration}秒 (剩余: {remaining_time}秒)[/bold cyan]")
         else:
-            console.print(f"[bold cyan]监控时长: 持续监控（按 Ctrl+C 停止）[/bold cyan]")
+            console.print("[bold cyan]监控时长: 持续监控（按 Ctrl+C 停止）[/bold cyan]")
         console.print("=" * 70)
 
         # 获取服务器状态
@@ -121,10 +121,12 @@ def monitor_server(base_url, duration=None, interval=2):
             # 添加当前时间
             current_time = time.strftime("%Y-%m-%d %H:%M:%S")
 
+            color_status = STATUS_COLORS.get(server_status['status'], 'white')
+
             # 添加服务器状态行
             table.add_row(
                 current_time,
-                f"[{STATUS_COLORS.get(server_status['status'], 'white')}]{server_status['status']}[/{STATUS_COLORS.get(server_status['status'], 'white')}]",
+                f"[{color_status}]{server_status['status']}[/{color_status}]",
                 str(server_status['tasks_count']),
                 str(server_status['running_tasks_count']),
                 ", ".join(server_status['supported_data_sources']),
@@ -147,20 +149,26 @@ def monitor_server(base_url, duration=None, interval=2):
             if tasks_status:
                 for task_name, task_status in tasks_status.items():
                     status = task_status.get("status", "unknown")
-                    created_at = time.strftime("%H:%M:%S", time.localtime(task_status.get("created_at", 0)))
-                    last_updated = time.strftime("%H:%M:%S", time.localtime(task_status.get("last_updated_at", 0)))
+                    created_at = time.strftime(
+                        "%H:%M:%S", time.localtime(task_status.get("created_at", 0)))
+                    last_updated = time.strftime(
+                        "%H:%M:%S", time.localtime(task_status.get("last_updated_at", 0)))
                     run_count = task_status.get("run_count", 0)
-                    last_run_time = time.strftime("%H:%M:%S", time.localtime(task_status.get("last_run_time", 0)))
+                    last_run_time = time.strftime(
+                        "%H:%M:%S", time.localtime(task_status.get("last_run_time", 0)))
                     last_status = task_status.get("last_run_status", "unknown")
+
+                    color_status = STATUS_COLORS.get(status, 'white')
+                    color_last_status = STATUS_COLORS.get(last_status, 'white')
 
                     task_table.add_row(
                         task_name,
-                        f"[{STATUS_COLORS.get(status, 'white')}]{status}[/{STATUS_COLORS.get(status, 'white')}]",
+                        f"[{color_status}]{status}[/{color_status}]",
                         created_at,
                         last_updated,
                         str(run_count),
                         last_run_time,
-                        f"[{STATUS_COLORS.get(last_status, 'white')}]{last_status}[/{STATUS_COLORS.get(last_status, 'white')}]"
+                        f"[{color_last_status}]{last_status}[/{color_last_status}]"
                     )
                 console.print(task_table)
             else:
@@ -172,7 +180,8 @@ def monitor_server(base_url, duration=None, interval=2):
                 if task_name not in task_status_history:
                     task_status_history[task_name] = status
                 elif task_status_history[task_name] != status:
-                    console.print(f"[yellow]任务 {task_name} 状态变化: {task_status_history[task_name]} → {status}[/yellow]")
+                    console.print(f"[yellow]任务 {task_name} 状态变化: "
+                                  f"{task_status_history[task_name]} → {status}[/yellow]")
                     task_status_history[task_name] = status
 
         # 等待下一次检查
