@@ -235,7 +235,7 @@ class LocalFileStorage(StorageBase):
             data_copy = data.copy()
 
             # 确保timestamp列转换为整数类型（如果存在）
-            if ('timestamp' in data_copy.columns and 
+            if ('timestamp' in data_copy.columns and
                     pd.api.types.is_datetime64_any_dtype(data_copy['timestamp'])):
                 # 转换为毫秒级时间戳
                 data_copy['timestamp'] = data_copy['timestamp'].astype('int64') // 10**6
@@ -327,3 +327,61 @@ class LocalFileStorage(StorageBase):
             })
 
         return results
+
+    async def get_time_range(
+        self,
+        id: str,
+        sub: str = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        获取数据的时间范围
+
+        Args:
+            id: 数据ID
+            sub: 子目录或子数据库，用于区分不同的数据集合
+
+        Returns:
+            Optional[Dict[str, Any]]: 数据的时间范围，包含start_time和end_time
+        """
+        try:
+            # 获取文件路径
+            file_path = self._get_file_path(id, sub)
+
+            # 检查文件是否存在
+            if not file_path.exists():
+                logger.debug("文件 %s 不存在", file_path)
+                return None
+
+            # 加载数据
+            data = await self.load(id, sub)
+
+            if data is None or data.empty:
+                logger.debug("文件 %s 数据为空", file_path)
+                return {
+                    "start_time": None,
+                    "end_time": None
+                }
+
+            # 检查time列是否存在
+            if 'time' not in data.columns:
+                logger.debug("文件 %s 中没有time列", file_path)
+                return {
+                    "start_time": None,
+                    "end_time": None
+                }
+
+            # 获取最小和最大时间值
+            min_time = data['time'].min()
+            max_time = data['time'].max()
+
+            time_range = {
+                "start_time": min_time,
+                "end_time": max_time
+            }
+
+            logger.debug("获取文件 %s 的时间范围: %s", file_path, time_range)
+            return time_range
+
+        except Exception as e:
+            logger.error("获取数据时间范围失败: %s", str(e))
+            return None

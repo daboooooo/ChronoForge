@@ -115,6 +115,24 @@ class StorageBase(abc.ABC):
         # 列出存储介质中的所有数据
         pass
 
+    @abc.abstractmethod
+    async def get_time_range(
+        self,
+        id: str,
+        sub: str = None
+    ) -> Optional[Dict[str, Any]]:
+        """获取数据的时间范围
+
+        Args:
+            id: 数据ID
+            sub: 子目录或子数据库，用于区分不同的数据集合
+
+        Returns:
+            Optional[Dict[str, Any]]: 数据的时间范围，包含start_time和end_time
+        """
+        # 获取数据的时间范围
+        pass
+
 
 def verify_storage_instance(storage) -> Tuple[bool, str]:
     """严格验证一个类或实例是否符合 StorageBase 的要求"""
@@ -216,8 +234,20 @@ def verify_storage_instance(storage) -> Tuple[bool, str]:
             errors.append(f"'lists' must have parameters {expected}, "
                           f"got {actual}")
 
-    # ---- 7. 检查所有方法是否为异步函数 ----
-    for method_name in ["save", "load", "delete", "exists", "lists"]:
+    # ---- 7. 检查 get_time_range 方法 ----
+    get_time_range = getattr(temp_instance, "get_time_range", None)
+    if not get_time_range or not callable(get_time_range):
+        errors.append("'get_time_range' method is missing.")
+    else:
+        sig = inspect.signature(get_time_range)
+        expected = ["id", "sub"]
+        actual = list(sig.parameters.keys())
+        if actual != expected:
+            errors.append(f"'get_time_range' must have parameters {expected}, "
+                          f"got {actual}")
+
+    # ---- 8. 检查所有方法是否为异步函数 ----
+    for method_name in ["save", "load", "delete", "exists", "lists", "get_time_range"]:
         method = getattr(temp_instance, method_name, None)
         if method and not inspect.iscoroutinefunction(method):
             # 检查是否有__wrapped__属性，处理装饰器情况

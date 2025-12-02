@@ -404,3 +404,65 @@ class DUCKDBStorage(StorageBase):
         except Exception as e:
             logger.error("列出数据表失败: %s", str(e))
             return []
+
+    async def get_time_range(
+        self,
+        id: str,
+        sub: str = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        获取数据的时间范围
+
+        Args:
+            id: 数据ID
+            sub: 子目录或子数据库，用于区分不同的数据集合
+
+        Returns:
+            Optional[Dict[str, Any]]: 数据的时间范围，包含start_time和end_time
+        """
+        try:
+            conn = self._get_connection()
+            table_name = self._normalize_table_name(id, sub)
+
+            # 检查表是否存在
+            table_exists = conn.execute("""
+                SELECT COUNT(*) as count FROM information_schema.tables
+                WHERE table_name = ?
+            """, [table_name]).fetchone()
+
+            if table_exists[0] == 0:
+                logger.debug("表 %s 不存在", table_name)
+                return None
+
+            # 检查time列是否存在
+            time_column_exists = conn.execute("""
+                SELECT COUNT(*) as count FROM information_schema.columns
+                WHERE table_name = ? AND column_name = 'time'
+            """, [table_name]).fetchone()
+
+            if time_column_exists[0] == 0:
+                logger.debug("表 %s 中没有time列", table_name)
+                return {
+                    "start_time": None,
+                    "end_time": None
+                }
+
+            # 查询最小和最大时间值
+            result = conn.execute(f"""
+                SELECT MIN(time) as min_time, MAX(time) as max_time
+                FROM {table_name}
+            """).fetchone()
+
+            min_time, max_time = result
+
+            time_range = {
+                "start_time": min_time,
+                "end_time": max_time
+            }
+
+            logger.debug("获取表 %s 的时间范围: %s", table_name, time_range)
+            return time_range
+
+        except Exception as e:
+            logger.error("获取数据时间范围失败: %s", str(e))
+            return None

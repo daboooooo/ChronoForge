@@ -34,8 +34,8 @@ STATUS_COLORS = {
 }
 
 # API基础URL
-# API_BASE_URL = "http://localhost:8000/api"
-API_BASE_URL = "http://192.168.1.22:8000/api"
+API_BASE_URL = "http://localhost:8000/api"
+# API_BASE_URL = "http://192.168.1.22:8000/api"
 
 # 直接使用正确格式的symbol，包含交易所信息
 crypto_symbols = ['binance:BTC/USDT', 'okx:ETH/USDT']

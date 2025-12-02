@@ -191,3 +191,51 @@ def get_task_status(task_name: str, scheduler: Scheduler = Depends(get_scheduler
         "start_time": task_state.get("start_time"),
         "message": "Task is running" if task_state.get("status") == "running" else "Task is idle"
     }
+
+
+@router.get("/{task_name}/data")
+async def get_task_data_info(task_name: str, scheduler: Scheduler = Depends(get_scheduler)):
+    """获取任务下的所有数据名称以及数据起始和结束时间"""
+    if task_name not in scheduler.tasks:
+        raise HTTPException(status_code=404, detail=f"Task {task_name} not found")
+
+    task = scheduler.tasks[task_name]
+
+    # 获取任务对应的存储实例
+    storage = scheduler.storage_instances.get(task_name)
+    if not storage:
+        raise HTTPException(status_code=500,
+                            detail=f"Storage instance not found for task {task_name}")
+
+    # 获取任务下的数据信息
+    data_info = []
+
+    # 遍历任务的所有symbols，每个symbol对应一个数据名称
+    for symbol in task.symbols:
+        # 构建数据名称
+        data_name = f"{symbol}_{task.timeframe}"
+
+        # 从存储中获取实际的数据起始和结束时间
+        time_range = await storage.get_time_range(id=data_name, sub=task.sub)
+
+        if time_range:
+            # 格式化时间
+            start_time = time_range["start_time"].strftime("%Y-%m-%d %H:%M:%S") if time_range["start_time"] else "未知"
+            end_time = time_range["end_time"].strftime("%Y-%m-%d %H:%M:%S") if time_range["end_time"] else "至今"
+        else:
+            start_time = "无法获取"
+            end_time = "无法获取"
+
+        data_info.append({
+            "data_name": data_name,
+            "symbol": symbol,
+            "timeframe": task.timeframe,
+            "start_time": start_time,
+            "end_time": end_time
+        })
+
+    return {
+        "task_name": task_name,
+        "data_info": data_info,
+        "total": len(data_info)
+    }

@@ -532,3 +532,85 @@ class RedisStorage(StorageBase):
             else:
                 logger.error("列出数据失败: %s", error_msg)
             return []
+
+    async def get_time_range(
+        self,
+        id: str,
+        sub: str = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        获取数据的时间范围
+
+        Args:
+            id: 数据ID
+            sub: 子目录或子数据库，用于区分不同的数据集合
+
+        Returns:
+            Optional[Dict[str, Any]]: 数据的时间范围，包含start_time和end_time
+        """
+        try:
+            conn = await self._get_connection()
+            table_name = self._normalize_table_name(id, sub)
+            redis_key = self._build_key(table_name)
+
+            # 检查数据键是否存在
+            data_exists = await conn.exists(redis_key)
+
+            if not data_exists:
+                logger.debug("Redis键 %s 不存在", redis_key)
+                return None
+
+            # 检查是否有时间索引键
+            time_index_key = f"{redis_key}:time_index"
+            time_index_exists = await conn.exists(time_index_key)
+
+            if time_index_exists:
+                # 使用时间索引获取最小和最大时间戳
+                min_score = await conn.zrange(time_index_key, 0, 0, withscores=True)
+                max_score = await conn.zrange(time_index_key, -1, -1, withscores=True)
+
+                if min_score and max_score:
+                    min_time = pd.to_datetime(min_score[0][1], unit='s', utc=True)
+                    max_time = pd.to_datetime(max_score[0][1], unit='s', utc=True)
+
+                    time_range = {
+                        "start_time": min_time,
+                        "end_time": max_time
+                    }
+
+                    logger.debug("从时间索引获取Redis键 %s 的时间范围: %s", redis_key, time_range)
+                    return time_range
+
+            # 如果没有时间索引，加载数据并计算时间范围
+            data = await self.load(id, sub)
+
+            if data is None or data.empty:
+                logger.debug("Redis键 %s 数据为空", redis_key)
+                return {
+                    "start_time": None,
+                    "end_time": None
+                }
+
+            # 检查time列是否存在
+            if 'time' not in data.columns:
+                logger.debug("Redis键 %s 中没有time列", redis_key)
+                return {
+                    "start_time": None,
+                    "end_time": None
+                }
+
+            # 获取最小和最大时间值
+            min_time = data['time'].min()
+            max_time = data['time'].max()
+
+            time_range = {
+                "start_time": min_time,
+                "end_time": max_time
+            }
+
+            logger.debug("从数据获取Redis键 %s 的时间范围: %s", redis_key, time_range)
+            return time_range
+
+        except Exception as e:
+            logger.error("获取数据时间范围失败: %s", str(e))
+            return None
