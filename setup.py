@@ -49,7 +49,8 @@ setup(
         "fastapi>=0.120.0",
         "uvicorn>=0.38.0",
         "pydantic>=2.12.5",
-        "rich>=14.2.0"
+        "rich>=14.2.0",
+        "httpx>=0.28.1"
     ],
     entry_points={
         "console_scripts": [
