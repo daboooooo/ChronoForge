@@ -193,7 +193,7 @@ def get_task_status(task_name: str, scheduler: Scheduler = Depends(get_scheduler
     }
 
 
-@router.get("/{task_name}/data")
+@router.get("/{task_name}/data_info")
 async def get_task_data_info(task_name: str, scheduler: Scheduler = Depends(get_scheduler)):
     """获取任务下的所有数据名称以及数据起始和结束时间"""
     if task_name not in scheduler.tasks:
@@ -243,4 +243,91 @@ async def get_task_data_info(task_name: str, scheduler: Scheduler = Depends(get_
         "task_name": task_name,
         "data_info": data_info,
         "total": len(data_info)
+    }
+
+
+@router.get("/{task_name}/data")
+async def get_task_data(
+    task_name: str,
+    data_name: str = None,
+    symbol: str = None,
+    start_time: str = None,
+    end_time: str = None,
+    limit: int = 1000,
+    scheduler: Scheduler = Depends(get_scheduler)
+):
+    """获取任务的数据
+
+    Args:
+        task_name: 任务名称
+        data_name: 数据名称，如"binance:BTC/USDT_1d"
+        symbol: 交易对，如"binance:BTC/USDT"
+        start_time: 起始时间，格式为"YYYY-MM-DD HH:MM:SS"
+        end_time: 结束时间，格式为"YYYY-MM-DD HH:MM:SS"
+        limit: 返回数据的最大条数，默认1000
+    """
+    if task_name not in scheduler.tasks:
+        raise HTTPException(status_code=404, detail=f"Task {task_name} not found")
+
+    task = scheduler.tasks[task_name]
+
+    # 获取任务对应的存储实例
+    storage = scheduler.storage_instances.get(task_name)
+    if not storage:
+        raise HTTPException(status_code=500,
+                            detail=f"Storage instance not found for task {task_name}")
+
+    # 确定要获取的数据名称列表
+    data_names_to_get = []
+
+    if data_name:
+        # 单个数据名称
+        data_names_to_get = [data_name]
+    elif symbol:
+        # 单个交易对，构建数据名称
+        data_names_to_get = [f"{symbol}_{task.timeframe}"]
+    else:
+        # 所有数据
+        data_names_to_get = [f"{s}_{task.timeframe}" for s in task.symbols]
+
+    # 获取数据
+    all_data = []
+
+    for data_name in data_names_to_get:
+        # 从存储中加载数据
+        data = await storage.load(id=data_name, sub=task.sub)
+
+        if data is not None and not data.empty:
+            # 转换为字典列表
+            data_dict = data.to_dict(orient="records")
+            all_data.extend(data_dict)
+
+    # 按时间排序
+    all_data.sort(key=lambda x: x["time"])
+
+    # 应用时间范围过滤
+    import pandas as pd
+
+    if start_time:
+        start_dt = pd.to_datetime(start_time)
+        all_data = [item for item in all_data if item["time"] >= start_dt]
+
+    if end_time:
+        end_dt = pd.to_datetime(end_time)
+        all_data = [item for item in all_data if item["time"] <= end_dt]
+
+    # 限制返回条数
+    if len(all_data) > limit:
+        all_data = all_data[-limit:]
+
+    # 格式化时间为字符串
+    for item in all_data:
+        if isinstance(item["time"], pd.Timestamp):
+            item["time"] = item["time"].strftime("%Y-%m-%d %H:%M:%S")
+
+    return {
+        "task_name": task_name,
+        "data": all_data,
+        "total": len(all_data),
+        "limit": limit
     }

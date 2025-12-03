@@ -49,7 +49,7 @@ def get_task_data_info(task_name: str, host: str = "localhost", port: int = 8000
         host: 服务器主机名
         port: 服务器端口
     """
-    url = f"http://{host}:{port}/api/tasks/{task_name}/data"
+    url = f"http://{host}:{port}/api/tasks/{task_name}/data_info"
 
     try:
         response = requests.get(url)

@@ -2,12 +2,32 @@ from fastapi import APIRouter, Depends
 from chronoforge.scheduler import Scheduler
 from ..dependencies import get_scheduler
 import time
+import httpx
+from chronoforge import __version__
 
 router = APIRouter(prefix="/status", tags=["status"])
 
+# 连通性测试缓存
+_connectivity_cache = {
+    "status": False,
+    "last_test": 0
+}
+_cache_expiry = 60  # 1分钟
+
+
+async def test_connectivity():
+    """测试服务器连通性"""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get("https://www.google.com", follow_redirects=True)
+            return response.status_code == 200
+    except Exception as e:
+        print(f"连通性测试失败: {e}")
+        return False
+
 
 @router.get("")
-def get_status(scheduler: Scheduler = Depends(get_scheduler)):
+async def get_status(scheduler: Scheduler = Depends(get_scheduler)):
     """获取服务状态"""
     # 检查调度器是否在运行
     is_running = False
@@ -36,15 +56,32 @@ def get_status(scheduler: Scheduler = Depends(get_scheduler)):
         }
         task_statuses.append(task_status)
 
+    # 检查连通性，使用缓存
+    current_time = time.time()
+    if current_time - _connectivity_cache["last_test"] > _cache_expiry:
+        # 超过缓存时间，重新测试
+        connectivity = await test_connectivity()
+        _connectivity_cache["status"] = connectivity
+        _connectivity_cache["last_test"] = current_time
+    else:
+        # 使用缓存结果
+        connectivity = _connectivity_cache["status"]
+
     return {
         "service": "ChronoForge Scheduler",
-        "version": "0.1.0",
+        "version": __version__,
         "status": "running" if is_running else "stopped",
         "tasks_count": len(scheduler.tasks),
         "running_tasks_count": running_count,
         "supported_data_sources": scheduler.list_supported_plugins("data_source"),
         "supported_storages": scheduler.list_supported_plugins("storage"),
-        "task_states": task_statuses
+        "task_states": task_statuses,
+        "connectivity": {
+            "status": connectivity,
+            "last_test": _connectivity_cache["last_test"],
+            "test_url": "https://www.google.com",
+            "cache_expiry": _cache_expiry
+        }
     }
 
 

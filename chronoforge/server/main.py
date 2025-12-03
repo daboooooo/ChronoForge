@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from chronoforge.scheduler import Scheduler
 from .api import tasks_router, plugins_router, status_router
 from .dependencies import set_scheduler, get_scheduler_instance
+from chronoforge import __version__
 
 
 def create_app():
@@ -10,7 +11,7 @@ def create_app():
     app = FastAPI(
         title="ChronoForge Scheduler API",
         description="RESTful API for ChronoForge Scheduler",
-        version="0.1.0",
+        version=__version__,
         docs_url="/docs",
         redoc_url="/redoc"
     )
@@ -24,7 +25,6 @@ def create_app():
         allow_headers=["*"],
     )
 
-    # 注册API路由
     app.include_router(tasks_router, prefix="/api")
     app.include_router(plugins_router, prefix="/api")
     app.include_router(status_router, prefix="/api")
@@ -52,11 +52,12 @@ def create_app():
 
     # 根路径
     @app.get("/")
-    def root():
+    async def root():
         return {
             "message": "ChronoForge Scheduler API",
             "docs": "/docs",
-            "redoc": "/redoc"
+            "redoc": "/redoc",
+            "version": __version__
         }
 
     return app
