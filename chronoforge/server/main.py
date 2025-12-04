@@ -47,8 +47,8 @@ def create_app():
         # 获取全局Scheduler实例
         scheduler = get_scheduler_instance()
         if scheduler is not None:
-            # 停止调度器
-            scheduler.stop()
+            # 停止调度器 - 由于我们在异步环境中，需要使用异步方法
+            await scheduler.async_stop()
 
     # 根路径
     @app.get("/")

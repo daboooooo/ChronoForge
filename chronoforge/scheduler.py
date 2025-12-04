@@ -583,42 +583,13 @@ class Scheduler:
                     logger.debug(f"Cleaned up future for completed task: {task_name}")
 
     def stop(self) -> None:
-        """停止调度器"""
+        """停止调度器（同步版本）"""
         if self._runner_thread and self._runner_thread.is_alive():
             logger.info("Stopping scheduler...")
             self._stop_event.set()
 
             # 等待运行线程完成
             self._runner_thread.join(timeout=30)  # 设置超时
-
-            # 关闭数据源连接
-            logger.info("Closing data source connections...")
-            for name, data_source in list(self.data_source_instances.items()):
-                try:
-                    # 检查当前是否已经有事件循环在运行
-                    try:
-                        loop = asyncio.get_event_loop()
-                        is_loop_running = loop.is_running()
-                    except RuntimeError:
-                        # 如果没有事件循环，创建一个新的
-                        loop = None
-                        is_loop_running = False
-
-                    if is_loop_running:
-                        # 如果当前已经有事件循环在运行，使用当前循环
-                        # 由于我们在同步方法中，不能直接await，所以只能创建任务
-                        loop.create_task(data_source.close_all_connections())
-                        logger.info(f"Scheduled closing connections for data source: {name}")
-                    else:
-                        # 如果没有事件循环，使用asyncio.run()
-                        asyncio.run(data_source.close_all_connections())
-                        logger.info(f"Closed connections for data source: {name}")
-
-                    # 从实例字典中移除已关闭的数据源
-                    del self.data_source_instances[name]
-                except Exception as e:
-                    logger.error(f"Error closing connections for data source {name}: "
-                                 f"{e}")
 
             # 关闭线程池
             if hasattr(self, 'thread_pool'):
@@ -627,7 +598,40 @@ class Scheduler:
 
             # 清理任务状态
             self.task_states.clear()
-            logger.info("Scheduler stopped")
+            logger.info("Scheduler stopped (sync)")
+
+    async def async_stop(self) -> None:
+        """停止调度器（异步版本）"""
+        if self._runner_thread and self._runner_thread.is_alive():
+            logger.info("Stopping scheduler asynchronously...")
+            self._stop_event.set()
+
+            # 等待运行线程完成
+            self._runner_thread.join(timeout=30)  # 设置超时
+
+            # 关闭线程池
+            if hasattr(self, 'thread_pool'):
+                self.thread_pool.shutdown(wait=True, cancel_futures=True)
+                logger.info("Thread pool shut down")
+
+            # 关闭数据源连接 - 利用当前运行的事件循环
+            logger.info("Closing data source connections...")
+            for name, data_source in list(self.data_source_instances.items()):
+                try:
+                    # 直接使用当前事件循环关闭数据源连接
+                    # 由于我们在async_stop方法中，可以直接await
+                    await data_source.close_all_connections()
+                    logger.info(f"Closed connections for data source: {name}")
+
+                    # 从实例字典中移除已关闭的数据源
+                    del self.data_source_instances[name]
+                except Exception as e:
+                    logger.error(f"Error closing connections for data source {name}: "
+                                 f"{e}")
+
+            # 清理任务状态
+            self.task_states.clear()
+            logger.info("Scheduler stopped (async)")
 
     async def _execute_task(self, task: Task) -> None:
         """执行单个任务, 对于task中的每个symbol, 执行以下步骤:

@@ -22,7 +22,10 @@ class CryptoSpotDataSource(DataSourceBase):
             config: None
         """
         super().__init__(config)
-        self.exchange_instances: Dict[str, ccxt.Exchange] = {}
+        # 存储交易所实例和创建时间戳，格式：{exchange_name: (instance, create_time)}
+        self.exchange_instances: Dict[str, tuple[ccxt.Exchange, float]] = {}
+        # 实例有效期：30分钟（秒）
+        self.instance_validity = 30 * 60
 
     @property
     def name(self):
@@ -53,15 +56,30 @@ class CryptoSpotDataSource(DataSourceBase):
 
         此方法可以在异步代码中直接调用，确保所有的exchange连接都被正确关闭。
         """
-        for exchange_name, exchange_instance in list(self.exchange_instances.items()):
+        import asyncio
+        for exchange_name, (exchange_instance, _) in list(self.exchange_instances.items()):
             try:
+                # 检查事件循环是否已关闭
+                loop = asyncio.get_event_loop()
+                if loop.is_closed():
+                    logger.warning(f"事件循环已关闭，跳过关闭交易所连接: {exchange_name}")
+                    del self.exchange_instances[exchange_name]
+                    continue
+
                 if hasattr(exchange_instance, 'close'):
                     await exchange_instance.close()
                     logger.info(f"成功关闭交易所连接: {exchange_name}")
                     # 从实例字典中移除已关闭的连接
                     del self.exchange_instances[exchange_name]
+            except RuntimeError:
+                # 没有事件循环或事件循环已关闭
+                logger.warning(f"无法获取事件循环，跳过关闭交易所连接: {exchange_name}")
+                del self.exchange_instances[exchange_name]
+                continue
             except Exception as e:
                 logger.error(f"关闭交易所连接 {exchange_name} 时出错: {str(e)}")
+                # 无论如何都要从字典中移除，避免内存泄漏
+                del self.exchange_instances[exchange_name]
 
     async def _get_ccxt_exchange(self, exchange_name: str,
                                  exchange_config: Dict[str, Any] = None,
@@ -80,16 +98,27 @@ class CryptoSpotDataSource(DataSourceBase):
         # 转换交易所名称为小写
         exchange_name = exchange_name.lower()
 
-        # 如果交易所实例已存在，直接返回
+        # 检查实例是否存在且在有效期内
+        current_time = time.time()
         if not force_reinit and exchange_name in self.exchange_instances:
-            return self.exchange_instances[exchange_name]
+            exchange_instance, create_time = self.exchange_instances[exchange_name]
+            # 检查实例是否在有效期内（30分钟）
+            if current_time - create_time < self.instance_validity:
+                return exchange_instance
+            else:
+                logger.info(f"交易所实例 {exchange_name} 已超过30分钟，将重新初始化")
+                # 关闭过期实例
+                try:
+                    await exchange_instance.close()
+                    logger.info(f"成功关闭过期交易所实例: {exchange_name}")
+                except Exception as e:
+                    logger.warning(f"关闭过期交易所实例 {exchange_name} 时出错: {str(e)}")
+                # 从字典中移除过期实例
+                del self.exchange_instances[exchange_name]
 
         # 获取ccxt交易所类
         if exchange_name not in ccxt.exchanges:
             raise ValueError(f"不支持的交易所: {exchange_name}")
-
-        # 创建交易所实例
-        exchange_class: ccxt.Exchange = getattr(ccxt, exchange_name)
 
         # 准备ccxt配置参数
         ccxt_config = {
@@ -103,13 +132,22 @@ class CryptoSpotDataSource(DataSourceBase):
             ccxt_config['secret'] = exchange_config['secret']
 
         # 创建交易所实例
+        exchange_class: ccxt.Exchange = getattr(ccxt, exchange_name)
         exchange_instance = exchange_class(ccxt_config)
 
         # 如果需要验证连接
         try:
+            # 检查事件循环是否已关闭
+            import asyncio
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                logger.error(f"事件循环已关闭，无法连接到交易所: {exchange_name}")
+                raise RuntimeError("事件循环已关闭，无法执行异步操作")
+
             # 加载市场数据作为验证
             await exchange_instance.load_markets()
-            self.exchange_instances[exchange_name] = exchange_instance
+            # 存储实例和创建时间戳
+            self.exchange_instances[exchange_name] = (exchange_instance, current_time)
             logger.info(f"成功连接到交易所: {exchange_name}")
         except Exception as e:
             logger.error(f"交易所连接失败: {str(e)}")
@@ -227,6 +265,17 @@ class CryptoSpotDataSource(DataSourceBase):
                     limit = 300 if limit_max > 300 else limit_max
                 else:
                     limit = 1000 if limit_max > 1000 else limit_max
+
+                # 检查事件循环是否已关闭
+                import asyncio
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_closed():
+                        logger.error(f"事件循环已关闭，无法获取 {symbol} 数据")
+                        return None
+                except RuntimeError:
+                    logger.error(f"无法获取事件循环，无法获取 {symbol} 数据")
+                    return None
 
                 # 从交易所获取数据
                 ohlcv = await exchange.fetch_ohlcv(
