@@ -1,5 +1,5 @@
 """调度器 - ChronoForge的中央控制器"""
-
+import os
 import asyncio
 import logging
 import inspect
@@ -260,6 +260,26 @@ class Scheduler:
         self._runner_thread: Optional[threading.Thread] = None  # 运行线程
         self.time_slot_manager = TimeSlotManager()
 
+        # 定义内置插件列表
+        self.builtin_data_sources = [
+            "CryptoSpotDataSource",
+            "FREDDataSource",
+            "BitcoinFGIDataSource",
+            "CryptoUMFutureDataSource",
+            "GlobalMarketDataSource"
+        ]
+        self.builtin_storages = [
+            "LocalFileStorage",
+            "DUCKDBStorage",
+            "RedisStorage"
+        ]
+
+        # 定义任务存储文件路径
+        self.tasks_file_path = os.path.join(os.path.expanduser("~"), ".chronoforge", "tasks.json")
+
+        # 创建目录（如果不存在）
+        os.makedirs(os.path.dirname(self.tasks_file_path), exist_ok=True)
+
         # register inside data source plugins
         self.register_plugin(CryptoSpotDataSource)
         self.register_plugin(FREDDataSource)
@@ -273,6 +293,9 @@ class Scheduler:
         # 只有在RedisStorage可用时才注册
         if RedisStorage is not None:
             self.register_plugin(RedisStorage)
+
+        # 从本地文件加载任务
+        self.load_tasks_from_file()
 
     def list_supported_plugins(self, plugin_type: str) -> list[str]:
         """列出所有支持的插件
@@ -548,7 +571,194 @@ class Scheduler:
         # 删除任务
         del self.tasks[name]
 
+        # 从本地文件中移除任务
+        import json
+        try:
+            with open(self.tasks_file_path, 'r') as f:
+                tasks_dict = json.load(f)
+
+            if name in tasks_dict:
+                del tasks_dict[name]
+                with open(self.tasks_file_path, 'w') as f:
+                    json.dump(tasks_dict, f, indent=2)
+                logger.debug(f"从本地文件中删除任务 {name} 成功")
+        except Exception as e:
+            logger.error(f"从本地文件中删除任务 {name} 时出错: {e}")
+
         logger.info(f"Task {name} deleted successfully")
+
+    def is_builtin_plugin(self, plugin_name: str, plugin_type: str) -> bool:
+        """检查插件是否为内置插件
+
+        Args:
+            plugin_name: 插件名称
+            plugin_type: 插件类型，可选值为"data_source", "storage"
+
+        Returns:
+            bool: 是否为内置插件
+        """
+        if plugin_type == "data_source":
+            return plugin_name in self.builtin_data_sources
+        elif plugin_type == "storage":
+            return plugin_name in self.builtin_storages
+        else:
+            return False
+
+    def save_task_to_file(self, task_name: str) -> None:
+        """将单个任务保存到本地文件
+
+        Args:
+            task_name: 任务名称
+        """
+        task = self.tasks.get(task_name)
+        if not task:
+            return
+
+        # 检查任务是否使用内置插件
+        if not self.is_builtin_plugin(task.data_source_name, "data_source"):
+            logger.debug(f"Task {task_name} 使用了非内置数据源 {task.data_source_name}，不保存到本地文件")
+            return
+
+        if task.storage_name and not self.is_builtin_plugin(task.storage_name, "storage"):
+            logger.debug(f"Task {task_name} 使用了非内置存储 {task.storage_name}，不保存到本地文件")
+            return
+
+        # 读取现有任务
+        import json
+        tasks_dict = {}
+
+        try:
+            with open(self.tasks_file_path, 'r') as f:
+                tasks_dict = json.load(f)
+        except FileNotFoundError:
+            # 文件不存在，创建新文件
+            pass
+        except Exception as e:
+            logger.error(f"读取任务文件时出错: {e}")
+            return
+
+        # 保存任务信息
+        # 将毫秒时间戳转换为YYYYMMDD格式
+        import datetime
+        start_date = datetime.datetime.fromtimestamp(
+            task.timerange.start_ts_ms / 1000).strftime("%Y%m%d")
+        end_date = "" if not task.timerange.end_ts_ms else datetime.datetime.fromtimestamp(
+            task.timerange.end_ts_ms / 1000).strftime("%Y%m%d")
+        timerange_str = f"{start_date}-{end_date}" if end_date else f"{start_date}-"
+
+        tasks_dict[task_name] = {
+            "name": task.name,
+            "data_source_name": task.data_source_name,
+            "storage_name": task.storage_name,
+            "time_slot": {
+                "start": task.time_slot.start,
+                "end": task.time_slot.end
+            },
+            "symbols": task.symbols,
+            "timeframe": task.timeframe,
+            "timerange_str": timerange_str
+        }
+
+        try:
+            with open(self.tasks_file_path, 'w') as f:
+                json.dump(tasks_dict, f, indent=2)
+            logger.debug(f"Task {task_name} 已保存到本地文件")
+        except Exception as e:
+            logger.error(f"保存任务到文件时出错: {e}")
+
+    def save_all_tasks_to_file(self) -> None:
+        """将所有使用内置插件的任务保存到本地文件
+        """
+        import json
+        tasks_dict = {}
+
+        # 遍历所有任务
+        for task_name, task in self.tasks.items():
+            # 检查任务是否使用内置插件
+            if not self.is_builtin_plugin(task.data_source_name, "data_source"):
+                continue
+
+            if task.storage_name and not self.is_builtin_plugin(task.storage_name, "storage"):
+                continue
+
+            # 保存任务信息
+            # 将毫秒时间戳转换为YYYYMMDD格式
+            start_date = datetime.fromtimestamp(
+                task.timerange.start_ts_ms / 1000).strftime("%Y%m%d")
+            end_date = "" if not task.timerange.end_ts_ms else datetime.fromtimestamp(
+                task.timerange.end_ts_ms / 1000).strftime("%Y%m%d")
+            timerange_str = f"{start_date}-{end_date}" if end_date else f"{start_date}-"
+
+            tasks_dict[task_name] = {
+                "name": task.name,
+                "data_source_name": task.data_source_name,
+                "storage_name": task.storage_name,
+                "time_slot": {
+                    "start": task.time_slot.start,
+                    "end": task.time_slot.end
+                },
+                "symbols": task.symbols,
+                "timeframe": task.timeframe,
+                "timerange_str": timerange_str
+            }
+
+        try:
+            with open(self.tasks_file_path, 'w') as f:
+                json.dump(tasks_dict, f, indent=2)
+            logger.debug(f"已保存 {len(tasks_dict)} 个任务到本地文件")
+        except Exception as e:
+            logger.error(f"保存所有任务到文件时出错: {e}")
+
+    def load_tasks_from_file(self) -> None:
+        """从本地文件加载任务
+        """
+        import json
+
+        try:
+            with open(self.tasks_file_path, 'r') as f:
+                tasks_dict = json.load(f)
+        except FileNotFoundError:
+            # 文件不存在，跳过加载
+            logger.debug("任务文件不存在，跳过加载")
+            return
+        except Exception as e:
+            logger.error(f"读取任务文件时出错: {e}")
+            return
+
+        # 加载任务
+        loaded_count = 0
+        for task_name, task_info in tasks_dict.items():
+            try:
+                # 检查任务是否已存在
+                if task_name in self.tasks:
+                    logger.debug(f"Task {task_name} 已存在，跳过加载")
+                    continue
+
+                # 创建TimeSlot对象
+                time_slot = TimeSlot(
+                    start=task_info["time_slot"]["start"],
+                    end=task_info["time_slot"]["end"]
+                )
+
+                # 添加任务
+                self.add_task(
+                    name=task_info["name"],
+                    data_source_name=task_info["data_source_name"],
+                    data_source_config={},
+                    storage_name=task_info["storage_name"],
+                    storage_config={},
+                    time_slot=time_slot,
+                    symbols=task_info["symbols"],
+                    timeframe=task_info["timeframe"],
+                    timerange_str=task_info["timerange_str"],
+                    inplace=True
+                )
+                loaded_count += 1
+                logger.info(f"从本地文件加载任务 {task_name} 成功")
+            except Exception as e:
+                logger.error(f"加载任务 {task_name} 时出错: {e}")
+
+        logger.info(f"共从本地文件加载 {loaded_count} 个任务")
 
     def add_task(self, name: str,
                  data_source_name: str, data_source_config: Dict[str, Any],
@@ -668,6 +878,9 @@ class Scheduler:
 
         logger.info(f"Task '{name}' {status} successfully. Total tasks: {len(self.tasks)}")
 
+        # 保存任务到本地文件
+        self.save_task_to_file(name)
+
     def start(self) -> None:
         """启动调度器，在线程中运行run方法"""
         if (hasattr(self, '_runner_thread') and self._runner_thread is not None and
@@ -774,6 +987,10 @@ class Scheduler:
                 self.thread_pool.shutdown(wait=True, cancel_futures=True)
                 logger.info("Thread pool shut down")
 
+            # 保存所有任务到文件
+            self.save_all_tasks_to_file()
+            logger.info("Tasks saved to file")
+
             # 清理任务状态
             self.task_states.clear()
             logger.info("Scheduler stopped (sync)")
@@ -791,6 +1008,10 @@ class Scheduler:
             if hasattr(self, 'thread_pool'):
                 self.thread_pool.shutdown(wait=True, cancel_futures=True)
                 logger.info("Thread pool shut down")
+
+            # 保存所有任务到文件
+            self.save_all_tasks_to_file()
+            logger.info("Tasks saved to file")
 
             # 关闭数据源连接 - 利用当前运行的事件循环
             logger.info("Closing data source connections...")
