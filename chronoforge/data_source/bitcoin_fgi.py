@@ -1,6 +1,7 @@
 import logging
 import pandas as pd
 import requests
+import time
 from typing import Any, Dict, Optional
 
 from .base import DataSourceBase
@@ -19,6 +20,13 @@ class BitcoinFGIDataSource(DataSourceBase):
             config: None
         """
         super().__init__(config)
+        self.cached_tickers = None
+        self.last_tickers_update = 0
+        self.tickers_cache_duration = 3 * 60  # 3分钟，单位：秒, Althernative.me 5分钟更新一次
+
+        self.cached_global_market = None
+        self.last_global_market_update = 0
+        self.global_market_cache_duration = 3 * 60
 
     @property
     def name(self):
@@ -121,30 +129,77 @@ class BitcoinFGIDataSource(DataSourceBase):
         """关闭所有与数据源的连接"""
         pass
 
-    def validate(self, data: pd.DataFrame) -> tuple[bool, str]:
-        """验证FRED数据的完整性
+    @with_retry
+    async def tickers(self, **kwargs) -> Any:
+        """从alternative.me获取加密货币ticker数据，并缓存5分钟
 
         Args:
-            data: 要验证的数据
+            **kwargs: 可选参数，不影响当前实现
 
         Returns:
-            tuple[bool, str]: (数据是否有效, 错误信息)
+            Any: 包含加密货币ticker数据的字典，结构与API返回一致
         """
-        if data is None or data.empty:
-            return False, "数据为空"
+        # 检查缓存是否有效
+        current_time = time.time()
+        if self.cached_tickers and ((current_time - self.last_tickers_update) <
+                                    self.tickers_cache_duration):
+            logger.debug(f"使用缓存的ticker数据，距离上次更新: {int(current_time - self.last_tickers_update)}秒")
+        else:
+            logger.info("从 alternative.me 获取最新ticker数据")
 
-        # 检查必需的列
-        required_columns = ["time", "value", "value_classification"]
-        if not all(col in data.columns for col in required_columns):
-            missing = [col for col in required_columns if col not in data.columns]
-            return False, f"缺少必要列: {missing}"
+            # 从API获取数据
+            url = "https://api.alternative.me/v2/ticker/?limit=0"
+            result = requests.get(url, timeout=30)
 
-        # 检查数据是否有NaN值
-        if data[required_columns].isna().any().any():
-            logger.warning("数据中包含NaN值")
+            if result.status_code != 200:
+                self.cached_tickers = None
+                raise IOError(f"从 alternative.me 获取ticker数据失败，状态码: {result.status_code}")
 
-        # 检查数据是否按时间排序
-        if not data['time'].is_monotonic_increasing:
-            return False, "数据未按时间排序"
+            # 解析数据
+            ticker_data = result.json()
 
-        return True, ""
+            # 更新缓存
+            self.cached_tickers = ticker_data['data']
+            self.last_tickers_update = current_time
+
+            logger.info(f"成功从 alternative.me 获取并缓存{len(self.cached_tickers)}个ticker数据")
+
+        return self.cached_tickers
+
+    @with_retry
+    async def crypto_global_market(self, **kwargs) -> pd.DataFrame:
+        """从alternative.me获取加密货币全球市场数据
+
+        Args:
+            **kwargs: 可选参数，不影响当前实现
+
+        Returns:
+            pd.DataFrame: 包含加密货币全球市场数据的DataFrame，
+                列名包括'time', 'volume'
+        """
+        # 检查缓存是否有效
+        current_time = time.time()
+        gap_seconds = current_time - self.last_global_market_update
+        if self.cached_global_market and (gap_seconds < self.global_market_cache_duration):
+            logger.debug(f"使用缓存的全球市场数据，距离上次更新: {int(gap_seconds)}秒")
+            return self.cached_global_market
+
+        logger.info("从 alternative.me 获取最新全球加密货币市场数据")
+
+        # 从API获取数据
+        url = "https://api.alternative.me/v2/global/"
+        result = requests.get(url, timeout=30)
+
+        if result.status_code != 200:
+            raise IOError(f"从 alternative.me 获取全球市场数据失败，状态码: {result.status_code}")
+
+        # 解析数据
+        global_market_data = result.json()
+
+        # 更新缓存
+        self.cached_global_market = global_market_data
+        self.last_global_market_update = current_time
+
+        logger.info("成功从 alternative.me 获取并缓存全球市场数据")
+
+        return global_market_data

@@ -118,31 +118,3 @@ class GlobalMarketDataSource(DataSourceBase):
     async def close_all_connections(self):
         """关闭所有与数据源的连接"""
         pass
-
-    def validate(self, data: pd.DataFrame) -> tuple[bool, str]:
-        """验证FRED数据的完整性
-
-        Args:
-            data: 要验证的数据
-
-        Returns:
-            tuple[bool, str]: (数据是否有效, 错误信息)
-        """
-        if data is None or data.empty:
-            return False, "数据为空"
-
-        # 检查必需的列
-        required_columns = ['time', 'open', 'high', 'low', 'close', 'volume']
-        if not all(col in data.columns for col in required_columns):
-            missing = [col for col in required_columns if col not in data.columns]
-            return False, f"缺少必要列: {missing}"
-
-        # 检查数据是否有NaN值
-        if data[required_columns].isna().any().any():
-            logger.warning("数据中包含NaN值")
-
-        # 检查数据是否按时间排序
-        if not data['time'].is_monotonic_increasing:
-            return False, "数据未按时间排序"
-
-        return True, ""

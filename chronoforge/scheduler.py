@@ -2,7 +2,8 @@
 
 import asyncio
 import logging
-from typing import Any, Dict, Optional, Tuple
+import inspect
+from typing import Any, Dict, Optional, Tuple, get_type_hints
 import pandas as pd
 import concurrent.futures as cf
 
@@ -288,6 +289,183 @@ class Scheduler:
             return [ds.__name__ for ds in self.supported_storages]
         else:
             raise ValueError(f"Invalid plugin type: {plugin_type}")
+
+    def datasource_functions(self, data_source_name: str) -> Dict[str, Any]:
+        """枚举指定数据源的所有公共函数、参数和返回值
+
+        Args:
+            data_source_name: 数据源名称
+
+        Returns:
+            Dict[str, Any]: 包含数据源函数信息的字典，格式为：
+            {
+                "data_source_name": "数据源名称",
+                "functions": [
+                    {
+                        "name": "函数名称",
+                        "docstring": "函数文档字符串",
+                        "parameters": [
+                            {
+                                "name": "参数名称",
+                                "type": "参数类型",
+                                "default": "默认值"
+                            }
+                        ],
+                        "return_type": "返回值类型"
+                    }
+                ]
+            }
+        """
+        # 检查数据源是否支持
+        if data_source_name not in self.list_supported_plugins("data_source"):
+            raise ValueError(f"Data source {data_source_name} not supported")
+
+        # 获取数据源类
+        data_source_class = self.get_supported_plugin("data_source", data_source_name)
+
+        # 创建数据源实例（使用默认配置）
+        data_source_instance = data_source_class({})
+
+        # 准备结果字典
+        result = {
+            "data_source_name": data_source_name,
+            "functions": []
+        }
+
+        # 获取所有公共方法（排除私有方法和基本方法）
+        for name, method in inspect.getmembers(data_source_instance, inspect.ismethod):
+            # 排除私有方法（以_开头）
+            if name.startswith('_'):
+                continue
+
+            # 排除继承自object类的基本方法
+            if name in ['__class__', '__delattr__', '__dir__', '__eq__', '__format__',
+                        '__ge__', '__getattribute__', '__gt__', '__hash__', '__init__',
+                        '__init_subclass__', '__le__', '__lt__', '__ne__', '__new__',
+                        '__reduce__', '__reduce_ex__', '__repr__', '__setattr__',
+                        '__sizeof__', '__str__', '__subclasshook__']:
+                continue
+
+            # 获取方法签名和类型注解
+            sig = inspect.signature(method)
+            type_hints = get_type_hints(method)
+
+            # 解析参数信息
+            parameters = []
+            for param_name, param in sig.parameters.items():
+                # 跳过self参数
+                if param_name == 'self':
+                    continue
+
+                param_info = {
+                    "name": param_name,
+                    "type": str(type_hints.get(param_name, type(None).__name__)),
+                    "default": (str(param.default) if param.default is not inspect.Parameter.empty
+                                else "None")
+                }
+                parameters.append(param_info)
+
+            # 解析返回值类型
+            return_type = str(type_hints.get('return', type(None).__name__))
+
+            # 获取方法文档字符串
+            docstring = inspect.getdoc(method) or ""
+
+            # 添加函数信息到结果中
+            function_info = {
+                "name": name,
+                "docstring": docstring,
+                "parameters": parameters,
+                "return_type": return_type
+            }
+            result["functions"].append(function_info)
+
+        return result
+
+    def delegate_call(self, plugin_name: str, plugin_type: str,
+                      function_name: str, **kwargs) -> Any:
+        """动态调用插件的指定函数，支持同步和异步函数
+
+        Args:
+            plugin_name: 插件名称
+            plugin_type: 插件类型，可选值为"data_source", "storage"
+            function_name: 要调用的函数名称
+            **kwargs: 传递给函数的关键字参数
+
+        Returns:
+            Any: 函数执行结果
+
+        Raises:
+            ValueError: 当插件类型无效、插件不支持或函数不存在时
+            Exception: 函数执行过程中发生的异常
+        """
+        # 检查插件类型是否有效
+        if plugin_type not in ["data_source", "storage"]:
+            raise ValueError(f"Invalid plugin type: {plugin_type}")
+
+        # 检查插件是否支持
+        if plugin_name not in self.list_supported_plugins(plugin_type):
+            raise ValueError(f"{plugin_type} {plugin_name} not supported")
+
+        # 获取插件类
+        plugin_class = self.get_supported_plugin(plugin_type, plugin_name)
+
+        # 创建插件实例（使用默认配置）
+        plugin_instance = plugin_class({})
+
+        # 检查函数是否存在且为公共方法
+        if not hasattr(plugin_instance, function_name):
+            raise ValueError(f"Function {function_name} not found in {plugin_name}")
+
+        # 获取函数对象
+        func = getattr(plugin_instance, function_name)
+
+        # 检查函数是否为方法且不是私有方法
+        if not inspect.ismethod(func) or function_name.startswith('_'):
+            raise ValueError(f"Function {function_name} is not a public method")
+
+        # 检查函数是否在允许调用的方法列表中（排除基本方法）
+        if function_name in ['__class__', '__delattr__', '__dir__', '__eq__', '__format__',
+                             '__ge__', '__getattribute__', '__gt__', '__hash__', '__init__',
+                             '__init_subclass__', '__le__', '__lt__', '__ne__', '__new__',
+                             '__reduce__', '__reduce_ex__', '__repr__', '__setattr__',
+                             '__sizeof__', '__str__', '__subclasshook__']:
+            raise ValueError(f"Function {function_name} is a basic method and cannot be called")
+
+        logger.info(f"Calling {plugin_type} {plugin_name} "
+                    f"method: {function_name} with kwargs: {kwargs}")
+
+        # 调用函数并返回结果
+        try:
+            # 检查函数是否为异步函数
+            if inspect.iscoroutinefunction(func):
+                # 如果是异步函数，使用事件循环运行
+                logger.debug(f"函数 {function_name} 是异步函数，使用事件循环运行")
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result = loop.run_until_complete(func(**kwargs))
+                finally:
+                    try:
+                        # 优雅地关闭事件循环
+                        tasks = asyncio.all_tasks(loop)
+                        for t in tasks:
+                            t.cancel()
+                        loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
+                        loop.close()
+                    except Exception as cleanup_error:
+                        logger.error(f"关闭事件循环时出错: {cleanup_error}")
+            else:
+                # 如果是同步函数，直接调用
+                logger.debug(f"函数 {function_name} 是同步函数，直接调用")
+                result = func(**kwargs)
+
+            logger.info(f"Function {function_name} called successfully, "
+                        f"result type: {type(result)}")
+            return result
+        except Exception as e:
+            logger.error(f"Error calling function {function_name}: {e}", exc_info=True)
+            raise
 
     def get_supported_plugin(self, plugin_type: str, plugin_name: str) -> Any:
         """获取支持的插件实例

@@ -70,7 +70,7 @@ def test_time_range_parsing():
     # 测试基本时间范围解析
     timerange = TimeRange.parse_timerange("20240101-")
     assert timerange.start_ts_ms is not None
-    assert timerange.end_ts_ms is not None  # 注意：实际实现会自动设置结束时间为当前时间
+    assert timerange.end_ts_ms is None
 
     # 测试完整时间范围解析
     timerange = TimeRange.parse_timerange("20240101-20240131")

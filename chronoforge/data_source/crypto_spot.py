@@ -27,6 +27,11 @@ class CryptoSpotDataSource(DataSourceBase):
         # 实例有效期：30分钟（秒）
         self.instance_validity = 30 * 60
 
+        # 缓存tickers数据, 60秒缓存
+        self.cached_tickers = None
+        self.last_tickers_update = 0
+        self.tickers_cache_duration = 1 * 60
+
     @property
     def name(self):
         """返回数据源名称"""
@@ -332,39 +337,20 @@ class CryptoSpotDataSource(DataSourceBase):
             logger.warning(f"⚠️ 未下载到 {symbol} - {timeframe} 新数据")
             return pd.DataFrame(columns=['time', 'open', 'high', 'low', 'close', 'volume'])
 
-    def validate(self, data: pd.DataFrame) -> tuple[bool, str]:
-        """验证OHLCV数据的完整性
-
-        Args:
-            data: 要验证的数据
+    async def tickers(self, **kwargs) -> Any:
+        """获取所有交易所的Spot交易对tickers
 
         Returns:
-            tuple[bool, str]: (数据是否有效, 错误信息)
+            dict: 键为交易所名称，值为该交易所的tickers数据
         """
-        if data is None or data.empty:
-            return False, "数据为空"
-
-        # 检查必需的列
-        required_columns = ["time", "open", "high", "low", "close", "volume"]
-        if not all(col in data.columns for col in required_columns):
-            missing = [col for col in required_columns if col not in data.columns]
-            return False, f"缺少必要列: {missing}"
-
-        # 检查价格数据是否有效
-        price_columns = ["open", "high", "low", "close"]
-        if data[price_columns].isnull().values.any():
-            return False, "价格数据包含空值"
-
-        # 检查high >= low
-        if not (data["high"] >= data["low"]).all():
-            return False, "价格数据异常: high < low"
-
-        # 检查数据是否有NaN值
-        if data[required_columns].isna().any().any():
-            logger.warning("数据中包含NaN值")
-
-        # 检查数据是否按时间排序
-        if not data['time'].is_monotonic_increasing:
-            return False, "数据未按时间排序"
-
-        return True, ""
+        # 检查缓存是否过期
+        current_time = time.time()
+        if (self.cached_tickers is None or
+                current_time - self.last_tickers_update > self.tickers_cache_duration):
+            result = {}
+            for exchange_name, exchange in self.exchange_instances.items():
+                if 'fetchTickers' in dir(exchange):
+                    result[exchange_name] = await exchange.fetchTickers()
+            self.cached_tickers = result
+            self.last_tickers_update = current_time
+        return self.cached_tickers

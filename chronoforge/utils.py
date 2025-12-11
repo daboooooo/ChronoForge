@@ -698,3 +698,53 @@ class TimeSlotManager:
             if not result or result == last:
                 return False
         return result
+
+
+class ParsedCCXTSymbol:
+    """
+    https://github.com/ccxt/ccxt/wiki/Manual#contract-naming-conventions
+
+      base asset or currency
+      ↓
+      ↓  quote asset or currency
+      ↓  ↓
+      ↓  ↓    settlement asset or currency [[[Perpetual Swap, Futures, Options]]]
+      ↓  ↓    ↓
+      ↓  ↓    ↓       identifier (settlement date) [[[Futures, Options]]]
+      ↓  ↓    ↓       ↓
+      ↓  ↓    ↓       ↓   strike price [[[Options]]]
+      ↓  ↓    ↓       ↓   ↓
+      ↓  ↓    ↓       ↓   ↓   type, put (P) or call (C) [[[Options]]]
+      ↓  ↓    ↓       ↓   ↓   ↓
+    BTC/USDT:BTC-211225-60000-P
+
+    BTC/USDT put option contract strike price 60000 USDT settled in BTC (inverse) on 2021-12-25
+    """
+    original: str  # original symbol
+    unified: str  # unified symbol without suffix
+    base: str  # base asset or currency
+    quote: str  # quote asset or currency
+    settlement: str  # settlement asset or currency [[[Perpetual Swap, Futures, Options]]]
+    identifier: str  # settlement date [[[Futures, Options]]]
+    strike: str  # strike price [[[Options]]]
+    type_: str  # type, put (P) or call (C) [[[Options]]]
+
+    def __init__(self, symbol: str) -> None:
+        if '/' not in symbol:
+            raise ValueError(f"Invalid symbol: {symbol}")
+        self.original = symbol
+        if ':' not in symbol:
+            # spot market
+            self.unified = symbol
+            suffix = ''
+        else:
+            items = symbol.split(':')
+            self.unified, suffix = items + [''] * (2 - len(items))
+        self.base, self.quote = self.unified.split('/')
+        if suffix:
+            items = suffix.split('-')
+            self.settlement, self.identifier, self.strike, self.type_ = \
+                items + [''] * (4 - len(items))
+        else:
+            self.settlement, self.identifier, self.strike, self.type_ = \
+                ['', '', '', '']

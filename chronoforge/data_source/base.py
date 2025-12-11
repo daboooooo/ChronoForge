@@ -52,18 +52,6 @@ class DataSourceBase(abc.ABC):
         """关闭所有与数据源的连接"""
         pass
 
-    @abc.abstractmethod
-    def validate(self, data: pd.DataFrame) -> tuple[bool, str]:
-        """验证数据格式的正确性和数据内容的完整性
-
-        Args:
-            data: 要验证的数据
-
-        Returns:
-            tuple[bool, str]: (数据是否有效, 错误信息)
-        """
-        pass
-
 
 def verify_datasource_instance(obj) -> tuple[bool, str]:
     """严格验证一个类或实例是否符合 DataSourceBase 的要求"""
@@ -119,21 +107,6 @@ def verify_datasource_instance(obj) -> tuple[bool, str]:
         hints = get_type_hints(close_all_connections)
         if hints.get("return") is not None:
             errors.append("'close_all_connections' must have no return annotation")
-
-    # ---- 4. 检查 validate ----
-    validate = getattr(temp_instance, "validate", None)
-    if not callable(validate):
-        errors.append("Missing required method 'validate'.")
-    else:
-        sig = inspect.signature(validate)
-        if list(sig.parameters.keys()) != ["data"]:
-            errors.append("'validate' must accept exactly one parameter: data")
-
-        hints = get_type_hints(validate)
-        if hints.get("data") is not pd.DataFrame:
-            errors.append("'validate' must accept a pd.DataFrame parameter.")
-        if hints.get("return") != tuple[bool, str]:
-            errors.append("'validate' must return tuple[bool, str]")
 
     # ---- 4. 检查构造函数 config 参数是否存在 ----
     init_sig = inspect.signature(cls.__init__)

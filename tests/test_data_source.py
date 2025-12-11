@@ -20,10 +20,6 @@ class ConcreteDataSource(DataSourceBase):
         """实现fetch方法"""
         return pd.DataFrame()
 
-    def validate(self, data):
-        """实现validate方法"""
-        return True, "Data is valid"
-
     async def close_all_connections(self):
         """实现close_all_connections方法"""
         pass
@@ -49,13 +45,6 @@ class TestDataSourceBase:
         )
         assert result is not None
         assert isinstance(result, pd.DataFrame)
-
-    def test_validate_data(self):
-        """测试validate方法"""
-        data_source = ConcreteDataSource()
-        is_valid, message = data_source.validate(pd.DataFrame())
-        assert is_valid is True
-        assert isinstance(message, str)
 
     @pytest.mark.asyncio
     async def test_close_connections(self):

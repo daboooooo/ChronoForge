@@ -34,8 +34,8 @@ STATUS_COLORS = {
 }
 
 # API基础URL
-API_BASE_URL = "http://localhost:8000/api"
-# API_BASE_URL = "http://192.168.1.22:8000/api"
+# API_BASE_URL = "http://localhost:8000/api"
+API_BASE_URL = "http://192.168.1.22:8000/api"
 
 # 直接使用正确格式的symbol，包含交易所信息
 crypto_symbols = ['binance:BTC/USDT', 'okx:ETH/USDT']
@@ -218,6 +218,7 @@ def add_tasks():
             "symbols": crypto_symbols,
             "timeframe": "1d",
             "timerange_str": "20240101-",
+            "inplace": True
         },
         {
             "name": "crypto_4h",
@@ -234,6 +235,7 @@ def add_tasks():
             "symbols": crypto_symbols,
             "timeframe": "4h",
             "timerange_str": "20240101-",
+            "inplace": True
         },
         {
             "name": "crypto_1h",
@@ -250,6 +252,7 @@ def add_tasks():
             "symbols": crypto_symbols,
             "timeframe": "1h",
             "timerange_str": "20240101-",
+            "inplace": True
         },
         {
             "name": "fred_daily_test",
@@ -268,6 +271,7 @@ def add_tasks():
             "symbols": fred_daily_rates + fred_daily_volumes,
             "timeframe": "1d",
             "timerange_str": "20240101-",
+            "inplace": True
         },
         {
             "name": "fred_weekly_test",
@@ -286,6 +290,7 @@ def add_tasks():
             "symbols": fred_weekly_volumes,
             "timeframe": "1w",
             "timerange_str": "20240101-",
+            "inplace": True
         },
         {
             "name": "crypto_um_future_test",
@@ -303,6 +308,7 @@ def add_tasks():
             "timeframe": "1h",
             # only support last 30 days
             "timerange_str": f"{(datetime.now() - timedelta(days=29)).strftime('%Y%m%d')}-",
+            "inplace": True
         },
         {
             "name": "bitcoin_fgi",
@@ -319,6 +325,7 @@ def add_tasks():
             "symbols": ["bitcoin_fgi"],
             "timeframe": "1d",
             "timerange_str": "20240101-",
+            "inplace": True
         },
         {
             "name": "global_market_test",
@@ -335,6 +342,7 @@ def add_tasks():
             "symbols": global_market_symbols,
             "timeframe": "1d",
             "timerange_str": "20240101-",
+            "inplace": True
         }
     ]
 
