@@ -51,7 +51,9 @@ class Task:
                  symbols: Optional[list[str]] = None,
                  sub: Optional[str] = None,
                  timeframe: Optional[str] = None,
-                 timerange: Optional[TimeRange] = None):
+                 timerange: Optional[TimeRange] = None,
+                 data_source_config: Optional[Dict[str, Any]] = None,
+                 storage_config: Optional[Dict[str, Any]] = None):
         self.name = name
         self.data_source_name = data_source_name
         self.storage_name = storage_name
@@ -60,6 +62,8 @@ class Task:
         self.sub = sub
         self.timeframe = timeframe
         self.timerange = timerange
+        self.data_source_config = data_source_config
+        self.storage_config = storage_config
 
 
 async def _load_data_for_updating(
@@ -649,7 +653,9 @@ class Scheduler:
         tasks_dict[task_name] = {
             "name": task.name,
             "data_source_name": task.data_source_name,
+            "data_source_config": task.data_source_config,
             "storage_name": task.storage_name,
+            "storage_config": task.storage_config,
             "time_slot": {
                 "start": task.time_slot.start,
                 "end": task.time_slot.end
@@ -692,7 +698,9 @@ class Scheduler:
             tasks_dict[task_name] = {
                 "name": task.name,
                 "data_source_name": task.data_source_name,
+                "data_source_config": task.data_source_config,
                 "storage_name": task.storage_name,
+                "storage_config": task.storage_config,
                 "time_slot": {
                     "start": task.time_slot.start,
                     "end": task.time_slot.end
@@ -861,6 +869,8 @@ class Scheduler:
             sub=sub,
             timeframe=timeframe,
             timerange=timerange,
+            data_source_config=data_source_config,
+            storage_config=storage_config
         )
 
         # 更新任务状态

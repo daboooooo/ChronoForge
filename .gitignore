@@ -34,6 +34,7 @@ data/
 .Trashes
 ehthumbs.db
 Thumbs.db
+*.rdb
 
 # Testing
 pytest_cache/
