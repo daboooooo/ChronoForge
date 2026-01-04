@@ -224,8 +224,8 @@ def main():
         console.print("[yellow]⚠️ 获取数据源列表时出错，使用默认数据源[/yellow]")
         data_sources = ["BitcoinFGIDataSource"]
 
-    # 选择第一个数据源进行测试
-    test_data_source = data_sources[0]
+    # 选择CryptoSpotDataSource进行测试
+    test_data_source = "CryptoSpotDataSource"
 
     # 获取数据源函数列表
     functions_info = get_data_source_functions(test_data_source)
@@ -241,16 +241,35 @@ def main():
     result = delegate_call_plugin_function(
         plugin_name=test_data_source,
         plugin_type="data_source",
-        function_name="tickers"
+        function_name="tickers",
+        exchange_name="binance",
+        quote="USDT"
     )
     display_delegate_call_result(result)
 
-    # 测试2: 调用close_all_connections函数
-    console.print("\n[bold blue]2. 测试调用 close_all_connections 函数:[/bold blue]")
+    # 测试2: 调用top_volume_symbols函数
+    console.print("\n[bold blue]2. 测试调用 top_volume_symbols 函数:[/bold blue]")
     result = delegate_call_plugin_function(
         plugin_name=test_data_source,
         plugin_type="data_source",
-        function_name="close_all_connections"
+        function_name="top_volume_symbols",
+        exchange_name="binance",
+        quote="USDT",
+        top_n=5
+    )
+    display_delegate_call_result(result)
+
+    # 测试3: 调用fetch函数
+    console.print("\n[bold blue]3. 测试调用 fetch 函数:[/bold blue]")
+    # 尝试使用更简单的参数，只提供必需的参数
+    result = delegate_call_plugin_function(
+        plugin_name=test_data_source,
+        plugin_type="data_source",
+        function_name="fetch",
+        symbol="binance:BTC/USDT",
+        timeframe="1d",
+        start_ts_ms=1672531200000,  # 2023-01-01 00:00:00 UTC
+        end_ts_ms=1673308800000     # 2023-01-10 00:00:00 UTC
     )
     display_delegate_call_result(result)
 

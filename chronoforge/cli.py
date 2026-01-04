@@ -94,6 +94,7 @@ def main():
     try:
         from uvicorn import run
         from chronoforge.server.main import app
+        from chronoforge import __version__
 
         # 确定最终的参数值（优先级：显式指定的参数 > 默认值）
         host = args.host
@@ -101,6 +102,7 @@ def main():
         reload = args.reload
         workers = args.workers
 
+        print(f"🚀 ChronoForge 版本 {__version__}")
         print("启动ChronoForge调度器服务...")
         print(f"服务地址: http://{host}:{port}")
         print(f"API文档: http://{host}:{port}/docs")

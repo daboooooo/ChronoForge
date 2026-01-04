@@ -12,6 +12,7 @@ from chronoforge.data_source import (CryptoSpotDataSource, FREDDataSource, Bitco
                                      CryptoUMFutureDataSource, GlobalMarketDataSource)
 from chronoforge.storage import StorageBase, verify_storage_instance
 from chronoforge.storage import LocalFileStorage, DUCKDBStorage
+# from chronoforge.decorators import periodic_task
 
 # 使RedisStorage成为可选依赖
 try:
@@ -242,65 +243,6 @@ class Scheduler:
     以上步骤的2、3、4可以重复执行，也可以在调度器运行过程中动态执行。
     """
 
-    def __init__(self, max_workers: int = 5):
-        """创建调度器
-
-        Args:
-            max_workers: 最大并发任务数，默认5
-        """
-        # 初始化时创建线程池
-        self.thread_pool = cf.ThreadPoolExecutor(max_workers=max_workers)
-        # plugins
-        self.supported_data_sources: list[DataSourceBase] = []
-        self.supported_storages: list[StorageBase] = []
-
-        # plugin instances
-        self.storage_instances: dict[str, StorageBase] = {}
-        self.data_source_instances: dict[str, DataSourceBase] = {}
-
-        # inside states
-        self.tasks: dict[str, Task] = {}  # 任务名称到任务实例的映射
-        self.task_states: dict[str, Any] = {}  # 任务名称到任务状态的映射
-        self._runner_thread: Optional[threading.Thread] = None  # 运行线程
-        self.time_slot_manager = TimeSlotManager()
-
-        # 定义内置插件列表
-        self.builtin_data_sources = [
-            "CryptoSpotDataSource",
-            "FREDDataSource",
-            "BitcoinFGIDataSource",
-            "CryptoUMFutureDataSource",
-            "GlobalMarketDataSource"
-        ]
-        self.builtin_storages = [
-            "LocalFileStorage",
-            "DUCKDBStorage",
-            "RedisStorage"
-        ]
-
-        # 定义任务存储文件路径
-        self.tasks_file_path = os.path.join(os.path.expanduser("~"), ".chronoforge", "tasks.json")
-
-        # 创建目录（如果不存在）
-        os.makedirs(os.path.dirname(self.tasks_file_path), exist_ok=True)
-
-        # register inside data source plugins
-        self.register_plugin(CryptoSpotDataSource)
-        self.register_plugin(FREDDataSource)
-        self.register_plugin(BitcoinFGIDataSource)
-        self.register_plugin(CryptoUMFutureDataSource)
-        self.register_plugin(GlobalMarketDataSource)
-
-        # register inside storage plugins
-        self.register_plugin(LocalFileStorage)
-        self.register_plugin(DUCKDBStorage)
-        # 只有在RedisStorage可用时才注册
-        if RedisStorage is not None:
-            self.register_plugin(RedisStorage)
-
-        # 从本地文件加载任务
-        self.load_tasks_from_file()
-
     def list_supported_plugins(self, plugin_type: str) -> list[str]:
         """列出所有支持的插件
 
@@ -409,6 +351,70 @@ class Scheduler:
 
         return result
 
+    def __init__(self, max_workers: int = 5):
+        """创建调度器
+
+        Args:
+            max_workers: 最大并发任务数，默认5
+        """
+        # 初始化时创建线程池
+        self.thread_pool = cf.ThreadPoolExecutor(max_workers=max_workers)
+        # plugins
+        self.supported_data_sources: list[DataSourceBase] = []
+        self.supported_storages: list[StorageBase] = []
+
+        # plugin instances
+        self.storage_instances: dict[str, StorageBase] = {}
+        self.data_source_instances: dict[str, DataSourceBase] = {}
+
+        # delegate call plugin instances cache
+        self.delegate_plugin_instances: dict[tuple[str, str], Any] = {}
+        # 为每个插件实例维护一个专用的事件循环
+        self.plugin_event_loops: dict[tuple[str, str], asyncio.AbstractEventLoop] = {}
+
+        # inside states
+        self.tasks: dict[str, Task] = {}  # 任务名称到任务实例的映射
+        self.task_states: dict[str, Any] = {}  # 任务名称到任务状态的映射
+        self._runner_thread: Optional[threading.Thread] = None  # 运行线程
+        self.time_slot_manager = TimeSlotManager()
+
+        # 定义内置插件列表
+        self.builtin_data_sources = [
+            "CryptoSpotDataSource",
+            "FREDDataSource",
+            "BitcoinFGIDataSource",
+            "CryptoUMFutureDataSource",
+            "GlobalMarketDataSource"
+        ]
+        self.builtin_storages = [
+            "LocalFileStorage",
+            "DUCKDBStorage",
+            "RedisStorage"
+        ]
+
+        # 定义任务存储文件路径
+        self.tasks_file_path = os.path.join(os.path.expanduser("~"), ".chronoforge", "tasks.json")
+
+        # 创建目录（如果不存在）
+        os.makedirs(os.path.dirname(self.tasks_file_path), exist_ok=True)
+
+        # register inside storage plugins first
+        self.register_plugin(LocalFileStorage)
+        self.register_plugin(DUCKDBStorage)
+        # 只有在RedisStorage可用时才注册
+        if RedisStorage is not None:
+            self.register_plugin(RedisStorage)
+
+        # register inside data source plugins
+        self.register_plugin(CryptoSpotDataSource)
+        self.register_plugin(FREDDataSource)
+        self.register_plugin(BitcoinFGIDataSource)
+        self.register_plugin(CryptoUMFutureDataSource)
+        self.register_plugin(GlobalMarketDataSource)
+
+        # 从本地文件加载任务
+        self.load_tasks_from_file()
+
     def delegate_call(self, plugin_name: str, plugin_type: str,
                       function_name: str, **kwargs) -> Any:
         """动态调用插件的指定函数，支持同步和异步函数
@@ -437,8 +443,13 @@ class Scheduler:
         # 获取插件类
         plugin_class = self.get_supported_plugin(plugin_type, plugin_name)
 
-        # 创建插件实例（使用默认配置）
-        plugin_instance = plugin_class({})
+        # 从缓存中获取或创建插件实例
+        plugin_key = (plugin_type, plugin_name)
+        if plugin_key not in self.delegate_plugin_instances:
+            # 创建插件实例（使用默认配置）
+            self.delegate_plugin_instances[plugin_key] = plugin_class({})
+            logger.debug(f"Created new plugin instance for {plugin_type}: {plugin_name}")
+        plugin_instance = self.delegate_plugin_instances[plugin_key]
 
         # 检查函数是否存在且为公共方法
         if not hasattr(plugin_instance, function_name):
@@ -468,20 +479,27 @@ class Scheduler:
             if inspect.iscoroutinefunction(func):
                 # 如果是异步函数，使用事件循环运行
                 logger.debug(f"函数 {function_name} 是异步函数，使用事件循环运行")
-                loop = asyncio.new_event_loop()
+
+                # 从缓存中获取或创建插件实例专用的事件循环
+                if plugin_key not in self.plugin_event_loops:
+                    # 创建新的事件循环
+                    loop = asyncio.new_event_loop()
+                    self.plugin_event_loops[plugin_key] = loop
+                    logger.debug(f"Created new event loop for {plugin_type}: {plugin_name}")
+                else:
+                    loop = self.plugin_event_loops[plugin_key]
+                    # 检查事件循环是否已关闭
+                    if loop.is_closed():
+                        # 如果已关闭，创建新的事件循环
+                        loop = asyncio.new_event_loop()
+                        self.plugin_event_loops[plugin_key] = loop
+                        logger.debug(f"Recreated event loop for {plugin_type}: {plugin_name}")
+
+                # 设置当前线程的事件循环
                 asyncio.set_event_loop(loop)
-                try:
-                    result = loop.run_until_complete(func(**kwargs))
-                finally:
-                    try:
-                        # 优雅地关闭事件循环
-                        tasks = asyncio.all_tasks(loop)
-                        for t in tasks:
-                            t.cancel()
-                        loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
-                        loop.close()
-                    except Exception as cleanup_error:
-                        logger.error(f"关闭事件循环时出错: {cleanup_error}")
+
+                # 运行异步函数
+                result = loop.run_until_complete(func(**kwargs))
             else:
                 # 如果是同步函数，直接调用
                 logger.debug(f"函数 {function_name} 是同步函数，直接调用")
@@ -489,6 +507,26 @@ class Scheduler:
 
             logger.info(f"Function {function_name} called successfully, "
                         f"result type: {type(result)}")
+
+            # 检查返回结果类型，如果是pandas.DataFrame，转换为可序列化的格式
+            try:
+                import pandas as pd
+                if isinstance(result, pd.DataFrame):
+                    # 将DataFrame转换为字典格式，包含数据和元数据
+                    logger.debug(f"将DataFrame转换为可序列化格式，形状: {result.shape}")
+                    result_dict = {
+                        "data": result.to_dict(orient="records"),
+                        "metadata": {
+                            "columns": result.columns.tolist(),
+                            "shape": result.shape,
+                            "dtypes": result.dtypes.astype(str).to_dict()
+                        }
+                    }
+                    return result_dict
+            except ImportError:
+                # 如果没有安装pandas，直接返回结果
+                pass
+
             return result
         except Exception as e:
             logger.error(f"Error calling function {function_name}: {e}", exc_info=True)
@@ -516,6 +554,64 @@ class Scheduler:
                 return plugin
         raise ValueError(f"Plugin {plugin_name} not supported")
 
+    def _create_periodic_tasks(self, plugin: Any, plugin_type: str):
+        """为插件中被@periodic_task装饰的方法创建周期性任务
+
+        Args:
+            plugin: 插件类
+            plugin_type: 插件类型
+        """
+        if plugin_type != "data_source":
+            return
+
+        # 创建插件实例（使用默认配置）
+        plugin_instance = plugin({})
+
+        # 遍历插件的所有方法
+        for name, method in inspect.getmembers(plugin_instance, inspect.ismethod):
+            # 检查方法是否被@periodic_task装饰
+            if hasattr(method, 'is_periodic_task') and method.is_periodic_task:
+                task_config = method.task_config
+
+                # 生成任务名称
+                task_name = f"{plugin.__name__}_{name}_periodic"
+
+                # 创建时间槽，使用全天时间段
+                time_slot = TimeSlot(
+                    start="00:00:00",
+                    end="23:59:59"
+                )
+
+                # 添加任务，保存方法名和参数
+                try:
+                    # 使用装饰器中指定的存储配置
+                    storage_name = task_config['storage_name']
+                    storage_config = task_config['storage_config']
+
+                    self.add_task(
+                        name=task_name,
+                        data_source_name=plugin.__name__,
+                        data_source_config={},
+                        storage_name=storage_name,
+                        storage_config=storage_config,
+                        time_slot=time_slot,
+                        symbols=task_config['symbols'],
+                        timeframe=task_config['timeframe'] or "1d",
+                        timerange_str=task_config['timerange_str'] or "20220101-",
+                        inplace=True
+                    )
+                    # 保存方法名和完整的任务配置到任务中
+                    if task_name in self.tasks:
+                        self.tasks[task_name].method_name = name
+                        self.tasks[task_name].method_params = task_config
+                    logger.info(
+                        f"Created periodic task {task_name} for "
+                        f"method {name} in plugin {plugin.__name__}")
+                except Exception as e:
+                    logger.error(
+                        f"Failed to create periodic task for "
+                        f"method {name} in plugin {plugin.__name__}: {e}")
+
     def register_plugin(self, plugin: Any) -> Tuple[bool, str]:
         """ 识别插件类型，验证插件，完成注册
 
@@ -537,6 +633,8 @@ class Scheduler:
             success, msg = verify_datasource_instance(plugin)
             if success:
                 self.supported_data_sources.append(plugin)
+                # 检查插件中是否有被@periodic_task装饰的方法
+                self._create_periodic_tasks(plugin, "data_source")
                 return True, "Data source instance registered successfully"
             else:
                 return False, msg
@@ -752,9 +850,9 @@ class Scheduler:
                 self.add_task(
                     name=task_info["name"],
                     data_source_name=task_info["data_source_name"],
-                    data_source_config={},
+                    data_source_config=task_info["data_source_config"],
                     storage_name=task_info["storage_name"],
-                    storage_config={},
+                    storage_config=task_info["storage_config"],
                     time_slot=time_slot,
                     symbols=task_info["symbols"],
                     timeframe=task_info["timeframe"],
@@ -776,7 +874,8 @@ class Scheduler:
                  timeframe: Optional[str] = None,
                  timerange_str: Optional[str] = None,
                  inplace: bool = False) -> None:
-        """添加任务
+        """
+        添加任务
 
         Args:
             name: 任务名称
@@ -796,6 +895,11 @@ class Scheduler:
         # 检查任务名称是否已存在
         if not name:
             raise ValueError("Task name cannot be empty")
+
+        # 检查FRED数据源是否包含api_key
+        if data_source_name == "FREDDataSource":
+            if not data_source_config or "api_key" not in data_source_config:
+                raise ValueError("FREDDataSource 必须包含有效的 api_key 配置")
 
         # 检查任务是否已存在
         is_replacing = name in self.tasks
@@ -955,18 +1059,35 @@ class Scheduler:
                                          "in thread pool, skipping")
                             continue
 
-                    # 使用线程池执行任务
-                    future = self.thread_pool.submit(self.execute_task, task)
+                    # 对于周期性任务，检查是否到了执行时间
+                    current_time = time.time()
+                    if hasattr(task, 'method_name') and hasattr(task, 'method_params'):
+                        interval = task.method_params.get('interval', 60)
+                        # 初始化下次执行时间
+                        if task_state['next_run_time'] is None:
+                            task_state['next_run_time'] = current_time
 
-                    # 更新任务状态为运行中
-                    self.task_states[task_name].update({
-                        'future': future,
-                        'status': 'running',
-                        'last_updated_at': time.time()
-                    })
+                        # 检查是否到了执行时间
+                        if current_time < task_state['next_run_time']:
+                            logger.debug(f"Task {task_name} is not yet time to execute, "
+                                         f"next run at {task_state['next_run_time']}")
+                            continue
 
-                    logger.debug(f"Task {task_name} submitted to thread pool")
-                    time.sleep(0.1)
+                        # 计算下次执行时间
+                        task_state['next_run_time'] = current_time + interval
+
+                        # 使用线程池执行任务
+                        future = self.thread_pool.submit(self.execute_task, task)
+
+                        # 更新任务状态为运行中
+                        self.task_states[task_name].update({
+                            'future': future,
+                            'status': 'running',
+                            'last_updated_at': time.time()
+                        })
+
+                        logger.debug(f"Task {task_name} submitted to thread pool")
+                        time.sleep(0.1)
                 # 每5秒检查一次
                 time.sleep(5)
         except Exception as e:
@@ -1001,6 +1122,27 @@ class Scheduler:
             self.save_all_tasks_to_file()
             logger.info("Tasks saved to file")
 
+            # 关闭插件事件循环
+            if hasattr(self, 'plugin_event_loops'):
+                for plugin_key, loop in list(self.plugin_event_loops.items()):
+                    try:
+                        if not loop.is_closed():
+                            # 取消所有任务
+                            tasks = asyncio.all_tasks(loop)
+                            for t in tasks:
+                                t.cancel()
+                            # 运行直到所有任务完成或被取消
+                            loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
+                            # 关闭事件循环
+                            loop.close()
+                        # 从字典中移除
+                        del self.plugin_event_loops[plugin_key]
+                        logger.debug(f"关闭了插件事件循环: {plugin_key}")
+                    except Exception as e:
+                        logger.error(f"关闭插件事件循环 {plugin_key} 时出错: {e}")
+                        # 无论如何都要从字典中移除
+                        del self.plugin_event_loops[plugin_key]
+
             # 清理任务状态
             self.task_states.clear()
             logger.info("Scheduler stopped (sync)")
@@ -1029,8 +1171,9 @@ class Scheduler:
                 try:
                     # 直接使用当前事件循环关闭数据源连接
                     # 由于我们在async_stop方法中，可以直接await
-                    await data_source.close_all_connections()
-                    logger.info(f"Closed connections for data source: {name}")
+                    if hasattr(data_source, '_close_all_connections'):
+                        await data_source._close_all_connections()
+                        logger.info(f"Closed connections for data source: {name}")
 
                     # 从实例字典中移除已关闭的数据源
                     del self.data_source_instances[name]
@@ -1038,34 +1181,183 @@ class Scheduler:
                     logger.error(f"Error closing connections for data source {name}: "
                                  f"{e}")
 
+            # 关闭插件事件循环
+            if hasattr(self, 'plugin_event_loops'):
+                for plugin_key, loop in list(self.plugin_event_loops.items()):
+                    try:
+                        if not loop.is_closed():
+                            # 取消所有任务
+                            tasks = asyncio.all_tasks(loop)
+                            for t in tasks:
+                                t.cancel()
+                            # 运行直到所有任务完成或被取消
+                            loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
+                            # 关闭事件循环
+                            loop.close()
+                        # 从字典中移除
+                        del self.plugin_event_loops[plugin_key]
+                        logger.debug(f"关闭了插件事件循环: {plugin_key}")
+                    except Exception as e:
+                        logger.error(f"关闭插件事件循环 {plugin_key} 时出错: {e}")
+                        # 无论如何都要从字典中移除
+                        del self.plugin_event_loops[plugin_key]
+
             # 清理任务状态
             self.task_states.clear()
             logger.info("Scheduler stopped (async)")
 
+    async def _handle_task_result(self, task: Task, result: Any) -> None:
+        """处理任务执行结果
+
+        Args:
+            task: 任务实例
+            result: 任务执行结果
+        """
+        try:
+            # 检查是否配置了存储
+            if task.storage_name and hasattr(task, 'method_name'):
+                storage = self.storage_instances.get(task.name)
+                if storage:
+                    # 生成存储ID
+                    storage_id = f"{task.data_source_name}_{task.method_name}"
+
+                    # 保存结果
+                    # 检查结果类型，如果是字典，需要转换为DataFrame
+                    import pandas as pd
+                    data_to_save = result
+                    if isinstance(result, dict):
+                        # 将字典转换为适合存储的格式
+                        # 如果字典值是DataFrame，直接使用
+                        if all(isinstance(v, pd.DataFrame) for v in result.values()):
+                            # 对于嵌套的DataFrame字典，我们需要为每个值单独存储
+                            for key, df in result.items():
+                                nested_storage_id = f"{storage_id}_{key}"
+                                success = await storage.save(
+                                    id=nested_storage_id,
+                                    data=df,
+                                    sub=task.sub
+                                )
+                                if success:
+                                    logger.info(f"Task {task.name} result {key} saved to "
+                                                f"storage {task.storage_name}")
+                                else:
+                                    logger.error(f"Failed to save task {task.name} result {key} to "
+                                                 f"storage {task.storage_name}")
+                            return
+                        else:
+                            # 将字典转换为简单的DataFrame
+                            data_to_save = pd.DataFrame([result])
+
+                    # 如果不是DataFrame且不是空值，尝试转换
+                    elif not isinstance(result, pd.DataFrame) and result is not None:
+                        try:
+                            data_to_save = pd.DataFrame([result])
+                        except Exception:
+                            logger.warning("Unable to convert result to DataFrame "
+                                           f"for task {task.name}")
+                            return
+
+                    # 保存数据
+                    success = await storage.save(
+                        id=storage_id,
+                        data=data_to_save,
+                        sub=task.sub
+                    )
+                    if success:
+                        logger.info(f"Task {task.name} result saved to storage {task.storage_name}")
+                    else:
+                        logger.error(f"Failed to save task {task.name} result to storage")
+        except Exception as e:
+            logger.error(f"Error handling task {task.name} result: {e}")
+
     async def _execute_task(self, task: Task) -> None:
-        """执行单个任务, 对于task中的每个symbol, 执行以下步骤:
-        1. load 缓存数据
-        2. fetch 最新数据
-        3. merge 数据
-        4. store 数据
+        """执行单个任务
+        如果任务有method_name属性，则调用该方法；否则执行默认的K线更新逻辑
         """
         try:
             ds = self.data_source_instances.get(task.name)
             st = self.storage_instances.get(task.name)
 
-            for symbol in task.symbols:
-                success, message = await _update_data(
-                    data_source=ds,
-                    storage=st,
-                    symbol=symbol,
-                    timeframe=task.timeframe,
-                    sub=task.sub,
-                    timerange=task.timerange,
-                )
-                if not success:
-                    logger.error(f"Failed to update data for {symbol}: {message}")
-                    continue
-                logger.info(message)
+            # 检查是否是周期性任务（有指定的method_name）
+            if hasattr(task, 'method_name'):
+                logger.info(f"Executing periodic method {task.method_name} for task {task.name}")
+
+                # 获取方法对象
+                method = getattr(ds, task.method_name)
+
+                # 获取任务配置
+                method_params = task.method_params
+                max_retries = method_params.get('max_retries', 3)
+                retry_delay = method_params.get('retry_delay', 1)
+
+                # 准备方法调用参数
+                params = method_params.get('params', {})  # 从装饰器配置中获取参数
+
+                # 根据方法签名确定需要的参数
+                sig = inspect.signature(method)
+                param_names = list(sig.parameters.keys())
+                # 移除self参数（如果存在）
+                if 'self' in param_names:
+                    param_names.remove('self')
+
+                # 如果装饰器中没有提供必要的参数，使用默认值
+                if not params:
+                    if 'exchange_name' in param_names:
+                        params['exchange_name'] = 'binance'  # 默认使用binance交易所
+                    if 'quote' in param_names:
+                        params['quote'] = 'USDT'  # 默认使用USDT作为报价货币
+
+                # 实现重试机制
+                for attempt in range(max_retries + 1):
+                    try:
+                        # 调用方法
+                        result = await method(**params)
+                        logger.info(
+                            f"Periodic method {task.method_name} executed successfully "
+                            f"(attempt {attempt+1}/{max_retries+1}), "
+                            f"result type: {type(result)}")
+
+                        # 处理任务结果（可以根据需要扩展）
+                        await self._handle_task_result(task, result)
+                        break
+                    except Exception as e:
+                        if attempt < max_retries:
+                            logger.warning(
+                                f"Periodic method {task.method_name} failed "
+                                f"(attempt {attempt+1}/{max_retries+1}), "
+                                f"retrying in {retry_delay}s: {e}")
+                            await asyncio.sleep(retry_delay)
+                        else:
+                            logger.error(
+                                f"Periodic method {task.method_name} failed after {max_retries+1} "
+                                f"attempts: {e}")
+                            # 更新任务状态为失败
+                            if task.name in self.task_states:
+                                self.task_states[task.name].update({
+                                    'last_run_status': 'failed',
+                                    'error_message': str(e)
+                                })
+                            raise
+                # 无论任务执行成功还是失败，都关闭所有交易所连接
+                if hasattr(ds, '_close_all_connections'):
+                    await ds._close_all_connections()
+
+            # 否则执行默认的K线更新逻辑
+            else:
+                logger.info(f"Executing default K-line update for task {task.name}")
+                for symbol in task.symbols:
+                    success, message = await _update_data(
+                        data_source=ds,
+                        storage=st,
+                        symbol=symbol,
+                        timeframe=task.timeframe,
+                        sub=task.sub,
+                        timerange=task.timerange,
+                    )
+                    if not success:
+                        logger.error(f"Failed to update data for {symbol}: {message}")
+                        continue
+                    logger.info(message)
 
         except Exception as e:
             logger.exception(f"Task {task.name} execution error: {e}")

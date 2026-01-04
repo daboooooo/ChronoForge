@@ -125,10 +125,6 @@ class BitcoinFGIDataSource(DataSourceBase):
 
         return df
 
-    async def close_all_connections(self):
-        """关闭所有与数据源的连接"""
-        pass
-
     @with_retry
     async def tickers(self, **kwargs) -> Any:
         """从alternative.me获取加密货币ticker数据，并缓存5分钟

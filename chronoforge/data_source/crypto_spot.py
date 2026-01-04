@@ -4,12 +4,50 @@ from typing import Any, Dict, Optional
 import ccxt.async_support as ccxt
 import pandas as pd
 import time
+import requests
 from datetime import datetime, timezone
 
-from .base import DataSourceBase
+from .base import DataSourceBase, ParsedSymbol
 from chronoforge.utils import parse_timeframe_to_milliseconds, with_retry
+from chronoforge.decorators import periodic_task
 
 logger = logging.getLogger(__name__)
+
+
+def okx_convert_contract_coin(parsed_symbol, rate, amount) -> float:
+    """convert contract amount to coin amount in okx"""
+    # instId format: ETH-USDT-SWAP
+    instId = f"{parsed_symbol.base}-{parsed_symbol.quote}-SWAP"
+    url = "https://www.okx.com/api/v5/public/convert-contract-coin?"
+    url += f"type=2&instId={instId}"
+    url += f"&px={rate:.12f}&sz={amount}"
+    result = requests.get(url)
+    if result.status_code != 200:
+        logger.error(f"Request Error, URL: {url}")
+        return 0.0
+    data = dict(result.json())['data']
+    if not data:
+        logger.error(f"okx_convert_contract_coin, URL: {url}")
+        return 0.0
+    return float(data[0]['sz'])
+
+
+def get_quote_volume(ticker, exchange_name: str, parsed_symbol: ParsedSymbol) -> float:
+    quoteVolume = ticker['quoteVolume']
+    if quoteVolume is not None:
+        return float(quoteVolume)
+    # calculate quoteVolume based on last price and baseVolume
+    quoteVolume = 0.0
+    if exchange_name == 'okx':
+        baseVolume = ticker['baseVolume']
+        if baseVolume is None:
+            return 0.0
+        last = ticker['last']
+        coinVolume = okx_convert_contract_coin(parsed_symbol, last, baseVolume)
+        quoteVolume = float(coinVolume) * float(last)
+    else:
+        logger.warning(f"Can't get {exchange_name} {parsed_symbol.original} quoteVolume.")
+    return quoteVolume
 
 
 class CryptoSpotDataSource(DataSourceBase):
@@ -24,13 +62,12 @@ class CryptoSpotDataSource(DataSourceBase):
         super().__init__(config)
         # 存储交易所实例和创建时间戳，格式：{exchange_name: (instance, create_time)}
         self.exchange_instances: Dict[str, tuple[ccxt.Exchange, float]] = {}
-        # 实例有效期：30分钟（秒）
-        self.instance_validity = 30 * 60
+        # 实例有效期（秒）
+        self.instance_validity = 60 * 60
 
         # 缓存tickers数据, 60秒缓存
-        self.cached_tickers = None
-        self.last_tickers_update = 0
-        self.tickers_cache_duration = 1 * 60
+        self.cache_tickers: Dict[str, tuple[dict, float]] = {}
+        self.ticker_validity = 1 * 60
 
     @property
     def name(self):
@@ -53,10 +90,10 @@ class CryptoSpotDataSource(DataSourceBase):
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """异步上下文管理器的退出方法，确保所有exchange连接都被正确关闭"""
-        await self.close_all_connections()
+        await self._close_all_connections()
         return False  # 不抑制异常
 
-    async def close_all_connections(self):
+    async def _close_all_connections(self):
         """关闭所有交易所连接
 
         此方法可以在异步代码中直接调用，确保所有的exchange连接都被正确关闭。
@@ -87,7 +124,6 @@ class CryptoSpotDataSource(DataSourceBase):
                 del self.exchange_instances[exchange_name]
 
     async def _get_ccxt_exchange(self, exchange_name: str,
-                                 exchange_config: Dict[str, Any] = None,
                                  force_reinit: bool = False) -> ccxt.Exchange:
         """
         获取或初始化指定交易所实例
@@ -103,23 +139,12 @@ class CryptoSpotDataSource(DataSourceBase):
         # 转换交易所名称为小写
         exchange_name = exchange_name.lower()
 
-        # 检查实例是否存在且在有效期内
+        # 检查是否已经有可用实例且不需要重新初始化
         current_time = time.time()
         if not force_reinit and exchange_name in self.exchange_instances:
             exchange_instance, create_time = self.exchange_instances[exchange_name]
-            # 检查实例是否在有效期内（30分钟）
             if current_time - create_time < self.instance_validity:
                 return exchange_instance
-            else:
-                logger.info(f"交易所实例 {exchange_name} 已超过30分钟，将重新初始化")
-                # 关闭过期实例
-                try:
-                    await exchange_instance.close()
-                    logger.info(f"成功关闭过期交易所实例: {exchange_name}")
-                except Exception as e:
-                    logger.warning(f"关闭过期交易所实例 {exchange_name} 时出错: {str(e)}")
-                # 从字典中移除过期实例
-                del self.exchange_instances[exchange_name]
 
         # 获取ccxt交易所类
         if exchange_name not in ccxt.exchanges:
@@ -131,10 +156,12 @@ class CryptoSpotDataSource(DataSourceBase):
         }
 
         # 添加API凭据
-        if exchange_config and 'apiKey' in exchange_config:
-            ccxt_config['apiKey'] = exchange_config['apiKey']
-        if exchange_config and 'secret' in exchange_config:
-            ccxt_config['secret'] = exchange_config['secret']
+        if self.config and exchange_name in self.config:
+            exchange_config = self.config[exchange_name]
+            if 'apiKey' in exchange_config:
+                ccxt_config['apiKey'] = exchange_config['apiKey']
+            if 'secret' in exchange_config:
+                ccxt_config['secret'] = exchange_config['secret']
 
         # 创建交易所实例
         exchange_class: ccxt.Exchange = getattr(ccxt, exchange_name)
@@ -151,13 +178,83 @@ class CryptoSpotDataSource(DataSourceBase):
 
             # 加载市场数据作为验证
             await exchange_instance.load_markets()
-            # 存储实例和创建时间戳
-            self.exchange_instances[exchange_name] = (exchange_instance, current_time)
             logger.info(f"成功连接到交易所: {exchange_name}")
+            
+            # 存储交易所实例
+            self.exchange_instances[exchange_name] = (exchange_instance, current_time)
         except Exception as e:
             logger.error(f"交易所连接失败: {str(e)}")
             raise
         return exchange_instance
+
+    def _is_in_blacklist(self, symbol: str) -> bool:
+        if 'blacklist' not in self.config:
+            return False
+        for item in self.config.get('blacklist', []):
+            if item in symbol:
+                return True
+        return False
+
+    async def _fetch_quote_tickers(self, exchange_name: str, force: bool = False):
+        """获取交易所当前价格 tickers
+
+        Args:
+            exchange_name: 交易所名称，如'binance', 'okx'
+            force: 是否强制重新获取，默认为False
+
+        Returns:
+            dict: 包含当前价格信息的字典，包含'ask', 'bid', 'last', 'volume'等字段
+        """
+        quote_tickers: dict[str, dict[str, dict]] = {}
+        if not force and exchange_name in self.cache_tickers:
+            quote_tickers, created_time = self.cache_tickers[exchange_name]
+            if time.time() - created_time < self.ticker_validity:
+                return quote_tickers
+        # fetch tickers from exchange
+        exchange_instance = await self._get_ccxt_exchange(exchange_name)
+        tickers: dict[str, dict] = await exchange_instance.fetchTickers()
+        logger.info(f"Got {len(tickers)} tickers from {exchange_name}.")
+        # filter valid tickers and group by quote asset
+        for symbol, ticker in tickers.items():
+            # ignore invalid symbol
+            if '/' not in symbol:
+                continue
+            # get parsed symbol
+            parsed_symbol = ParsedSymbol(symbol)
+            # check whether ticker is valid
+            if ticker['last'] is None or \
+                    (ticker['baseVolume'] == 0.0 and ticker['quoteVolume'] == 0.0):
+                # In binance swap ticker, ask and bit are both 0.0.
+                # (ticker['ask'] is None or ticker['ask'] == 0.0) or \
+                # (ticker['bid'] is None or ticker['bid'] == 0.0) or \
+                # logger.info(
+                #     f"Invalid {self.exchange_id} {symbol} ticker: {ticker}")
+                continue
+            # ignore to base token if it is in the blacklist
+            if self._is_in_blacklist(parsed_symbol.base):
+                logger.debug(f"Ignore {exchange_name} {symbol} ticker [blacklist].")
+                continue
+            # Ignore expired tickers
+            # It may be missing, not all exchanges provide a timestamp there.
+            # e.g. Gate.io
+            # Upbit timestamp is always wrong.
+            try:
+                ticker_timestamp_ms = int(ticker['timestamp'])
+                expired_time_ms = int(time.time() * 1000) - self.ticker_validity * 1000
+                if ticker_timestamp_ms < expired_time_ms:
+                    logger.debug(
+                        f"Expired ticker: {exchange_name} {symbol}." +
+                        f" {ticker_timestamp_ms} < {expired_time_ms}")
+                    continue
+            except TypeError:
+                pass
+            # add ticker to quote_tickers
+            quote_tickers.setdefault(parsed_symbol.quote, {}).update({
+                symbol: ticker
+            })
+        self.cache_tickers[exchange_name] = (quote_tickers, time.time())
+
+        return quote_tickers
 
     @with_retry
     async def fetch(
@@ -188,133 +285,132 @@ class CryptoSpotDataSource(DataSourceBase):
                 data = await plugin.fetch_data('binance:BTC/USDT', '1m', start_ts, end_ts)
             # 退出上下文时会自动关闭所有连接
             ```
-            或者在所有操作完成后手动调用:
-            ```python
-            await plugin.close_all_connections()
-            ```
         """
-        # 尝试多种方式获取交易所名称
-        if hasattr(self, 'ccxt_exchange_name') and self.ccxt_exchange_name:
-            # 如果实例有ccxt_exchange_name属性，则直接使用
-            exchange_name = self.ccxt_exchange_name.lower()
-            # 直接使用原始symbol，不需要分割
-            actual_symbol = symbol
-        else:
-            # 尝试从symbol中分割交易所名称
-            try:
-                parts = symbol.split(":")
-                if len(parts) == 3:
-                    # 格式：datasource:exchange:symbol
-                    _, exchange_name, actual_symbol = parts
-                elif len(parts) == 2:
-                    # 格式：exchange:symbol 或 datasource_name:exchange_name:symbol的一部分
-                    # 检查第一部分是否包含datasource，如果是，则取第二部分作为exchange_name
-                    if 'datasource' in parts[0].lower():
-                        # 这种情况下，第二部分可能是完整的exchange_name或者exchange_name:symbol
-                        sub_parts = parts[1].split(":")
-                        if len(sub_parts) == 2:
-                            exchange_name, actual_symbol = sub_parts
-                        else:
-                            # 如果无法分割，则使用默认的binance
-                            exchange_name = 'binance'
-                            actual_symbol = parts[1]
+        # 尝试从symbol中分割交易所名称
+        try:
+            parts = symbol.split(":")
+            if len(parts) == 3:
+                # 格式：datasource:exchange:symbol
+                _, exchange_name, actual_symbol = parts
+            elif len(parts) == 2:
+                # 格式：exchange:symbol 或 datasource_name:exchange_name:symbol的一部分
+                # 检查第一部分是否包含datasource，如果是，则取第二部分作为exchange_name
+                if 'datasource' in parts[0].lower():
+                    # 这种情况下，第二部分可能是完整的exchange_name或者exchange_name:symbol
+                    sub_parts = parts[1].split(":")
+                    if len(sub_parts) == 2:
+                        exchange_name, actual_symbol = sub_parts
                     else:
-                        # 正常情况：exchange:symbol
-                        exchange_name, actual_symbol = parts
+                        # 如果无法分割，则使用默认的binance
+                        exchange_name = 'binance'
+                        actual_symbol = parts[1]
                 else:
-                    # 如果无法分割，则使用默认的binance
-                    exchange_name = 'binance'
-                    actual_symbol = symbol
-
-                exchange_name = exchange_name.lower()
-                symbol = actual_symbol
-
-            except Exception as e:
-                # 如果分割失败，默认使用binance
-                print(f"警告：无法从symbol中解析交易所名称，使用默认值binance。错误：{e}")
+                    # 正常情况：exchange:symbol
+                    exchange_name, actual_symbol = parts
+            else:
+                # 如果无法分割，则使用默认的binance
                 exchange_name = 'binance'
+                actual_symbol = symbol
+
+            exchange_name = exchange_name.lower()
+            symbol = actual_symbol
+
+        except Exception as e:
+            # 如果分割失败，默认使用binance
+            print(f"警告：无法从symbol中解析交易所名称，使用默认值binance。错误：{e}")
+            exchange_name = 'binance'
 
         # 获取或初始化交易所实例
-        exchange = await self._get_ccxt_exchange(exchange_name, self.config)
-
-        # 转换时间戳格式
-        since_ts_ms = start_ts_ms  # CCXT使用毫秒
-
-        if end_ts_ms is None:
-            until_ts_ms = int(time.time() * 1000)
-        else:
-            until_ts_ms = end_ts_ms
-
-        timeframe_ms = parse_timeframe_to_milliseconds(timeframe)
-
-        # 初始化数据容器和控制变量
+        exchange = await self._get_ccxt_exchange(exchange_name)
         all_ohlcv = []
 
-        logger.info(f"Fetching {self.name} for symbol: {symbol}, timeframe: {timeframe}, "
-                    f"start_ts_ms: {start_ts_ms} "
-                    f"({datetime.fromtimestamp(start_ts_ms / 1000, tz=timezone.utc)}), "
-                    f"end_ts_ms: {end_ts_ms} "
-                    f"({datetime.fromtimestamp(end_ts_ms / 1000, tz=timezone.utc)})")
+        try:
+            # 转换时间戳格式
+            since_ts_ms = start_ts_ms  # CCXT使用毫秒
 
-        # 连续下载数据，直到获取全部数据或达到目标时间范围
-        while True:
-            try:
-                # 计算最大可获取数据量，向下取整
-                limit_max = (until_ts_ms - since_ts_ms) // timeframe_ms
+            if end_ts_ms is None:
+                until_ts_ms = int(time.time() * 1000)
+            else:
+                until_ts_ms = end_ts_ms
 
-                if limit_max <= 0:
-                    break
+            timeframe_ms = parse_timeframe_to_milliseconds(timeframe)
 
-                # 计算初次请求的limit值
-                if exchange_name == 'okx':
-                    limit = 300 if limit_max > 300 else limit_max
-                else:
-                    limit = 1000 if limit_max > 1000 else limit_max
+            # 初始化数据容器和控制变量
+            all_ohlcv = []
 
-                # 检查事件循环是否已关闭
-                import asyncio
+            logger.info(f"Fetching {self.name} for symbol: {symbol}, timeframe: {timeframe}, "
+                        f"start_ts_ms: {start_ts_ms} "
+                        f"({datetime.fromtimestamp(start_ts_ms / 1000, tz=timezone.utc)}), "
+                        f"end_ts_ms: {until_ts_ms} "
+                        f"({datetime.fromtimestamp(until_ts_ms / 1000, tz=timezone.utc)})")
+
+            # 连续下载数据，直到获取全部数据或达到目标时间范围
+            while True:
                 try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_closed():
-                        logger.error(f"事件循环已关闭，无法获取 {symbol} 数据")
+                    # 计算最大可获取数据量，向下取整
+                    limit_max = (until_ts_ms - since_ts_ms) // timeframe_ms
+
+                    if limit_max <= 0:
+                        break
+
+                    # 计算初次请求的limit值
+                    if exchange_name == 'okx':
+                        limit = 300 if limit_max > 300 else limit_max
+                    else:
+                        limit = 1000 if limit_max > 1000 else limit_max
+
+                    # 检查事件循环是否已关闭
+                    import asyncio
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_closed():
+                            logger.error(f"事件循环已关闭，无法获取 {symbol} 数据")
+                            return None
+                    except RuntimeError:
+                        logger.error(f"无法获取事件循环，无法获取 {symbol} 数据")
                         return None
-                except RuntimeError:
-                    logger.error(f"无法获取事件循环，无法获取 {symbol} 数据")
+
+                    # 从交易所获取数据
+                    ohlcv = await exchange.fetch_ohlcv(
+                        symbol, timeframe, since=since_ts_ms, limit=limit
+                    )
+
+                    if not ohlcv or len(ohlcv) == 0:
+                        # 没有更多数据了，结束循环
+                        break
+
+                    # 添加到总数据列表
+                    all_ohlcv.extend(ohlcv)
+
+                    # 检查是否已达到目标时间范围
+                    last_timestamp = ohlcv[-1][0]  # 毫秒级timestamp
+                    # 计算下一个K线周期的起始时间（使用timestamp计算，避免时区问题）
+                    next_candle_timestamp = last_timestamp + timeframe_ms
+
+                    # 如果最后一个K线还没有终结，即结束时间大于当前时间，删除它
+                    if next_candle_timestamp >= until_ts_ms:
+                        # 删除最后一个K线
+                        all_ohlcv.pop()
+                        break
+
+                    # 处理不同交易所的循环终止条件
+                    if len(ohlcv) < limit:
+                        break
+
+                    # 更新下一次请求的起始时间（使用最后一条数据的时间戳）
+                    since_ts_ms = ohlcv[-1][0] + 1  # +1 避免重复获取同一条数据
+
+                except Exception as e:
+                    logger.warning(f"❌ 从 {exchange_name} 下载 {symbol} - {timeframe} 新数据时出错: {e}")
                     return None
-
-                # 从交易所获取数据
-                ohlcv = await exchange.fetch_ohlcv(
-                    symbol, timeframe, since=since_ts_ms, limit=limit
-                )
-
-                if not ohlcv or len(ohlcv) == 0:
-                    # 没有更多数据了，结束循环
-                    break
-
-                # 添加到总数据列表
-                all_ohlcv.extend(ohlcv)
-
-                # 检查是否已达到目标时间范围
-                last_timestamp = ohlcv[-1][0]  # 毫秒级timestamp
-                # 计算下一个K线周期的起始时间（使用timestamp计算，避免时区问题）
-                next_candle_timestamp = last_timestamp + timeframe_ms
-
-                # 如果最后一个K线还没有终结，即结束时间大于当前时间，删除它
-                if next_candle_timestamp >= until_ts_ms:
-                    # 删除最后一个K线
-                    all_ohlcv.pop()
-                    break
-
-                # 处理不同交易所的循环终止条件
-                if len(ohlcv) < limit:
-                    break
-
-                # 更新下一次请求的起始时间（使用最后一条数据的时间戳）
-                since_ts_ms = ohlcv[-1][0] + 1  # +1 避免重复获取同一条数据
-
-            except Exception as e:
-                logger.warning(f"❌ 从 {exchange_name} 下载 {symbol} - {timeframe} 新数据时出错: {e}")
-                return None
+        finally:
+            # 确保交易所实例被正确关闭
+            if hasattr(exchange, 'close'):
+                try:
+                    await exchange.close()
+                    logger.info(f"成功关闭交易所连接: {exchange_name}")
+                except Exception as e:
+                    logger.warning(f"关闭交易所连接 {exchange_name} 时出错: {str(e)}")
 
         # 所有数据批次下载完成后，转换为DataFrame
         df = None
@@ -337,20 +433,49 @@ class CryptoSpotDataSource(DataSourceBase):
             logger.warning(f"⚠️ 未下载到 {symbol} - {timeframe} 新数据")
             return pd.DataFrame(columns=['time', 'open', 'high', 'low', 'close', 'volume'])
 
-    async def tickers(self, **kwargs) -> Any:
+    @periodic_task(interval=5, symbols=[], timeframe=None, timerange_str=None, params={'exchange_name': 'binance', 'quote': 'USDT'})
+    async def tickers(self, exchange_name: str, quote: Optional[str] = None) -> Any:
         """获取所有交易所的Spot交易对tickers
+
+        Args:
+            exchange_name (str): 交易所名称
+            quote (Optional[str], optional): 报价资产. Defaults to None.
 
         Returns:
             dict: 键为交易所名称，值为该交易所的tickers数据
         """
-        # 检查缓存是否过期
-        current_time = time.time()
-        if (self.cached_tickers is None or
-                current_time - self.last_tickers_update > self.tickers_cache_duration):
-            result = {}
-            for exchange_name, exchange in self.exchange_instances.items():
-                if 'fetchTickers' in dir(exchange):
-                    result[exchange_name] = await exchange.fetchTickers()
-            self.cached_tickers = result
-            self.last_tickers_update = current_time
-        return self.cached_tickers
+        # 获取交易所的tickers数据
+        tickers: dict[str, dict] = await self._fetch_quote_tickers(exchange_name)
+        if not quote:
+            return tickers
+
+        return tickers.get(quote, {})
+
+    async def top_volume_symbols(self, exchange_name: str, quote: str,
+                                 top_n: Optional[int] = None,
+                                 top_percent: Optional[int] = None) -> list[str]:
+        """获取指定交易所的按成交量排序的交易对
+
+        Args:
+            exchange_name (str): 交易所名称
+            quote (str): 报价资产
+            top_n (Optional[int], optional): 要获取的交易对数量. Defaults to None.
+            top_percent (Optional[int], optional): 要获取的交易对数量占比. Defaults to None.
+
+        Returns:
+            list[str]: top N交易对的列表
+        """
+        tickers = await self.tickers(exchange_name, quote)
+        if not tickers:
+            return []
+        # rank symbols by volume
+        sorted_symbols = sorted(
+            tickers.keys(),
+            key=lambda x: get_quote_volume(tickers[x], exchange_name, ParsedSymbol(x)),
+            reverse=True
+        )
+        if top_n:
+            return sorted_symbols[:top_n]
+        if top_percent:
+            return sorted_symbols[:int(len(sorted_symbols) * top_percent / 100)]
+        return sorted_symbols

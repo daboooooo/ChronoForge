@@ -114,7 +114,3 @@ class GlobalMarketDataSource(DataSourceBase):
 
         logger.info(f"Fetched {len(df)} bars for symbol: {symbol}")
         return df
-
-    async def close_all_connections(self):
-        """关闭所有与数据源的连接"""
-        pass

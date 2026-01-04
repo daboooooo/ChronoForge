@@ -259,37 +259,37 @@ class CryptoUMFutureDataSource(DataSourceBase):
                 global_long_short_account_ratio_df = global_long_short_account_ratio_df[
                     ['time', 'global_long_short_account_ratio']]
 
-                # funding rate history
-                # [
-                #     {
-                #         "symbol": "BTCUSDT",
-                #         "fundingRate": "-0.03750000",
-                #         "fundingTime": 1570608000000,
-                #         "markPrice": "34287.54619963"
-                #           // mark price associated with a particular funding fee charge
-                #     },
-                #     {
-                #         "symbol": "BTCUSDT",
-                #         "fundingRate": "0.00010000",
-                #         "fundingTime": 1570636800000,
-                #         "markPrice": "34287.54619963"
-                #     }
-                # ]
-                funding_rate_hist = self.client.funding_rate(
-                    symbol=symbol,
-                    limit=limit,
-                    startTime=_run_start_ts_ms,
-                    endTime=_run_end_ts_ms
-                )
-                # 使fundingTime为整秒时间，避免时间戳不匹配
-                for item in funding_rate_hist:
-                    item['fundingTime'] = int(item['fundingTime'] // 1000) * 1000
-                funding_rate_hist_df = pd.DataFrame(funding_rate_hist)
-                funding_rate_hist_df['time'] = pd.to_datetime(
-                    funding_rate_hist_df['fundingTime'], unit='ms', utc=True)
-                funding_rate_hist_df['funding_rate'] = \
-                    funding_rate_hist_df['fundingRate'].astype(float)
-                funding_rate_hist_df = funding_rate_hist_df[['time', 'funding_rate']]
+                # # funding rate history
+                # # [
+                # #     {
+                # #         "symbol": "BTCUSDT",
+                # #         "fundingRate": "-0.03750000",
+                # #         "fundingTime": 1570608000000,
+                # #         "markPrice": "34287.54619963"
+                # #           // mark price associated with a particular funding fee charge
+                # #     },
+                # #     {
+                # #         "symbol": "BTCUSDT",
+                # #         "fundingRate": "0.00010000",
+                # #         "fundingTime": 1570636800000,
+                # #         "markPrice": "34287.54619963"
+                # #     }
+                # # ]
+                # funding_rate_hist = self.client.funding_rate(
+                #     symbol=symbol,
+                #     limit=limit,
+                #     startTime=_run_start_ts_ms,
+                #     endTime=_run_end_ts_ms
+                # )
+                # # 使fundingTime为整秒时间，避免时间戳不匹配
+                # for item in funding_rate_hist:
+                #     item['fundingTime'] = int(item['fundingTime'] // 1000) * 1000
+                # funding_rate_hist_df = pd.DataFrame(funding_rate_hist)
+                # funding_rate_hist_df['time'] = pd.to_datetime(
+                #     funding_rate_hist_df.get('fundingTime', 0), unit='ms', utc=True)
+                # funding_rate_hist_df['funding_rate'] = \
+                #     funding_rate_hist_df.get('fundingRate', 0.0).astype(float)
+                # funding_rate_hist_df = funding_rate_hist_df[['time', 'funding_rate']]
 
                 # merge all dataframes,
                 merged_df = pd.merge(oi_hist_df, taker_long_short_ratio_df,
@@ -300,8 +300,8 @@ class CryptoUMFutureDataSource(DataSourceBase):
                                      on='time', how='outer')
                 merged_df = pd.merge(merged_df, global_long_short_account_ratio_df,
                                      on='time', how='outer')
-                merged_df = pd.merge(merged_df, funding_rate_hist_df,
-                                     on='time', how='outer')
+                # merged_df = pd.merge(merged_df, funding_rate_hist_df,
+                #                      on='time', how='outer')
 
                 # 填充缺失值
                 merged_df = merged_df.sort_values('time').ffill().bfill()
@@ -327,10 +327,6 @@ class CryptoUMFutureDataSource(DataSourceBase):
 
         logger.info(f"Fetched {len(all_df)} bars for symbol: {symbol}")
         return all_df
-
-    async def close_all_connections(self):
-        """关闭所有与数据源的连接"""
-        pass
 
     async def tickers(self, **kwargs) -> Any:
         """获取所有UMFutures交易对"""

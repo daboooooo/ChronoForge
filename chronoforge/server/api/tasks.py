@@ -310,11 +310,11 @@ async def get_task_data(
 
     if start_time:
         start_dt = pd.to_datetime(start_time)
-        all_data = [item for item in all_data if item["time"] >= start_dt]
+        all_data = [item for item in all_data if pd.to_datetime(item["time"]) >= start_dt]
 
     if end_time:
         end_dt = pd.to_datetime(end_time)
-        all_data = [item for item in all_data if item["time"] <= end_dt]
+        all_data = [item for item in all_data if pd.to_datetime(item["time"]) <= end_dt]
 
     # 限制返回条数
     if len(all_data) > limit:

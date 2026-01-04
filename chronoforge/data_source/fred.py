@@ -267,7 +267,3 @@ class FREDDataSource(DataSourceBase):
             df = pd.DataFrame(columns=['time', 'volume'])
 
         return df
-
-    async def close_all_connections(self):
-        """关闭所有与数据源的连接"""
-        pass

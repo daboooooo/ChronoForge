@@ -47,11 +47,6 @@ class DataSourceBase(abc.ABC):
         """
         pass
 
-    @abc.abstractmethod
-    async def close_all_connections(self):
-        """关闭所有与数据源的连接"""
-        pass
-
 
 def verify_datasource_instance(obj) -> tuple[bool, str]:
     """严格验证一个类或实例是否符合 DataSourceBase 的要求"""
@@ -94,21 +89,7 @@ def verify_datasource_instance(obj) -> tuple[bool, str]:
             if hints.get("return") is not pd.DataFrame:
                 errors.append("'fetch' must have return annotation 'pd.DataFrame'")
 
-    # ---- 3. 检查 close_all_connections ----
-    close_all_connections = getattr(temp_instance, "close_all_connections", None)
-    if not callable(close_all_connections):
-        errors.append("Missing required method 'close_all_connections'.")
-    else:
-        sig = inspect.signature(close_all_connections)
-        if list(sig.parameters.keys()) != []:
-            errors.append("'close_all_connections' must accept no parameters")
-
-        # 检查返回类型注解
-        hints = get_type_hints(close_all_connections)
-        if hints.get("return") is not None:
-            errors.append("'close_all_connections' must have no return annotation")
-
-    # ---- 4. 检查构造函数 config 参数是否存在 ----
+    # ---- 3. 检查构造函数 config 参数是否存在 ----
     init_sig = inspect.signature(cls.__init__)
     if "config" not in init_sig.parameters:
         errors.append("__init__ must accept 'config' parameter.")
@@ -123,3 +104,53 @@ def verify_datasource_instance(obj) -> tuple[bool, str]:
         result_msg = (f"{cls.__name__} ✅ passed all "
                       f"DataSourceBase validation checks.")
         return True, result_msg
+
+
+class ParsedSymbol:
+    """
+    https://github.com/ccxt/ccxt/wiki/Manual#contract-naming-conventions
+
+      base asset or currency
+      ↓
+      ↓  quote asset or currency
+      ↓  ↓
+      ↓  ↓    settlement asset or currency [[[Perpetual Swap, Futures, Options]]]
+      ↓  ↓    ↓
+      ↓  ↓    ↓       identifier (settlement date) [[[Futures, Options]]]
+      ↓  ↓    ↓       ↓
+      ↓  ↓    ↓       ↓   strike price [[[Options]]]
+      ↓  ↓    ↓       ↓   ↓
+      ↓  ↓    ↓       ↓   ↓   type, put (P) or call (C) [[[Options]]]
+      ↓  ↓    ↓       ↓   ↓   ↓
+    BTC/USDT:BTC-211225-60000-P
+
+    BTC/USDT put option contract strike price 60000 USDT settled in BTC (inverse) on 2021-12-25
+    """
+    original: str  # original symbol
+    unified: str  # unified symbol without suffix
+    base: str  # base asset or currency
+    quote: str  # quote asset or currency
+    settlement: str  # settlement asset or currency [[[Perpetual Swap, Futures, Options]]]
+    identifier: str  # settlement date [[[Futures, Options]]]
+    strike: str  # strike price [[[Options]]]
+    type_: str  # type, put (P) or call (C) [[[Options]]]
+
+    def __init__(self, symbol: str) -> None:
+        if '/' not in symbol:
+            raise ValueError(f"Invalid symbol: {symbol}")
+        self.original = symbol
+        if ':' not in symbol:
+            # spot market
+            self.unified = symbol
+            suffix = ''
+        else:
+            items = symbol.split(':')
+            self.unified, suffix = items + [''] * (2 - len(items))
+        self.base, self.quote = self.unified.split('/')
+        if suffix:
+            items = suffix.split('-')
+            self.settlement, self.identifier, self.strike, self.type_ = \
+                items + [''] * (4 - len(items))
+        else:
+            self.settlement, self.identifier, self.strike, self.type_ = \
+                ['', '', '', '']
