@@ -201,6 +201,52 @@ def add_tasks():
     """
     logger.info("向ChronoForge服务添加任务...")
 
+    # 检查服务器是否开启
+    if not check_service_running():
+        console.print("[red]❌ 服务器未开启，无法添加任务[/red]")
+        return
+
+    # 获取按成交量排序的top 90%交易对
+    logger.info("获取按成交量排序的top 90%交易对...")
+    try:
+        # 调用CryptoSpotDataSource的top_volume_symbols方法
+        delegate_call_url = f"{API_BASE_URL}/plugins/delegate-call"
+        request_data = {
+            "plugin_name": "CryptoSpotDataSource",
+            "plugin_type": "data_source",
+            "function_name": "top_volume_symbols",
+            "kwargs": {
+                "exchange_name": "binance",
+                "quote": "USDT",
+                "top_percent": 90
+            }
+        }
+
+        response = requests.post(delegate_call_url, json=request_data)
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("success"):
+                symbols = result.get("result", [])
+                # 转换为带交易所前缀的格式
+                crypto_symbols = [f"binance:{symbol}" for symbol in symbols]
+                console.print(f"[green]✅ 成功获取 {len(crypto_symbols)} 个交易对[/green]")
+                if crypto_symbols:
+                    console.print(f"[green]前5个交易对: {', '.join(crypto_symbols[:5])}[/green]")
+            else:
+                console.print(f"[red]❌ 获取交易对失败: {result.get('detail')}[/red]")
+                crypto_symbols = []
+        else:
+            console.print(f"[red]❌ 获取交易对失败: {response.status_code} - {response.text}[/red]")
+            crypto_symbols = []
+    except Exception as e:
+        console.print(f"[red]❌ 获取交易对时出错: {e}[/red]")
+        crypto_symbols = []
+
+    if not crypto_symbols:
+        console.print(f"[yellow]⚠️  未获取到交易对，使用默认交易对: {', '.join(['binance:BTC/USDT',
+                      'binance:ETH/USDT'])}")
+        crypto_symbols = ['binance:BTC/USDT', 'binance:ETH/USDT']
+
     # 定义任务列表
     tasks = [
         {

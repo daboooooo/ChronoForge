@@ -111,7 +111,7 @@ def display_data(data):
         else:
             table.add_column(col, style="blue")
 
-    # 添加数据行
+    # 添加数据行-=
     for row in data['data'][-20:]:  # 只显示最后20条数据
         table_row = []
         for col in columns:

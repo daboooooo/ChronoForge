@@ -33,10 +33,6 @@ class BitcoinFGIDataSource(DataSourceBase):
         """返回数据源名称"""
         return self.__class__.__name__.replace("DataSource", "")
 
-    def __del__(self):
-        """析构函数，清理资源"""
-        pass
-
     async def __aenter__(self):
         """异步上下文管理器的进入方法"""
         return self

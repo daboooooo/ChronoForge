@@ -67,43 +67,7 @@ class RedisStorage(StorageBase):
             self._connection = None
             logger.debug("关闭了Redis连接")
 
-    def __del__(self):
-        """析构函数，清理资源"""
-        try:
-            # 同步地关闭连接，避免异步析构函数的警告
-            if self._connection:
-                try:
-                    # 首先尝试使用当前事件循环（如果存在且未关闭）
-                    loop = asyncio.get_event_loop()
-                    if not loop.is_closed():
-                        # 创建task并同步运行
-                        task = loop.create_task(self._close())
-                        # 等待task完成，但不阻塞过长时间
-                        loop.run_until_complete(asyncio.wait_for(task, timeout=1.0))
-                    else:
-                        # 当前循环已关闭，创建新的循环
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        try:
-                            loop.run_until_complete(self._close())
-                        finally:
-                            loop.close()
-                except RuntimeError:
-                    # 没有事件循环，创建新的循环
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        loop.run_until_complete(self._close())
-                    finally:
-                        loop.close()
-                except Exception:
-                    # 忽略所有其他错误，避免在析构时崩溃
-                    pass
-                finally:
-                    self._connection = None
-        except Exception:
-            # 忽略析构函数中的所有错误
-            pass
+
 
     async def __aenter__(self):
         """异步上下文管理器的进入方法"""

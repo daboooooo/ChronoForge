@@ -59,16 +59,28 @@ class DUCKDBStorage(StorageBase):
             self.connection = None
             logger.debug("关闭了DuckDB数据库连接")
 
-    def __del__(self):
-        """析构函数，清理资源"""
-        # 在析构函数中直接关闭连接，避免异步调用警告
-        if self.connection:
-            try:
-                self.connection.close()
-                self.connection = None
-                logger.debug("关闭了DuckDB数据库连接")
-            except Exception as e:
-                logger.warning("关闭数据库连接时出错: %s", str(e))
+    def __init__(self, config: Dict[str, Any] = None):
+        """
+        初始化DuckDB存储
+
+        Args:
+            config: 配置字典，包含数据库路径等参数
+        """
+        super().__init__(config)
+
+        # 数据库文件路径配置
+        self.db_path = Path(config.get("db_path", "./chronoforge.db"))
+        self.db_path = self.db_path.absolute()
+
+        # 确保数据库目录存在
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # 数据库连接
+        self.connection = None
+        
+
+    
+
 
     async def __aenter__(self):
         """异步上下文管理器的进入方法"""

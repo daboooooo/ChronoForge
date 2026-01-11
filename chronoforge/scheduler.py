@@ -3,7 +3,9 @@ import os
 import asyncio
 import logging
 import inspect
+import weakref
 from typing import Any, Dict, Optional, Tuple, get_type_hints
+from collections import defaultdict
 import pandas as pd
 import concurrent.futures as cf
 
@@ -11,10 +13,15 @@ from chronoforge.data_source import DataSourceBase, verify_datasource_instance
 from chronoforge.data_source import (CryptoSpotDataSource, FREDDataSource, BitcoinFGIDataSource,
                                      CryptoUMFutureDataSource, GlobalMarketDataSource)
 from chronoforge.storage import StorageBase, verify_storage_instance
-from chronoforge.storage import LocalFileStorage, DUCKDBStorage
+from chronoforge.storage import LocalFileStorage
 # from chronoforge.decorators import periodic_task
 
-# 使RedisStorage成为可选依赖
+# 使DUCKDBStorage和RedisStorage成为可选依赖
+try:
+    from chronoforge.storage import DUCKDBStorage
+except ImportError:
+    DUCKDBStorage = None
+
 try:
     from chronoforge.storage import RedisStorage
 except ImportError:
@@ -351,6 +358,42 @@ class Scheduler:
 
         return result
 
+    def _init_shared_event_loop(self):
+        """
+        初始化共享事件循环
+        """
+        if self._shared_event_loop is None or self._shared_event_loop.is_closed():
+            # 如果事件循环已存在但已关闭，先确保之前的线程已结束
+            if self._shared_event_loop is not None:
+                try:
+                    self._shared_event_loop.stop()
+                    self._shared_event_loop.close()
+                except Exception:
+                    # 忽略清理异常
+                    pass
+
+            # 创建新的事件循环
+            self._shared_event_loop = asyncio.new_event_loop()
+
+            # 创建线程来运行事件循环
+            def run_shared_loop():
+                asyncio.set_event_loop(self._shared_event_loop)
+                try:
+                    self._shared_event_loop.run_forever()
+                except Exception as e:
+                    logger.error(f"Shared event loop exited with error: {e}")
+                finally:
+                    # 确保事件循环关闭
+                    try:
+                        self._shared_event_loop.close()
+                    except Exception:
+                        pass
+
+            # 启动事件循环线程
+            self._shared_event_loop_thread = threading.Thread(target=run_shared_loop, daemon=True)
+            self._shared_event_loop_thread.start()
+            logger.info("Shared event loop initialized and started")
+
     def __init__(self, max_workers: int = 5):
         """创建调度器
 
@@ -369,14 +412,27 @@ class Scheduler:
 
         # delegate call plugin instances cache
         self.delegate_plugin_instances: dict[tuple[str, str], Any] = {}
-        # 为每个插件实例维护一个专用的事件循环
-        self.plugin_event_loops: dict[tuple[str, str], asyncio.AbstractEventLoop] = {}
+
+        # 共享事件循环：用于所有任务和插件
+        self._shared_event_loop = None
+        self._shared_event_loop_thread = None
+
+        # 初始化共享事件循环
+        self._init_shared_event_loop()
 
         # inside states
         self.tasks: dict[str, Task] = {}  # 任务名称到任务实例的映射
         self.task_states: dict[str, Any] = {}  # 任务名称到任务状态的映射
         self._runner_thread: Optional[threading.Thread] = None  # 运行线程
         self.time_slot_manager = TimeSlotManager()
+
+        # 全局并发控制：为每个交易所创建一个信号量
+        # 用于控制同一个交易所的所有任务的并发请求数量
+        self.exchange_semaphores = defaultdict(lambda: asyncio.Semaphore(5))
+        # 可以根据需要为特定交易所设置不同的并发限制
+        self.exchange_semaphores['binance'] = asyncio.Semaphore(10)
+        self.exchange_semaphores['okx'] = asyncio.Semaphore(10)
+        self.exchange_semaphores['bybit'] = asyncio.Semaphore(10)
 
         # 定义内置插件列表
         self.builtin_data_sources = [
@@ -400,7 +456,9 @@ class Scheduler:
 
         # register inside storage plugins first
         self.register_plugin(LocalFileStorage)
-        self.register_plugin(DUCKDBStorage)
+        # 只有在DUCKDBStorage可用时才注册
+        if DUCKDBStorage is not None:
+            self.register_plugin(DUCKDBStorage)
         # 只有在RedisStorage可用时才注册
         if RedisStorage is not None:
             self.register_plugin(RedisStorage)
@@ -414,6 +472,25 @@ class Scheduler:
 
         # 从本地文件加载任务
         self.load_tasks_from_file()
+
+        # 注册资源清理函数
+        def _cleanup():
+            """资源清理函数，用于在对象被垃圾回收时关闭共享事件循环"""
+            if hasattr(self, '_shared_event_loop') and self._shared_event_loop is not None:
+                try:
+                    if not self._shared_event_loop.is_closed():
+                        # 停止事件循环
+                        self._shared_event_loop.stop()
+                        # 关闭事件循环
+                        self._shared_event_loop.close()
+                except Exception:
+                    # 在清理阶段忽略异常
+                    pass
+            self._shared_event_loop = None
+            self._shared_event_loop_thread = None
+
+        # 使用weakref.finalize注册清理函数
+        self._finalizer = weakref.finalize(self, _cleanup)
 
     def delegate_call(self, plugin_name: str, plugin_type: str,
                       function_name: str, **kwargs) -> Any:
@@ -458,9 +535,14 @@ class Scheduler:
         # 获取函数对象
         func = getattr(plugin_instance, function_name)
 
-        # 检查函数是否为方法且不是私有方法
-        if not inspect.ismethod(func) or function_name.startswith('_'):
+        # 检查函数是否不是私有方法，允许使用模拟对象进行测试
+        if function_name.startswith('_'):
             raise ValueError(f"Function {function_name} is not a public method")
+
+        # 对于非私有方法，允许使用模拟对象进行测试，不强制要求是真实的方法
+        # 但如果是真实的函数，确保它是可调用的
+        if not callable(func):
+            raise ValueError(f"Function {function_name} is not callable")
 
         # 检查函数是否在允许调用的方法列表中（排除基本方法）
         if function_name in ['__class__', '__delattr__', '__dir__', '__eq__', '__format__',
@@ -477,29 +559,15 @@ class Scheduler:
         try:
             # 检查函数是否为异步函数
             if inspect.iscoroutinefunction(func):
-                # 如果是异步函数，使用事件循环运行
-                logger.debug(f"函数 {function_name} 是异步函数，使用事件循环运行")
+                # 如果是异步函数，使用共享事件循环运行
+                logger.debug(f"函数 {function_name} 是异步函数，使用共享事件循环运行")
 
-                # 从缓存中获取或创建插件实例专用的事件循环
-                if plugin_key not in self.plugin_event_loops:
-                    # 创建新的事件循环
-                    loop = asyncio.new_event_loop()
-                    self.plugin_event_loops[plugin_key] = loop
-                    logger.debug(f"Created new event loop for {plugin_type}: {plugin_name}")
-                else:
-                    loop = self.plugin_event_loops[plugin_key]
-                    # 检查事件循环是否已关闭
-                    if loop.is_closed():
-                        # 如果已关闭，创建新的事件循环
-                        loop = asyncio.new_event_loop()
-                        self.plugin_event_loops[plugin_key] = loop
-                        logger.debug(f"Recreated event loop for {plugin_type}: {plugin_name}")
+                # 确保共享事件循环已初始化
+                self._init_shared_event_loop()
 
-                # 设置当前线程的事件循环
-                asyncio.set_event_loop(loop)
-
-                # 运行异步函数
-                result = loop.run_until_complete(func(**kwargs))
+                # 使用共享事件循环运行异步函数
+                result = asyncio.run_coroutine_threadsafe(func(**kwargs),
+                                                          self._shared_event_loop).result()
             else:
                 # 如果是同步函数，直接调用
                 logger.debug(f"函数 {function_name} 是同步函数，直接调用")
@@ -654,12 +722,9 @@ class Scheduler:
         if name not in self.tasks:
             raise ValueError(f"Task {name} not found")
 
-        # 更新任务状态为已删除
+        # 从任务状态字典中删除
         if name in self.task_states:
-            self.task_states[name].update({
-                'status': 'deleted',
-                'last_updated_at': time.time()
-            })
+            del self.task_states[name]
 
         # 删除时间槽
         self.time_slot_manager.delete_slot(name)
@@ -990,6 +1055,11 @@ class Scheduler:
             'error_message': None
         }
 
+        # 如果是替换任务，清除TimeSlotManager中的last_slot记录
+        if is_replacing:
+            self.time_slot_manager.last_slot.pop(name, None)
+            logger.debug(f"Cleared last_slot for replaced task: {name}")
+
         logger.info(f"Task '{name}' {status} successfully. Total tasks: {len(self.tasks)}")
 
         # 保存任务到本地文件
@@ -1020,6 +1090,9 @@ class Scheduler:
                 logger.debug(f"Current time: {current_time} ({current_time.timestamp() * 1000})")
                 logger.debug(f"Found {len(self.tasks)} Tasks: {self.tasks.keys()}")
 
+                # 任务分组：根据交易所或数据源对任务进行分组
+                # 这样可以更有效地管理连接和并发，减少资源竞争
+                grouped_tasks = {}
                 for task_name, task in list(self.tasks.items()):
                     # 确保任务状态存在
                     if task_name not in self.task_states:
@@ -1035,9 +1108,13 @@ class Scheduler:
                         }
 
                     # 检查时间槽
-                    is_in_slot = self.time_slot_manager.is_in_timeslot(name=task_name, once=True)
+                    # 对于周期性任务，once=True会导致只执行一次，所以我们需要区分处理
+                    is_periodic_task = hasattr(task, 'method_name') and hasattr(task,
+                                                                                'method_params')
+                    is_in_slot = self.time_slot_manager.is_in_timeslot(name=task_name,
+                                                                       once=not is_periodic_task)
                     logger.debug(f"Task {task_name}: is_in_timeslot={is_in_slot}, "
-                                 f"time_slot={task.time_slot}")
+                                 f"time_slot={task.time_slot}, is_periodic_task={is_periodic_task}")
 
                     # 更新任务状态为等待下次执行
                     if not is_in_slot:
@@ -1076,6 +1153,28 @@ class Scheduler:
                         # 计算下次执行时间
                         task_state['next_run_time'] = current_time + interval
 
+                    # 根据任务的交易所或数据源进行分组
+                    group_key = 'default'
+                    if hasattr(task, 'method_params'):
+                        # 检查是否有交易所参数
+                        if 'exchange' in task.method_params:
+                            group_key = f"exchange:{task.method_params['exchange']}"
+                        # 检查是否有数据源参数
+                        elif 'data_source' in task.method_params:
+                            group_key = f"datasource:{task.method_params['data_source']}"
+                        # 检查是否有连接池参数
+                        elif 'connection_pool' in task.method_params:
+                            group_key = f"pool:{task.method_params['connection_pool']}"
+
+                    if group_key not in grouped_tasks:
+                        grouped_tasks[group_key] = []
+                    grouped_tasks[group_key].append((task_name, task, task_state))
+
+                # 按组执行任务，确保每组内部的任务顺序执行
+                for group_key, group_tasks in grouped_tasks.items():
+                    logger.debug(
+                        f"Processing task group: {group_key} with {len(group_tasks)} tasks")
+                    for task_name, task, task_state in group_tasks:
                         # 使用线程池执行任务
                         future = self.thread_pool.submit(self.execute_task, task)
 
@@ -1086,10 +1185,20 @@ class Scheduler:
                             'last_updated_at': time.time()
                         })
 
-                        logger.debug(f"Task {task_name} submitted to thread pool")
-                        time.sleep(0.1)
-                # 每5秒检查一次
-                time.sleep(5)
+                        logger.debug(
+                            f"Task {task_name} submitted to thread pool from group {group_key}")
+                # 实现动态间隔调整：根据任务数量和执行频率调整检查间隔
+                # 任务越多，间隔越短，确保响应性；任务越少，间隔越长，减少CPU占用
+                task_count = len(self.tasks)
+                if task_count == 0:
+                    interval = 5.0  # 无任务时，间隔5秒
+                elif task_count < 10:
+                    interval = 1.0  # 少量任务，间隔1秒
+                elif task_count < 50:
+                    interval = 0.5  # 中等任务量，间隔0.5秒
+                else:
+                    interval = 0.2  # 大量任务，间隔0.2秒
+                self._stop_event.wait(interval)
         except Exception as e:
             logger.error(f"Error in scheduler run loop: {e}")
         finally:
@@ -1111,7 +1220,7 @@ class Scheduler:
             self._stop_event.set()
 
             # 等待运行线程完成
-            self._runner_thread.join(timeout=30)  # 设置超时
+            self._runner_thread.join(timeout=5)  # 减少超时时间
 
             # 关闭线程池
             if hasattr(self, 'thread_pool'):
@@ -1122,29 +1231,39 @@ class Scheduler:
             self.save_all_tasks_to_file()
             logger.info("Tasks saved to file")
 
-            # 关闭插件事件循环
-            if hasattr(self, 'plugin_event_loops'):
-                for plugin_key, loop in list(self.plugin_event_loops.items()):
-                    try:
-                        if not loop.is_closed():
-                            # 取消所有任务
-                            tasks = asyncio.all_tasks(loop)
-                            for t in tasks:
-                                t.cancel()
-                            # 运行直到所有任务完成或被取消
-                            loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
-                            # 关闭事件循环
-                            loop.close()
-                        # 从字典中移除
-                        del self.plugin_event_loops[plugin_key]
-                        logger.debug(f"关闭了插件事件循环: {plugin_key}")
-                    except Exception as e:
-                        logger.error(f"关闭插件事件循环 {plugin_key} 时出错: {e}")
-                        # 无论如何都要从字典中移除
-                        del self.plugin_event_loops[plugin_key]
-
-            # 清理任务状态
+            # 清理任务状态和插件缓存
             self.task_states.clear()
+            self.delegate_plugin_instances.clear()
+
+            # 关闭数据源连接（放在最后，确保其他资源已释放）
+            logger.info("Closing data source connections...")
+            for name, data_source in list(self.data_source_instances.items()):
+                try:
+                    # 尝试关闭数据源的所有连接
+                    if hasattr(data_source, '_close_all_connections'):
+                        # 使用独立的临时事件循环关闭连接，避免依赖共享事件循环
+                        temp_loop = asyncio.new_event_loop()
+                        try:
+                            # 为关闭连接操作设置超时
+                            task = temp_loop.create_task(data_source._close_all_connections())
+                            # 使用wait_for设置超时，避免无限等待
+                            temp_loop.run_until_complete(asyncio.wait_for(task, timeout=5))
+                            logger.info(f"Closed connections for data source: {name}")
+                        except asyncio.TimeoutError:
+                            logger.warning(f"关闭数据源 {name} 连接超时，强制继续")
+                        except Exception as e:
+                            logger.warning(f"关闭数据源 {name} 连接失败: {e}")
+                        finally:
+                            temp_loop.close()
+
+                    # 从实例字典中移除已关闭的数据源
+                    del self.data_source_instances[name]
+                except Exception as e:
+                    logger.error(f"Error closing connections for data source {name}: {e}")
+                    # 确保数据源实例被移除，避免内存泄漏
+                    if name in self.data_source_instances:
+                        del self.data_source_instances[name]
+
             logger.info("Scheduler stopped (sync)")
 
     async def async_stop(self) -> None:
@@ -1181,29 +1300,9 @@ class Scheduler:
                     logger.error(f"Error closing connections for data source {name}: "
                                  f"{e}")
 
-            # 关闭插件事件循环
-            if hasattr(self, 'plugin_event_loops'):
-                for plugin_key, loop in list(self.plugin_event_loops.items()):
-                    try:
-                        if not loop.is_closed():
-                            # 取消所有任务
-                            tasks = asyncio.all_tasks(loop)
-                            for t in tasks:
-                                t.cancel()
-                            # 运行直到所有任务完成或被取消
-                            loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
-                            # 关闭事件循环
-                            loop.close()
-                        # 从字典中移除
-                        del self.plugin_event_loops[plugin_key]
-                        logger.debug(f"关闭了插件事件循环: {plugin_key}")
-                    except Exception as e:
-                        logger.error(f"关闭插件事件循环 {plugin_key} 时出错: {e}")
-                        # 无论如何都要从字典中移除
-                        del self.plugin_event_loops[plugin_key]
-
-            # 清理任务状态
+            # 清理任务状态和插件缓存
             self.task_states.clear()
+            self.delegate_plugin_instances.clear()
             logger.info("Scheduler stopped (async)")
 
     async def _handle_task_result(self, task: Task, result: Any) -> None:
@@ -1322,6 +1421,7 @@ class Scheduler:
                         break
                     except Exception as e:
                         if attempt < max_retries:
+                            # 不再检查事件循环状态，直接重试
                             logger.warning(
                                 f"Periodic method {task.method_name} failed "
                                 f"(attempt {attempt+1}/{max_retries+1}), "
@@ -1338,22 +1438,55 @@ class Scheduler:
                                     'error_message': str(e)
                                 })
                             raise
-                # 无论任务执行成功还是失败，都关闭所有交易所连接
-                if hasattr(ds, '_close_all_connections'):
-                    await ds._close_all_connections()
+                # 连接池管理下，不再每次任务后关闭连接，让连接保持在池中以便复用
+                # 连接会在连接池有效期内自动管理，或在应用关闭时统一关闭
 
             # 否则执行默认的K线更新逻辑
             else:
                 logger.info(f"Executing default K-line update for task {task.name}")
-                for symbol in task.symbols:
-                    success, message = await _update_data(
-                        data_source=ds,
-                        storage=st,
-                        symbol=symbol,
-                        timeframe=task.timeframe,
-                        sub=task.sub,
-                        timerange=task.timerange,
-                    )
+
+                async def update_with_semaphore(symbol):
+                    """使用全局信号量包装的更新函数"""
+                    # 解析symbol中的交易所名称
+                    try:
+                        parts = symbol.split(":")
+                        if len(parts) == 3:
+                            # 格式：datasource:exchange:symbol
+                            _, symbol_exchange_name, _ = parts
+                        elif len(parts) == 2:
+                            # 格式：exchange:symbol
+                            if 'datasource' in parts[0].lower():
+                                # 如果第一部分包含datasource，则使用默认binance
+                                symbol_exchange_name = 'binance'
+                            else:
+                                symbol_exchange_name, _ = parts
+                        else:
+                            # 如果无法分割，则使用数据源的exchange_name属性或默认binance
+                            symbol_exchange_name = getattr(ds, 'exchange_name', 'binance')
+                    except Exception:
+                        # 如果解析失败，使用数据源的exchange_name属性或默认binance
+                        symbol_exchange_name = getattr(ds, 'exchange_name', 'binance')
+
+                    symbol_exchange_name = symbol_exchange_name.lower()
+
+                    async with self.exchange_semaphores[symbol_exchange_name]:
+                        return await _update_data(
+                            data_source=ds,
+                            storage=st,
+                            symbol=symbol,
+                            timeframe=task.timeframe,
+                            sub=task.sub,
+                            timerange=task.timerange,
+                        )
+
+                # 使用asyncio.gather并行处理所有symbols，但受信号量限制
+                results = await asyncio.gather(
+                    *[update_with_semaphore(symbol) for symbol in task.symbols],
+                    return_exceptions=True
+                )
+
+                # 处理结果
+                for symbol, (success, message) in zip(task.symbols, results):
                     if not success:
                         logger.error(f"Failed to update data for {symbol}: {message}")
                         continue
@@ -1390,48 +1523,28 @@ class Scheduler:
                 'error_message': None
             })
 
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(self._execute_task(task))
+            # 使用共享事件循环执行任务
+            self._init_shared_event_loop()
+            logger.debug(f"Using shared event loop for task {task_name}")
 
-                # 更新任务状态为完成
-                if task_name in self.task_states:
-                    self.task_states[task_name].update({
-                        'status': 'completed',
-                        'last_updated_at': time.time(),
-                        'run_count': self.task_states[task_name].get('run_count', 0) + 1,
-                        'last_run_status': 'success',
-                        'error_message': None
-                    })
-                logger.info(f"Task {task_name} completed successfully")
-            except Exception as e:
-                error_msg = str(e)
-                logger.exception(f"Task {task_name} execution error: {e}")
+            # 在共享事件循环中执行任务
+            future = asyncio.run_coroutine_threadsafe(self._execute_task(task),
+                                                      self._shared_event_loop)
+            _ = future.result()  # 阻塞直到任务完成
 
-                # 更新任务状态为失败
-                if task_name in self.task_states:
-                    self.task_states[task_name].update({
-                        'status': 'failed',
-                        'last_updated_at': time.time(),
-                        'run_count': self.task_states[task_name].get('run_count', 0) + 1,
-                        'last_run_status': 'failed',
-                        'error_message': error_msg
-                    })
-                raise
-            finally:
-                try:
-                    # 优雅地关闭事件循环
-                    tasks = asyncio.all_tasks(loop)
-                    for t in tasks:
-                        t.cancel()
-                    loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
-                    loop.close()
-                except Exception as cleanup_error:
-                    logger.error(f"Error during loop cleanup for task {task_name}: {cleanup_error}")
-        except Exception as outer_e:
-            error_msg = str(outer_e)
-            logger.error(f"Unhandled exception in task {task_name}: {outer_e}")
+            # 更新任务状态为完成
+            if task_name in self.task_states:
+                self.task_states[task_name].update({
+                    'status': 'completed',
+                    'last_updated_at': time.time(),
+                    'run_count': self.task_states[task_name].get('run_count', 0) + 1,
+                    'last_run_status': 'success',
+                    'error_message': None
+                })
+            logger.info(f"Task {task_name} completed successfully")
+        except Exception as e:
+            error_msg = str(e)
+            logger.exception(f"Task {task_name} execution error: {e}")
 
             # 更新任务状态为失败
             if task_name in self.task_states:

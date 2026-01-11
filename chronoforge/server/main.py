@@ -1,3 +1,4 @@
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -5,6 +6,10 @@ from chronoforge.scheduler import Scheduler
 from .api import tasks_router, plugins_router, status_router
 from .dependencies import set_scheduler, get_scheduler_instance
 from chronoforge import __version__
+
+# 设置日志级别
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager

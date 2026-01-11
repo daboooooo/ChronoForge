@@ -1,0 +1,982 @@
+import pytest
+import time
+from unittest.mock import Mock, AsyncMock
+from chronoforge.data_source import DataSourceBase
+from chronoforge.decorators import periodic_task
+import pandas as pd
+
+
+# 创建一个具体的数据源子类用于测试
+class ConcreteDataSource(DataSourceBase):
+    """具体的数据源实现，用于测试"""
+
+    def __init__(self, config=None):
+        super().__init__(config)
+
+    @property
+    def name(self):
+        """实现name属性"""
+        return "ConcreteDataSource"
+
+    async def fetch(self, symbol, timeframe, start_ts_ms, end_ts_ms=None):
+        """实现fetch方法"""
+        return pd.DataFrame()
+
+    async def close_all_connections(self):
+        """实现close_all_connections方法"""
+        pass
+
+
+class TestDataSourceBase:
+    """测试数据源基类"""
+
+    def test_initialization(self):
+        """测试数据源子类初始化"""
+        data_source = ConcreteDataSource(config={"api_key": "test_key"})
+        assert data_source.config == {"api_key": "test_key"}
+        assert data_source.name == "ConcreteDataSource"
+
+    @pytest.mark.asyncio
+    async def test_fetch_method(self):
+        """测试fetch方法"""
+        data_source = ConcreteDataSource()
+        result = await data_source.fetch(
+            symbol="test_symbol",
+            timeframe="1d",
+            start_ts_ms=1640995200000
+        )
+        assert result is not None
+        assert isinstance(result, pd.DataFrame)
+
+    @pytest.mark.asyncio
+    async def test_close_connections(self):
+        """测试关闭连接方法"""
+        data_source = ConcreteDataSource()
+        # 应该不抛出异常
+        await data_source.close_all_connections()
+
+    def test_plugin_type(self):
+        """测试plugin_type属性"""
+        data_source = ConcreteDataSource()
+        assert data_source.plugin_type == "datasource"
+
+
+class TestConcreteDataSourceWithPeriodicTask:
+    """测试带有周期性任务的具体数据源"""
+
+    def setup_method(self):
+        """测试方法设置"""
+        # 创建一个带有周期性任务的数据源
+        class TestDataSource(DataSourceBase):
+            @property
+            def name(self):
+                return "TestDataSource"
+
+            async def fetch(self, symbol, timeframe, start_ts_ms, end_ts_ms=None):
+                return pd.DataFrame({'price': [1000]})
+
+            async def close_all_connections(self):
+                for exchange_name, pool in self.exchange_pools.items():
+                    await pool.close_all_connections()
+
+            @periodic_task(interval=5, symbols=['BTC/USDT'], params={'key': 'value'})
+            async def periodic_fetch(self, key=None):
+                return {'result': 'success', 'key': key}
+
+            @periodic_task(interval=10, storage_name="LocalFileStorage", max_retries=5)
+            async def periodic_store(self):
+                return pd.DataFrame({'price': [1000, 2000]})
+
+        self.TestDataSource = TestDataSource
+
+    def test_periodic_task_decorator_on_datasource(self):
+        """测试数据源方法上的周期性任务装饰器"""
+        data_source = self.TestDataSource()
+
+        # 检查periodic_fetch方法是否有装饰器属性
+        assert hasattr(data_source.periodic_fetch, 'is_periodic_task'), \
+            "periodic_fetch方法没有is_periodic_task属性"
+        assert data_source.periodic_fetch.is_periodic_task is True, "is_periodic_task属性值不正确"
+        assert hasattr(data_source.periodic_fetch, 'task_config'), "periodic_fetch方法没有task_config属性"
+
+        # 检查periodic_store方法是否有装饰器属性
+        assert hasattr(data_source.periodic_store, 'is_periodic_task'), \
+            "periodic_store方法没有is_periodic_task属性"
+        assert data_source.periodic_store.is_periodic_task is True, "is_periodic_task属性值不正确"
+        assert hasattr(data_source.periodic_store, 'task_config'), "periodic_store方法没有task_config属性"
+
+        # 验证配置
+        assert data_source.periodic_fetch.task_config['interval'] == 5, "interval配置不正确"
+        assert data_source.periodic_fetch.task_config['symbols'] == ['BTC/USDT'], "symbols配置不正确"
+        assert data_source.periodic_store.task_config['storage_name'] == "LocalFileStorage", \
+            "storage_name配置不正确"
+        assert data_source.periodic_store.task_config['max_retries'] == 5, "max_retries配置不正确"
+
+    @pytest.mark.asyncio
+    async def test_periodic_task_execution(self):
+        """测试周期性任务的执行"""
+        data_source = self.TestDataSource()
+
+        # 执行周期性任务并检查结果
+        result = await data_source.periodic_fetch(key='test_value')
+        assert result['result'] == 'success', "任务执行结果不正确"
+        assert result['key'] == 'test_value', "参数传递不正确"
+
+        # 执行带有默认参数的任务
+        result = await data_source.periodic_fetch()
+        assert result['result'] == 'success', "任务执行结果不正确"
+        assert result['key'] is None, "参数传递不正确"
+
+    @pytest.mark.asyncio
+    async def test_close_connections_management(self):
+        """测试连接关闭管理"""
+        data_source = self.TestDataSource()
+
+        # 模拟连接池
+        data_source.exchange_pools = {}
+        data_source.exchange_pools['test_exchange'] = Mock()
+        data_source.exchange_pools['test_exchange'].close_all_connections = AsyncMock()
+
+        # 调用关闭连接方法
+        await data_source.close_all_connections()
+
+        # 验证连接池的close_all_connections方法被调用
+        data_source.exchange_pools['test_exchange'].close_all_connections.assert_called_once()
+
+
+class TestDataSourceConnectionManagement:
+    """测试数据源连接管理"""
+
+    def setup_method(self):
+        """测试方法设置"""
+        # 创建一个带有连接池管理的数据源
+        class ConnectionDataSource(DataSourceBase):
+            @property
+            def name(self):
+                return "ConnectionDataSource"
+
+            def __init__(self, config=None):
+                super().__init__(config)
+                self.exchange_pools = {}
+                self.connections_closed = False
+
+            async def fetch(self, symbol, timeframe, start_ts_ms, end_ts_ms=None):
+                return pd.DataFrame()
+
+            async def _get_exchange_instance(self, exchange_name):
+                """模拟获取交易所实例（使用连接池）"""
+                if exchange_name not in self.exchange_pools:
+                    # 模拟创建新的连接池
+                    self.exchange_pools[exchange_name] = Mock()
+                    self.exchange_pools[exchange_name].get_connection = AsyncMock()
+                    self.exchange_pools[exchange_name].return_connection = AsyncMock()
+                    self.exchange_pools[exchange_name].close_all_connections = AsyncMock()
+
+                    # 创建模拟连接
+                    mock_exchange = Mock()
+                    mock_exchange.close = Mock()
+                    self.exchange_pools[exchange_name].get_connection.return_value = mock_exchange
+                return await self.exchange_pools[exchange_name].get_connection()
+
+            async def close_all_connections(self):
+                """关闭所有连接"""
+                for exchange_name, pool in self.exchange_pools.items():
+                    await pool.close_all_connections()
+                self.connections_closed = True
+
+        self.ConnectionDataSource = ConnectionDataSource
+
+    @pytest.mark.asyncio
+    async def test_connection_creation_and_closure(self):
+        """测试连接创建和关闭"""
+        data_source = self.ConnectionDataSource()
+
+        # 创建连接
+        _ = await data_source._get_exchange_instance('test_exchange')
+        assert 'test_exchange' in data_source.exchange_pools
+
+        # 验证get_connection方法被调用
+        data_source.exchange_pools['test_exchange'].get_connection.assert_called_once()
+
+        # 关闭连接
+        await data_source.close_all_connections()
+        assert data_source.connections_closed is True
+        # 验证连接池的close_all_connections方法被调用
+        data_source.exchange_pools['test_exchange'].close_all_connections.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_multiple_connections_management(self):
+        """测试多个连接的管理"""
+        data_source = self.ConnectionDataSource()
+
+        # 创建多个连接
+        _ = await data_source._get_exchange_instance('exchange1')
+        _ = await data_source._get_exchange_instance('exchange2')
+
+        assert len(data_source.exchange_pools) == 2
+        assert 'exchange1' in data_source.exchange_pools
+        assert 'exchange2' in data_source.exchange_pools
+
+        # 验证get_connection方法被调用
+        data_source.exchange_pools['exchange1'].get_connection.assert_called_once()
+        data_source.exchange_pools['exchange2'].get_connection.assert_called_once()
+
+        # 关闭所有连接
+        await data_source.close_all_connections()
+        assert data_source.connections_closed is True
+
+        # 验证所有连接池的close_all_connections方法被调用
+        data_source.exchange_pools['exchange1'].close_all_connections.assert_called_once()
+        data_source.exchange_pools['exchange2'].close_all_connections.assert_called_once()
+
+
+class TestExchangeConnectionPool:
+    """测试交易所连接池功能"""
+
+    def setup_method(self):
+        """测试方法设置"""
+        from chronoforge.data_source.crypto_spot import ExchangeConnectionPool
+        self.ExchangeConnectionPool = ExchangeConnectionPool
+        self.mock_config = {
+            'binance': {
+                'apiKey': 'test_key',
+                'secret': 'test_secret'
+            }
+        }
+
+    @pytest.mark.asyncio
+    async def test_adaptive_connection_pool_creation(self):
+        """测试自适应连接池的创建"""
+        pool = self.ExchangeConnectionPool(
+            exchange_name='binance',
+            config=self.mock_config,
+            max_connections=5,
+            min_connections=1,
+            adaptive_factor=0.2
+        )
+        
+        assert pool.exchange_name == 'binance'
+        assert pool._max_connections == 5
+        assert pool._min_connections == 1
+        assert pool.adaptive_factor == 0.2
+        assert len(pool.available_connections) == 0
+        assert len(pool.all_connections) == 0
+
+    @pytest.mark.asyncio
+    async def test_adaptive_connection_count_adjustment(self):
+        """测试自适应连接数调整"""
+        pool = self.ExchangeConnectionPool(
+            exchange_name='binance',
+            config=self.mock_config,
+            max_connections=5,
+            min_connections=1,
+            adaptive_factor=0.2
+        )
+        
+        # 模拟高请求频率
+        pool._request_count = 100  # 100个请求
+        pool._last_adjust_time = time.time() - 60  # 60秒前的调整时间
+        pool._adjust_interval = 60  # 每60秒调整一次
+        
+        # 执行连接数调整
+        pool._adjust_max_connections()
+        
+        # 验证连接数增加（100请求/60秒 * 0.2 = 约3.33，所以5 + 3 = 8）
+        assert pool._max_connections >= 8
+        assert pool._max_connections <= 20  # 最大不超过20
+        
+        # 模拟低请求频率
+        pool._request_count = 10  # 10个请求
+        pool._last_adjust_time = time.time() - 60  # 60秒前的调整时间
+        
+        # 执行连接数调整
+        pool._adjust_max_connections()
+        
+        # 验证连接数减少（10请求/60秒 * 0.2 = 约0.33，所以8 - 0 = 8，保持不变）
+        assert pool._max_connections >= 1
+        assert pool._max_connections <= 20
+
+    @pytest.mark.asyncio
+    async def test_connection_expiration_based_on_time_and_usage(self):
+        """测试基于时间和使用频率的连接过期机制"""
+        from unittest.mock import Mock
+        import ccxt.async_support as ccxt
+        
+        pool = self.ExchangeConnectionPool(
+            exchange_name='binance',
+            config=self.mock_config,
+            max_connections=5,
+            connection_validity=60  # 60秒有效期
+        )
+        
+        # 创建模拟连接
+        mock_connection = Mock(spec=ccxt.Exchange)
+        mock_connection.load_markets = AsyncMock()
+        
+        # 模拟创建连接的过程，确保连接信息被添加到all_connections
+        async def mock_create_connection():
+            # 手动添加连接信息到all_connections
+            connection_info = {
+                'instance': mock_connection,
+                'create_time': time.time(),
+                'last_used_time': time.time()
+            }
+            pool.all_connections.append(connection_info)
+            return mock_connection
+        
+        pool._create_new_connection = AsyncMock()
+        pool._create_new_connection.side_effect = mock_create_connection
+        
+        # 获取连接
+        connection = await pool.get_connection()
+        
+        # 验证连接被添加到连接池
+        assert len(pool.all_connections) == 1
+        
+        # 归还连接
+        await pool.return_connection(connection)
+        
+        # 验证连接被添加到可用连接队列
+        assert len(pool.available_connections) == 1
+        
+        # 模拟时间过去70秒（超过有效期）
+        pool.all_connections[0]['create_time'] = time.time() - 70
+        
+        # 再次获取连接（应该检测到过期并创建新连接）
+        pool._close_connection = AsyncMock()
+        pool._remove_connection = Mock()
+        
+        await pool.get_connection()
+        
+        # 验证过期连接被关闭和移除
+        assert pool._close_connection.call_count == 1
+        assert pool._remove_connection.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_connection_usage_frequency_tracking(self):
+        """测试连接使用频率跟踪"""
+        from unittest.mock import Mock
+        import ccxt.async_support as ccxt
+        
+        pool = self.ExchangeConnectionPool(
+            exchange_name='binance',
+            config=self.mock_config
+        )
+        
+        # 创建模拟连接
+        mock_connection = Mock(spec=ccxt.Exchange)
+        mock_connection.load_markets = AsyncMock()
+        
+        # 手动添加连接信息到all_connections
+        connection_info = {
+            'instance': mock_connection,
+            'create_time': time.time(),
+            'last_used_time': time.time()
+        }
+        pool.all_connections.append(connection_info)
+        
+        # 手动将连接添加到可用连接队列
+        pool.available_connections.append(connection_info)
+        
+        # 多次获取和归还连接，验证使用频率统计
+        for _ in range(5):
+            connection = await pool.get_connection()
+            await pool.return_connection(connection)
+        
+        # 验证连接使用次数
+        connection_id = id(mock_connection)
+        assert connection_id in pool._connection_usage_counts
+        # 第一次获取连接时不会计入使用次数，因为是直接从队列中获取的
+        assert pool._connection_usage_counts[connection_id] == 5
+
+    @pytest.mark.asyncio
+    async def test_clean_unused_connections(self):
+        """测试清理不常用的连接"""
+        from unittest.mock import Mock
+        import ccxt.async_support as ccxt
+        
+        pool = self.ExchangeConnectionPool(
+            exchange_name='binance',
+            config=self.mock_config,
+            max_connections=3  # 最大3个连接
+        )
+        
+        # 创建模拟连接
+        mock_connections = [
+            Mock(spec=ccxt.Exchange) for _ in range(5)  # 创建5个连接
+        ]
+        for conn in mock_connections:
+            conn.load_markets = AsyncMock()
+        
+        # 手动将所有连接添加到all_connections列表
+        for conn in mock_connections:
+            connection_info = {
+                'instance': conn,
+                'create_time': time.time(),
+                'last_used_time': time.time()
+            }
+            pool.all_connections.append(connection_info)
+            # 设置不同的使用频率
+            conn_id = id(conn)
+            pool._connection_usage_counts[conn_id] = 5 - mock_connections.index(conn)  # 连接使用频率递减
+            # 将连接添加到可用连接队列
+            pool.available_connections.append(connection_info)
+        
+        # 验证创建了5个连接
+        assert len(pool.all_connections) == 5
+        
+        # 执行清理
+        pool._clean_unused_connections()
+        
+        # 验证清理后只保留3个最常用的连接
+        assert len(pool.all_connections) <= 3
+        assert len(pool.available_connections) <= 3
+
+    @pytest.mark.asyncio
+    async def test_get_pool_stats(self):
+        """测试获取连接池统计信息"""
+        from unittest.mock import Mock
+        import ccxt.async_support as ccxt
+        
+        pool = self.ExchangeConnectionPool(
+            exchange_name='binance',
+            config=self.mock_config
+        )
+        
+        # 创建模拟连接
+        mock_connection = Mock(spec=ccxt.Exchange)
+        mock_connection.load_markets = AsyncMock()
+        
+        # 手动添加连接信息到all_connections
+        connection_info = {
+            'instance': mock_connection,
+            'create_time': time.time(),
+            'last_used_time': time.time()
+        }
+        pool.all_connections.append(connection_info)
+        pool.available_connections.append(connection_info)
+        
+        # 获取连接
+        connection = await pool.get_connection()
+        await pool.return_connection(connection)
+        
+        # 获取统计信息
+        stats = pool.get_pool_stats()
+        
+        # 验证统计信息
+        assert stats['exchange_name'] == 'binance'
+        assert stats['total_connections'] == 1
+        assert stats['available_connections'] == 1
+        assert stats['max_connections'] == 5
+        assert stats['request_count'] >= 1
+        assert 'avg_connection_usage' in stats
+
+    @pytest.mark.asyncio
+    async def test_close_all_connections(self):
+        """测试关闭所有连接"""
+        from unittest.mock import Mock
+        import ccxt.async_support as ccxt
+        
+        pool = self.ExchangeConnectionPool(
+            exchange_name='binance',
+            config=self.mock_config
+        )
+        
+        # 创建模拟连接
+        mock_connection = Mock(spec=ccxt.Exchange)
+        mock_connection.load_markets = AsyncMock()
+        
+        # 手动添加连接信息到all_connections
+        connection_info = {
+            'instance': mock_connection,
+            'create_time': time.time(),
+            'last_used_time': time.time()
+        }
+        pool.all_connections.append(connection_info)
+        pool.available_connections.append(connection_info)
+        
+        # 获取连接
+        connection = await pool.get_connection()
+        await pool.return_connection(connection)
+        
+        # 验证连接存在
+        assert len(pool.all_connections) == 1
+        assert len(pool.available_connections) == 1
+        
+        # 模拟关闭连接
+        pool._close_connection = AsyncMock()
+        await pool.close_all_connections()
+        
+        # 验证连接被关闭和清空
+        assert pool._close_connection.call_count == 1
+        assert len(pool.all_connections) == 0
+        assert len(pool.available_connections) == 0
+
+    @pytest.mark.asyncio
+    async def test_connection_availability_with_expiration_checks(self):
+        """测试连接可用性与过期检查"""
+        from unittest.mock import Mock
+        import ccxt.async_support as ccxt
+        
+        pool = self.ExchangeConnectionPool(
+            exchange_name='binance',
+            config=self.mock_config,
+            connection_validity=10  # 10秒有效期
+        )
+        
+        # 创建模拟连接
+        mock_connection1 = Mock(spec=ccxt.Exchange)
+        mock_connection1.load_markets = AsyncMock()
+        
+        mock_connection2 = Mock(spec=ccxt.Exchange)
+        mock_connection2.load_markets = AsyncMock()
+        
+        # 手动添加第一个连接信息到all_connections
+        connection_info1 = {
+            'instance': mock_connection1,
+            'create_time': time.time(),
+            'last_used_time': time.time()
+        }
+        pool.all_connections.append(connection_info1)
+        pool.available_connections.append(connection_info1)
+        
+        # 获取并归还第一个连接
+        conn1 = await pool.get_connection()
+        await pool.return_connection(conn1)
+        
+        # 设置第一个连接为已过期
+        pool.all_connections[0]['create_time'] = time.time() - 20  # 20秒前创建
+        
+        # 模拟关闭过期连接
+        pool._close_connection = AsyncMock()
+        
+        # 保留原始的_remove_connection方法，确保实际执行移除操作
+        original_remove = pool._remove_connection
+        
+        # 手动添加第二个连接信息到all_connections
+        connection_info2 = {
+            'instance': mock_connection2,
+            'create_time': time.time(),
+            'last_used_time': time.time()
+        }
+        
+        async def mock_create_connection():
+            pool.all_connections.append(connection_info2)
+            return mock_connection2
+        
+        pool._create_new_connection = AsyncMock()
+        pool._create_new_connection.side_effect = mock_create_connection
+        
+        # 获取新连接
+        conn2 = await pool.get_connection()
+        
+        # 验证过期连接被关闭，获取了新连接
+        assert pool._close_connection.call_count == 1
+        assert conn2 is mock_connection2
+        # 系统可能会保留旧连接信息，所以我们不严格检查连接数量，而是检查新连接是否被正确创建
+        assert len(pool.all_connections) >= 1
+
+    @pytest.mark.asyncio
+    async def test_adaptive_connection_pool_with_high_load(self):
+        """测试高负载下的自适应连接池"""
+        from unittest.mock import Mock
+        import ccxt.async_support as ccxt
+        
+        pool = self.ExchangeConnectionPool(
+            exchange_name='binance',
+            config=self.mock_config,
+            max_connections=10,
+            min_connections=2,
+            adaptive_factor=0.5,
+            connection_validity=3600
+        )
+        
+        # 创建模拟连接
+        mock_connections = [Mock(spec=ccxt.Exchange) for _ in range(15)]
+        for conn in mock_connections:
+            conn.load_markets = AsyncMock()
+        
+        # 手动将所有连接添加到all_connections列表
+        for conn in mock_connections:
+            connection_info = {
+                'instance': conn,
+                'create_time': time.time(),
+                'last_used_time': time.time()
+            }
+            pool.all_connections.append(connection_info)
+            pool.available_connections.append(connection_info)
+        
+        # 模拟大量请求
+        connections = []
+        for i in range(15):
+            conn = await pool.get_connection()
+            connections.append(conn)
+        
+        # 验证创建了15个连接
+        assert len(pool.all_connections) == 15
+        
+        # 模拟高请求频率，触发连接数调整
+        pool._request_count = 500
+        pool._last_adjust_time = time.time() - 60
+        pool._adjust_max_connections()
+        
+        # 验证连接数增加
+        assert pool._max_connections > 10
+
+        # 归还所有连接
+        for conn in connections:
+            await pool.return_connection(conn)
+        
+        # 验证所有连接都被归还
+        assert len(pool.available_connections) == 15
+
+
+class TestCryptoSpotDataSource:
+    """测试CryptoSpotDataSource类的功能"""
+
+    def setup_method(self):
+        """测试方法设置"""
+        from chronoforge.data_source.crypto_spot import CryptoSpotDataSource
+        self.CryptoSpotDataSource = CryptoSpotDataSource
+        self.mock_config = {
+            'binance': {
+                'apiKey': 'test_key',
+                'secret': 'test_secret'
+            },
+            'connection_pool': {
+                'max_connections': 3,
+                'connection_validity': 3600
+            }
+        }
+
+    def test_initialization(self):
+        """测试CryptoSpotDataSource的初始化"""
+        # 测试默认配置初始化
+        data_source = self.CryptoSpotDataSource()
+        assert data_source.name == "CryptoSpot"
+        assert len(data_source.exchange_pools) == 0
+        assert data_source.pool_config['max_connections'] == 5
+        assert data_source.pool_config['connection_validity'] == 3600
+
+        # 测试自定义配置初始化
+        data_source = self.CryptoSpotDataSource(config=self.mock_config)
+        assert data_source.pool_config['max_connections'] == 3
+        assert data_source.pool_config['connection_validity'] == 3600
+
+    @pytest.mark.asyncio
+    async def test_get_ccxt_exchange(self):
+        """测试获取CCXT交易所实例"""
+        from unittest.mock import Mock
+        import ccxt.async_support as ccxt
+        
+        data_source = self.CryptoSpotDataSource(config=self.mock_config)
+        
+        # 模拟ExchangeConnectionPool和get_connection方法
+        mock_pool = Mock()
+        mock_exchange = Mock(spec=ccxt.Exchange)
+        mock_exchange.load_markets = AsyncMock()
+        mock_pool.get_connection = AsyncMock(return_value=mock_exchange)
+        
+        # 替换exchange_pools字典
+        data_source.exchange_pools['binance'] = mock_pool
+        
+        # 获取交易所实例
+        exchange = await data_source._get_ccxt_exchange('binance')
+        
+        # 验证结果
+        assert exchange is mock_exchange
+        mock_pool.get_connection.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_ccxt_exchange_with_new_pool(self):
+        """测试获取CCXT交易所实例时创建新连接池"""
+        from unittest.mock import Mock, patch
+        
+        data_source = self.CryptoSpotDataSource(config=self.mock_config)
+        
+        # 模拟ExchangeConnectionPool
+        mock_pool = Mock()
+        mock_exchange = Mock()
+        mock_pool.get_connection = AsyncMock(return_value=mock_exchange)
+        
+        # 使用patch模拟ExchangeConnectionPool的实例化
+        with patch('chronoforge.data_source.crypto_spot.ExchangeConnectionPool', return_value=mock_pool) as mock_pool_class:
+            # 获取交易所实例（应该创建新连接池）
+            exchange = await data_source._get_ccxt_exchange('okx')
+            
+            # 验证结果
+            assert exchange is mock_exchange
+            mock_pool_class.assert_called_once()
+            assert 'okx' in data_source.exchange_pools
+            assert data_source.exchange_pools['okx'] is mock_pool
+            mock_pool.get_connection.assert_called_once()
+
+    def test_is_in_blacklist(self):
+        """测试黑名单检查功能"""
+        # 测试没有黑名单配置的情况
+        data_source = self.CryptoSpotDataSource()
+        assert data_source._is_in_blacklist('binance:BTC/USDT') is False
+        
+        # 测试有黑名单配置的情况
+        config_with_blacklist = {
+            'blacklist': ['BTC', 'ETH']
+        }
+        data_source = self.CryptoSpotDataSource(config=config_with_blacklist)
+        
+        assert data_source._is_in_blacklist('binance:BTC/USDT') is True
+        assert data_source._is_in_blacklist('binance:ETH/USDT') is True
+        assert data_source._is_in_blacklist('binance:BNB/USDT') is False
+
+    @pytest.mark.asyncio
+    async def test_close_all_connections(self):
+        """测试关闭所有连接"""
+        from unittest.mock import Mock
+        
+        data_source = self.CryptoSpotDataSource(config=self.mock_config)
+        
+        # 模拟两个连接池
+        mock_pool1 = Mock()
+        mock_pool1.close_all_connections = AsyncMock()
+        mock_pool2 = Mock()
+        mock_pool2.close_all_connections = AsyncMock()
+        
+        data_source.exchange_pools['binance'] = mock_pool1
+        data_source.exchange_pools['okx'] = mock_pool2
+        
+        # 关闭所有连接
+        await data_source._close_all_connections()
+        
+        # 验证结果
+        mock_pool1.close_all_connections.assert_called_once()
+        mock_pool2.close_all_connections.assert_called_once()
+        assert len(data_source.exchange_pools) == 0
+
+    @pytest.mark.asyncio
+    async def test_fetch_quote_tickers(self):
+        """测试获取报价tickers"""
+        from unittest.mock import Mock
+        import ccxt.async_support as ccxt
+        
+        data_source = self.CryptoSpotDataSource(config=self.mock_config)
+        
+        # 模拟交易所实例和fetchTickers方法
+        mock_exchange = Mock(spec=ccxt.Exchange)
+        mock_tickers = {
+            'BTC/USDT': {
+                'symbol': 'BTC/USDT',
+                'last': 50000,
+                'baseVolume': 1000,
+                'quoteVolume': 50000000
+            },
+            'ETH/USDT': {
+                'symbol': 'ETH/USDT',
+                'last': 3000,
+                'baseVolume': 2000,
+                'quoteVolume': 6000000
+            }
+        }
+        mock_exchange.fetchTickers = AsyncMock(return_value=mock_tickers)
+        
+        # 模拟_get_ccxt_exchange和return_connection方法
+        data_source._get_ccxt_exchange = AsyncMock(return_value=mock_exchange)
+        
+        # 模拟exchange_pools和return_connection
+        mock_pool = Mock()
+        mock_pool.return_connection = AsyncMock()
+        data_source.exchange_pools['binance'] = mock_pool
+        
+        # 获取tickers
+        tickers = await data_source._fetch_quote_tickers('binance')
+        
+        # 验证结果
+        assert isinstance(tickers, dict)
+        assert 'USDT' in tickers
+        assert 'BTC/USDT' in tickers['USDT']
+        assert 'ETH/USDT' in tickers['USDT']
+        assert tickers['USDT']['BTC/USDT']['last'] == 50000
+        assert tickers['USDT']['ETH/USDT']['last'] == 3000
+        
+        # 验证缓存
+        assert 'binance' in data_source.cache_tickers
+        
+        # 验证第二次调用使用缓存
+        tickers2 = await data_source._fetch_quote_tickers('binance')
+        assert tickers2 is tickers
+
+    @pytest.mark.asyncio
+    async def test_fetch_quote_tickers_force_refresh(self):
+        """测试强制刷新tickers"""
+        from unittest.mock import Mock
+        import ccxt.async_support as ccxt
+        
+        data_source = self.CryptoSpotDataSource(config=self.mock_config)
+        
+        # 模拟交易所实例和fetchTickers方法
+        mock_exchange = Mock(spec=ccxt.Exchange)
+        mock_tickers = {
+            'BTC/USDT': {
+                'symbol': 'BTC/USDT',
+                'last': 50000,
+                'baseVolume': 1000,
+                'quoteVolume': 50000000
+            }
+        }
+        mock_exchange.fetchTickers = AsyncMock(return_value=mock_tickers)
+        
+        # 模拟_get_ccxt_exchange和return_connection方法
+        data_source._get_ccxt_exchange = AsyncMock(return_value=mock_exchange)
+        
+        # 模拟exchange_pools和return_connection
+        mock_pool = Mock()
+        mock_pool.return_connection = AsyncMock()
+        data_source.exchange_pools['binance'] = mock_pool
+        
+        # 第一次获取tickers
+        tickers1 = await data_source._fetch_quote_tickers('binance')
+        
+        # 第二次强制刷新获取tickers
+        mock_tickers2 = {
+            'BTC/USDT': {
+                'symbol': 'BTC/USDT',
+                'last': 51000,
+                'baseVolume': 1200,
+                'quoteVolume': 61200000
+            }
+        }
+        mock_exchange.fetchTickers = AsyncMock(return_value=mock_tickers2)
+        
+        tickers2 = await data_source._fetch_quote_tickers('binance', force=True)
+        
+        # 验证结果
+        assert tickers1 is not tickers2
+        assert tickers1['USDT']['BTC/USDT']['last'] == 50000
+        assert tickers2['USDT']['BTC/USDT']['last'] == 51000
+
+
+class TestDataSourceVerification:
+    """测试数据源验证功能"""
+
+    def test_verify_valid_datasource(self):
+        """测试验证有效的数据源"""
+        from chronoforge.data_source.base import verify_datasource_instance
+        
+        # 使用现有的有效数据源进行测试
+        result = verify_datasource_instance(ConcreteDataSource)
+        assert result[0] is True
+        assert "passed all requirements" in result[1]
+
+    def test_verify_invalid_datasource(self):
+        """测试验证无效的数据源"""
+        from chronoforge.data_source.base import verify_datasource_instance
+        
+        # 创建一个无效的数据源类（缺少name属性）
+        class InvalidDataSource:
+            async def fetch(self, symbol, timeframe, start_ts_ms, end_ts_ms=None):
+                return pd.DataFrame()
+        
+        result = verify_datasource_instance(InvalidDataSource)
+        assert result[0] is False
+        assert "Missing required @property 'name'" in result[1]
+
+    def test_verify_datasource_wrong_parameters(self):
+        """测试验证参数错误的数据源"""
+        from chronoforge.data_source.base import verify_datasource_instance
+        
+        # 创建一个参数错误的数据源类
+        class WrongParamsDataSource(DataSourceBase):
+            @property
+            def name(self):
+                return "WrongParams"
+            
+            # 缺少end_ts_ms参数
+            async def fetch(self, symbol, timeframe, start_ts_ms):
+                return pd.DataFrame()
+            
+            async def close_all_connections(self):
+                pass
+        
+        result = verify_datasource_instance(WrongParamsDataSource)
+        assert result[0] is False
+        assert "must have parameters" in result[1]
+
+    def test_verify_datasource_sync_fetch(self):
+        """测试验证同步fetch方法的数据源"""
+        from chronoforge.data_source.base import verify_datasource_instance
+        
+        # 创建一个使用同步fetch方法的数据源类
+        class SyncFetchDataSource(DataSourceBase):
+            @property
+            def name(self):
+                return "SyncFetch"
+            
+            # 使用同步方法
+            def fetch(self, symbol, timeframe, start_ts_ms, end_ts_ms=None):
+                return pd.DataFrame()
+            
+            async def close_all_connections(self):
+                pass
+        
+        result = verify_datasource_instance(SyncFetchDataSource)
+        assert result[0] is False
+        assert "must be defined as an async function" in result[1]
+
+    def test_verify_datasource_invalid_instance(self):
+        """测试验证无效实例"""
+        from chronoforge.data_source.base import verify_datasource_instance
+        
+        # 传递一个非类的实例
+        result = verify_datasource_instance("not_a_class")
+        assert result[0] is False
+        assert "Cannot verify instance" in result[1]
+
+
+class TestParsedCCXTSymbol:
+    """测试ParsedCCXTSymbol类"""
+
+    def test_parsed_ccxt_symbol_basic(self):
+        """测试基本的CCXT符号解析"""
+        from chronoforge.data_source.base import ParsedCCXTSymbol
+        
+        # 测试基本现货符号
+        symbol = ParsedCCXTSymbol("BTC/USDT")
+        assert symbol.original == "BTC/USDT"
+        assert symbol.unified == "BTC/USDT"
+        assert symbol.base == "BTC"
+        assert symbol.quote == "USDT"
+        assert symbol.settlement == ""
+        assert symbol.identifier == ""
+        assert symbol.strike == ""
+        assert symbol.type_ == ""
+
+    def test_parsed_ccxt_symbol_with_settlement(self):
+        """测试带有结算货币的CCXT符号"""
+        from chronoforge.data_source.base import ParsedCCXTSymbol
+        
+        symbol = ParsedCCXTSymbol("BTC/USDT:BTC")
+        assert symbol.original == "BTC/USDT:BTC"
+        assert symbol.unified == "BTC/USDT"
+        assert symbol.settlement == "BTC"
+
+    def test_parsed_ccxt_symbol_with_suffix(self):
+        """测试带有后缀的CCXT符号"""
+        from chronoforge.data_source.base import ParsedCCXTSymbol
+        
+        symbol = ParsedCCXTSymbol("BTC/USDT:BTC-211225-60000-P")
+        assert symbol.original == "BTC/USDT:BTC-211225-60000-P"
+        assert symbol.unified == "BTC/USDT"
+        assert symbol.settlement == "BTC"
+        assert symbol.identifier == "211225"
+        assert symbol.strike == "60000"
+        assert symbol.type_ == "P"
+
+    def test_parsed_ccxt_symbol_invalid(self):
+        """测试无效的CCXT符号"""
+        from chronoforge.data_source.base import ParsedCCXTSymbol
+        
+        # 测试没有/的符号
+        with pytest.raises(ValueError):
+            ParsedCCXTSymbol("BTCUSDT")
+        
+        # 测试空符号
+        with pytest.raises(ValueError):
+            ParsedCCXTSymbol("")

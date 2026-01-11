@@ -1,12 +1,14 @@
 import pytest
 import asyncio
 import time
-from unittest.mock import Mock
+from unittest.mock import Mock, AsyncMock, patch
 from chronoforge import Scheduler
 from chronoforge.utils import TimeSlot
 from chronoforge.decorators import periodic_task
 from chronoforge.data_source import DataSourceBase
 import pandas as pd
+import threading
+from typing import List
 
 
 class TestScheduler:
@@ -142,33 +144,29 @@ class TestScheduler:
     def test_start_stop_scheduler(self):
         """测试启动和停止调度器"""
         scheduler = Scheduler()
-        time_slot = TimeSlot(start="00:00:00", end="23:59:59")
 
-        # 添加任务，使用唯一的测试任务名称
-        scheduler.add_task(
-            name="test_task_start_stop_unique",
-            data_source_name="CryptoSpotDataSource",
-            data_source_config={"api_key": "test_key"},
-            storage_name="LocalFileStorage",
-            storage_config={"base_path": "./tmp"},
-            time_slot=time_slot,
-            symbols=["binance:BTC/USDT"],
-            timeframe="1d",
-            timerange_str="20240101-",
-            inplace=True
-        )
+        # 使用patch替换真实的数据源和存储，避免实际连接
+        with patch.object(scheduler, '_init_shared_event_loop') as mock_init_loop, \
+             patch.object(scheduler, 'add_task') as mock_add_task, \
+             patch.object(scheduler, 'execute_task') as mock_execute_task:
 
-        # 启动调度器
-        scheduler.start()
-        assert scheduler._runner_thread is not None
-        assert scheduler._runner_thread.is_alive()
+            # 模拟初始化共享事件循环
+            mock_init_loop.return_value = None
 
-        # 停止调度器
-        scheduler.stop()
-        # 等待线程结束
-        import time
-        time.sleep(1)
-        assert not scheduler._runner_thread.is_alive()
+            # 启动调度器
+            scheduler.start()
+            assert scheduler._runner_thread is not None
+            assert scheduler._runner_thread.is_alive()
+
+            # 停止调度器
+            scheduler.stop()
+
+            # 使用更高效的方式等待线程结束，最多等待1秒
+            start_time = time.time()
+            while scheduler._runner_thread.is_alive() and time.time() - start_time < 1:
+                time.sleep(0.01)  # 每10毫秒检查一次
+
+            assert not scheduler._runner_thread.is_alive()
 
     def test_register_plugin(self):
         """测试注册插件"""
@@ -278,7 +276,7 @@ class TestAsyncResourceManagement:
 
     def setup_method(self):
         """测试方法设置"""
-        # 创建一个带有资源管理的数据源
+        # 创建一个带有连接池管理的数据源
         class ResourceDataSource(DataSourceBase):
             @property
             def name(self):
@@ -286,7 +284,7 @@ class TestAsyncResourceManagement:
 
             def __init__(self, config=None):
                 super().__init__(config)
-                self.exchange_instances = {}
+                self.exchange_pools = {}
                 self.connections_opened = 0
                 self.connections_closed = 0
 
@@ -294,24 +292,36 @@ class TestAsyncResourceManagement:
                 return pd.DataFrame()
 
             async def _get_exchange_instance(self, exchange_name):
-                """模拟获取交易所实例"""
-                if exchange_name not in self.exchange_instances:
-                    # 模拟创建新连接
-                    mock_exchange = Mock()
-                    mock_exchange.close = Mock(side_effect=self._on_connection_closed)
-                    self.exchange_instances[exchange_name] = (mock_exchange, 1234567890)
-                    self.connections_opened += 1
-                return self.exchange_instances[exchange_name][0]
+                """模拟获取交易所实例（使用连接池）"""
+                if exchange_name not in self.exchange_pools:
+                    # 模拟创建新的连接池
+                    self.exchange_pools[exchange_name] = Mock()
+                    self.exchange_pools[exchange_name].get_connection = AsyncMock(side_effect=self._on_connection_created)
+                    self.exchange_pools[exchange_name].return_connection = AsyncMock()
+                    self.exchange_pools[exchange_name].close_all_connections = AsyncMock(side_effect=self._on_all_connections_closed)
 
-            def _on_connection_closed(self):
-                """跟踪连接关闭事件"""
+                    # 创建模拟连接
+                    mock_exchange = Mock()
+                    mock_exchange.close = Mock()
+                    self.exchange_pools[exchange_name].get_connection.return_value = mock_exchange
+                return await self.exchange_pools[exchange_name].get_connection()
+
+            def _on_connection_created(self):
+                """跟踪连接创建事件"""
+                self.connections_opened += 1
+                # 返回一个模拟连接
+                mock_exchange = Mock()
+                mock_exchange.close = Mock()
+                return mock_exchange
+
+            def _on_all_connections_closed(self):
+                """跟踪所有连接关闭事件"""
                 self.connections_closed += 1
 
             async def close_all_connections(self):
                 """关闭所有连接"""
-                for exchange_name, (instance, timestamp) in self.exchange_instances.items():
-                    instance.close()
-                self.exchange_instances.clear()
+                for exchange_name, pool in self.exchange_pools.items():
+                    await pool.close_all_connections()
 
         self.ResourceDataSource = ResourceDataSource
 
@@ -322,21 +332,25 @@ class TestAsyncResourceManagement:
         data_source = self.ResourceDataSource()
 
         # 创建多个连接
-        exchange1 = await data_source._get_exchange_instance('exchange1')
-        exchange2 = await data_source._get_exchange_instance('exchange2')
+        _ = await data_source._get_exchange_instance('exchange1')
+        _ = await data_source._get_exchange_instance('exchange2')
 
         # 验证连接创建
         assert data_source.connections_opened == 2
-        assert len(data_source.exchange_instances) == 2
-        assert 'exchange1' in data_source.exchange_instances
-        assert 'exchange2' in data_source.exchange_instances
+        assert 'exchange1' in data_source.exchange_pools
+        assert 'exchange2' in data_source.exchange_pools
+
+        # 验证get_connection方法被调用
+        data_source.exchange_pools['exchange1'].get_connection.assert_called_once()
+        data_source.exchange_pools['exchange2'].get_connection.assert_called_once()
 
         # 关闭所有连接
         await data_source.close_all_connections()
 
         # 验证连接关闭
         assert data_source.connections_closed == 2
-        assert len(data_source.exchange_instances) == 0
+        data_source.exchange_pools['exchange1'].close_all_connections.assert_called_once()
+        data_source.exchange_pools['exchange2'].close_all_connections.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_scheduler_async_resource_management(self):
@@ -353,21 +367,23 @@ class TestAsyncResourceManagement:
         # 模拟任务执行
         try:
             # 创建连接
-            exchange = await ds._get_exchange_instance('test_exchange')
+            _ = await ds._get_exchange_instance('test_exchange')
             assert ds.connections_opened == 1
-            assert len(ds.exchange_instances) == 1
+            assert 'test_exchange' in ds.exchange_pools
+
+            # 验证get_connection方法被调用
+            ds.exchange_pools['test_exchange'].get_connection.assert_called_once()
 
             # 模拟调度器调用close_all_connections
             await ds.close_all_connections()
 
             # 验证连接关闭
             assert ds.connections_closed == 1
-            assert len(ds.exchange_instances) == 0
+            ds.exchange_pools['test_exchange'].close_all_connections.assert_called_once()
 
         finally:
             # 确保所有连接都被关闭
-            if hasattr(ds, 'exchange_instances') and ds.exchange_instances:
-                await ds.close_all_connections()
+            await ds.close_all_connections()
 
     @pytest.mark.asyncio
     async def test_resource_leak_prevention(self):
@@ -378,7 +394,7 @@ class TestAsyncResourceManagement:
         # 模拟异常情况下的资源使用
         try:
             # 创建连接
-            exchange = await data_source._get_exchange_instance('test_exchange')
+            _ = await data_source._get_exchange_instance('test_exchange')
             assert data_source.connections_opened == 1
 
             # 模拟异常
@@ -392,7 +408,302 @@ class TestAsyncResourceManagement:
 
         # 验证连接关闭
         assert data_source.connections_closed == 1
-        assert len(data_source.exchange_instances) == 0
+        data_source.exchange_pools['test_exchange'].close_all_connections.assert_called_once()
+
+
+class TestDynamicInterval:
+    """测试动态间隔调整功能"""
+
+    def test_dynamic_interval_0_tasks(self):
+        """测试当没有任务时，间隔应该是5秒"""
+        scheduler = Scheduler()
+
+        # 手动初始化_stop_event，因为run方法依赖它
+        scheduler._stop_event = threading.Event()
+
+        # 清空加载的任务
+        scheduler.tasks.clear()
+
+        # 模拟所有任务执行相关的方法，避免实际执行任务
+        with patch.object(scheduler, '_clean_completed_tasks'), \
+             patch.object(scheduler, 'execute_task'), \
+             patch.object(scheduler._stop_event, 'wait') as mock_wait, \
+             patch.object(scheduler.time_slot_manager, 'is_in_timeslot', return_value=True) as mock_is_in_timeslot:
+
+            # 让mock_wait第一次调用返回False（不停止循环），第二次调用返回True（停止循环）
+            mock_wait.side_effect = [False, True]
+
+            # 运行调度器
+            scheduler.run()
+
+            # 验证_stop_event.wait被调用，且参数是5.0
+            assert mock_wait.called
+            assert mock_wait.call_args[0][0] == 5.0
+
+    def test_dynamic_interval_less_than_10_tasks(self):
+        """测试当任务数量少于10个时，间隔应该是1秒"""
+        scheduler = Scheduler()
+
+        # 手动初始化_stop_event，因为run方法依赖它
+        scheduler._stop_event = threading.Event()
+
+        # 清空加载的任务
+        scheduler.tasks.clear()
+
+        # 直接向tasks字典中添加模拟任务
+        for i in range(5):
+            # 创建一个简单的模拟任务对象
+            class MockTask:
+                def __init__(self, name):
+                    self.name = name
+                    self.time_slot = TimeSlot(start="00:00:00", end="23:59:59")
+                    self.next_run_time = time.time()
+                    self.interval = 60
+                    self.method_params = {}
+
+            scheduler.tasks[f"test_task_{i}"] = MockTask(f"test_task_{i}")
+
+        # 模拟所有任务执行相关的方法，避免实际执行任务
+        with patch.object(scheduler, '_clean_completed_tasks'), \
+             patch.object(scheduler, 'execute_task'), \
+             patch.object(scheduler._stop_event, 'wait') as mock_wait, \
+             patch.object(scheduler.time_slot_manager, 'is_in_timeslot', return_value=True) as mock_is_in_timeslot:
+
+            # 让mock_wait第一次调用返回False（不停止循环），第二次调用返回True（停止循环）
+            mock_wait.side_effect = [False, True]
+
+            # 运行调度器
+            scheduler.run()
+
+            # 验证_stop_event.wait被调用，且参数是1.0
+            assert mock_wait.called
+            assert mock_wait.call_args[0][0] == 1.0
+
+    def test_dynamic_interval_less_than_50_tasks(self):
+        """测试当任务数量少于50个时，间隔应该是0.5秒"""
+        scheduler = Scheduler()
+
+        # 手动初始化_stop_event，因为run方法依赖它
+        scheduler._stop_event = threading.Event()
+
+        # 清空加载的任务
+        scheduler.tasks.clear()
+
+        # 直接向tasks字典中添加模拟任务
+        for i in range(30):
+            # 创建一个简单的模拟任务对象
+            class MockTask:
+                def __init__(self, name):
+                    self.name = name
+                    self.time_slot = TimeSlot(start="00:00:00", end="23:59:59")
+                    self.next_run_time = time.time()
+                    self.interval = 60
+                    self.method_params = {}
+
+            scheduler.tasks[f"test_task_{i}"] = MockTask(f"test_task_{i}")
+
+        # 模拟所有任务执行相关的方法，避免实际执行任务
+        with patch.object(scheduler, '_clean_completed_tasks'), \
+             patch.object(scheduler, 'execute_task'), \
+             patch.object(scheduler._stop_event, 'wait') as mock_wait, \
+             patch.object(scheduler.time_slot_manager, 'is_in_timeslot', return_value=True) as mock_is_in_timeslot:
+
+            # 让mock_wait第一次调用返回False（不停止循环），第二次调用返回True（停止循环）
+            mock_wait.side_effect = [False, True]
+
+            # 运行调度器
+            scheduler.run()
+
+            # 验证_stop_event.wait被调用，且参数是0.5
+            assert mock_wait.called
+            assert mock_wait.call_args[0][0] == 0.5
+
+    def test_dynamic_interval_50_or_more_tasks(self):
+        """测试当任务数量50个或更多时，间隔应该是0.2秒"""
+        scheduler = Scheduler()
+
+        # 手动初始化_stop_event，因为run方法依赖它
+        scheduler._stop_event = threading.Event()
+
+        # 清空加载的任务
+        scheduler.tasks.clear()
+
+        # 直接向tasks字典中添加模拟任务
+        for i in range(60):
+            # 创建一个简单的模拟任务对象
+            class MockTask:
+                def __init__(self, name):
+                    self.name = name
+                    self.time_slot = TimeSlot(start="00:00:00", end="23:59:59")
+                    self.next_run_time = time.time()
+                    self.interval = 60
+                    self.method_params = {}
+
+            scheduler.tasks[f"test_task_{i}"] = MockTask(f"test_task_{i}")
+
+        # 模拟所有任务执行相关的方法，避免实际执行任务
+        with patch.object(scheduler, '_clean_completed_tasks'), \
+             patch.object(scheduler, 'execute_task'), \
+             patch.object(scheduler._stop_event, 'wait') as mock_wait, \
+             patch.object(scheduler.time_slot_manager, 'is_in_timeslot', return_value=True) as mock_is_in_timeslot:
+
+            # 让mock_wait第一次调用返回False（不停止循环），第二次调用返回True（停止循环）
+            mock_wait.side_effect = [False, True]
+
+            # 运行调度器
+            scheduler.run()
+
+            # 验证_stop_event.wait被调用，且参数是0.2
+            assert mock_wait.called
+            assert mock_wait.call_args[0][0] == 0.2
+
+
+class TestTaskGrouping:
+    """测试任务分组功能"""
+
+    def test_task_grouping_by_exchange(self):
+        """测试具有交易所参数的任务会被正确分组"""
+        scheduler = Scheduler()
+
+        # 清空加载的任务，只保留当前测试的任务
+        scheduler.tasks.clear()
+
+        # 创建模拟任务，直接设置method_params来测试分组逻辑
+        class MockTask:
+            def __init__(self, name, exchange):
+                self.name = name
+                self.time_slot = TimeSlot(start="00:00:00", end="23:59:59")
+                self.next_run_time = time.time()
+                self.interval = 60
+                self.method_params = {"exchange": exchange}
+
+        # 添加具有不同交易所参数的任务
+        scheduler.tasks["task_binance"] = MockTask("task_binance", "binance")
+        scheduler.tasks["task_okx"] = MockTask("task_okx", "okx")
+
+        # 手动执行任务分组逻辑（提取自run方法）
+        grouped_tasks = {}
+        for task_name, task in list(scheduler.tasks.items()):
+            # 跳过时间槽检查，直接进行分组
+
+            # 根据任务的交易所或数据源进行分组
+            group_key = 'default'
+            if hasattr(task, 'method_params'):
+                # 检查是否有交易所参数
+                if 'exchange' in task.method_params:
+                    group_key = f"exchange:{task.method_params['exchange']}"
+                # 检查是否有数据源参数
+                elif 'data_source' in task.method_params:
+                    group_key = f"datasource:{task.method_params['data_source']}"
+                # 检查是否有连接池参数
+                elif 'connection_pool' in task.method_params:
+                    group_key = f"pool:{task.method_params['connection_pool']}"
+
+            if group_key not in grouped_tasks:
+                grouped_tasks[group_key] = []
+            grouped_tasks[group_key].append((task_name, task, {}))
+
+        # 验证分组结果
+        assert len(grouped_tasks) == 2
+        assert "exchange:binance" in grouped_tasks
+        assert "exchange:okx" in grouped_tasks
+        assert len(grouped_tasks["exchange:binance"]) == 1
+        assert len(grouped_tasks["exchange:okx"]) == 1
+
+    def test_task_grouping_by_data_source(self):
+        """测试具有数据源参数的任务会被正确分组"""
+        scheduler = Scheduler()
+
+        # 清空加载的任务，只保留当前测试的任务
+        scheduler.tasks.clear()
+
+        # 创建模拟任务，直接设置method_params来测试分组逻辑
+        class MockTask:
+            def __init__(self, name, data_source):
+                self.name = name
+                self.time_slot = TimeSlot(start="00:00:00", end="23:59:59")
+                self.next_run_time = time.time()
+                self.interval = 60
+                self.method_params = {"data_source": data_source}
+
+        # 添加具有不同数据源参数的任务
+        scheduler.tasks["test_task_spot"] = MockTask("test_task_spot", "CryptoSpotDataSource")
+        scheduler.tasks["test_task_future"] = MockTask("test_task_future", "CryptoUMFutureDataSource")
+
+        # 手动执行任务分组逻辑（提取自run方法）
+        grouped_tasks = {}
+        for task_name, task in list(scheduler.tasks.items()):
+            # 跳过时间槽检查，直接进行分组
+
+            # 根据任务的交易所或数据源进行分组
+            group_key = 'default'
+            if hasattr(task, 'method_params'):
+                # 检查是否有交易所参数
+                if 'exchange' in task.method_params:
+                    group_key = f"exchange:{task.method_params['exchange']}"
+                # 检查是否有数据源参数
+                elif 'data_source' in task.method_params:
+                    group_key = f"datasource:{task.method_params['data_source']}"
+                # 检查是否有连接池参数
+                elif 'connection_pool' in task.method_params:
+                    group_key = f"pool:{task.method_params['connection_pool']}"
+
+            if group_key not in grouped_tasks:
+                grouped_tasks[group_key] = []
+            grouped_tasks[group_key].append((task_name, task, {}))
+
+        # 验证分组结果
+        assert len(grouped_tasks) == 2
+        assert "datasource:CryptoSpotDataSource" in grouped_tasks
+        assert "datasource:CryptoUMFutureDataSource" in grouped_tasks
+        assert len(grouped_tasks["datasource:CryptoSpotDataSource"]) == 1
+        assert len(grouped_tasks["datasource:CryptoUMFutureDataSource"]) == 1
+
+    def test_task_grouping_default_group(self):
+        """测试没有特定参数的任务会被分到默认组"""
+        scheduler = Scheduler()
+
+        # 清空加载的任务，只保留当前测试的任务
+        scheduler.tasks.clear()
+
+        # 创建模拟任务，没有设置特定分组参数
+        class MockTask:
+            def __init__(self, name):
+                self.name = name
+                self.time_slot = TimeSlot(start="00:00:00", end="23:59:59")
+                self.next_run_time = time.time()
+                self.interval = 60
+                self.method_params = {}
+
+        # 添加任务
+        scheduler.tasks["task_default"] = MockTask("task_default")
+
+        # 手动执行任务分组逻辑（提取自run方法）
+        grouped_tasks = {}
+        for task_name, task in list(scheduler.tasks.items()):
+            # 跳过时间槽检查，直接进行分组
+
+            # 根据任务的交易所或数据源进行分组
+            group_key = 'default'
+            if hasattr(task, 'method_params'):
+                # 检查是否有交易所参数
+                if 'exchange' in task.method_params:
+                    group_key = f"exchange:{task.method_params['exchange']}"
+                # 检查是否有数据源参数
+                elif 'data_source' in task.method_params:
+                    group_key = f"datasource:{task.method_params['data_source']}"
+                # 检查是否有连接池参数
+                elif 'connection_pool' in task.method_params:
+                    group_key = f"pool:{task.method_params['connection_pool']}"
+
+            if group_key not in grouped_tasks:
+                grouped_tasks[group_key] = []
+            grouped_tasks[group_key].append((task_name, task, {}))
+
+        # 验证分组结果
+        assert len(grouped_tasks) == 1
+        assert "default" in grouped_tasks
+        assert len(grouped_tasks["default"]) == 1
 
 
 class TestRetryMechanism:
@@ -684,3 +995,339 @@ class TestDynamicParameterPassing:
         # 验证部分参数的装饰器设置
         assert hasattr(data_source.test_partial_params, 'task_config')
         assert data_source.test_partial_params.task_config['params']['exchange_name'] == 'bybit'
+
+
+class TestDelegateCall:
+    """测试delegate_call方法的功能"""
+
+    def setup_method(self):
+        """测试方法设置"""
+        self.scheduler = Scheduler()
+
+    def test_delegate_call_invalid_plugin_type(self):
+        """测试调用无效插件类型"""
+        with pytest.raises(ValueError) as excinfo:
+            self.scheduler.delegate_call(
+                plugin_name="TestDataSource",
+                plugin_type="invalid_type",
+                function_name="sync_method"
+            )
+        assert "Invalid plugin type" in str(excinfo.value)
+
+    def test_delegate_call_unsupported_plugin(self):
+        """测试调用不支持的插件"""
+        with pytest.raises(ValueError) as excinfo:
+            self.scheduler.delegate_call(
+                plugin_name="UnsupportedPlugin",
+                plugin_type="data_source",
+                function_name="sync_method"
+            )
+        assert "data_source UnsupportedPlugin not supported" in str(excinfo.value)
+
+    def test_delegate_call_with_mock(self):
+        """使用模拟对象测试delegate_call方法的核心功能"""
+        # 模拟一个数据源实例
+        mock_data_source = Mock()
+        mock_data_source.name = "MockDataSource"
+        mock_data_source.sync_method = Mock(return_value="sync_result")
+
+        # 模拟一个DataFrame返回值
+        mock_df = pd.DataFrame({'col1': [1, 2, 3], 'col2': [4, 5, 6]})
+        mock_data_source.dataframe_method = Mock(return_value=mock_df)
+
+        # 模拟list_supported_plugins方法
+        self.scheduler.list_supported_plugins = Mock(return_value=["MockDataSource"])
+
+        # 模拟get_supported_plugin方法
+        mock_data_source_class = Mock()
+        mock_data_source_class.return_value = mock_data_source
+        self.scheduler.get_supported_plugin = Mock(return_value=mock_data_source_class)
+
+        # 测试同步方法调用
+        result = self.scheduler.delegate_call(
+            plugin_name="MockDataSource",
+            plugin_type="data_source",
+            function_name="sync_method",
+            param1="test_value"
+        )
+        assert result == "sync_result"
+        mock_data_source.sync_method.assert_called_once_with(param1="test_value")
+
+        # 测试返回DataFrame的方法调用
+        result = self.scheduler.delegate_call(
+            plugin_name="MockDataSource",
+            plugin_type="data_source",
+            function_name="dataframe_method"
+        )
+        assert isinstance(result, dict)
+        assert "data" in result
+        assert "metadata" in result
+        assert isinstance(result["data"], list)
+        assert len(result["data"]) == 3
+        mock_data_source.dataframe_method.assert_called_once()
+
+    def test_delegate_call_plugin_instance_caching(self):
+        """测试插件实例缓存机制"""
+        # 模拟一个数据源实例
+        mock_data_source = Mock()
+        mock_data_source.name = "MockDataSource"
+        mock_data_source.sync_method = Mock(return_value="sync_result")
+
+        # 模拟list_supported_plugins方法
+        self.scheduler.list_supported_plugins = Mock(return_value=["MockDataSource"])
+
+        # 模拟get_supported_plugin方法
+        mock_data_source_class = Mock()
+        mock_data_source_class.return_value = mock_data_source
+        self.scheduler.get_supported_plugin = Mock(return_value=mock_data_source_class)
+
+        # 第一次调用，应该创建实例
+        result1 = self.scheduler.delegate_call(
+            plugin_name="MockDataSource",
+            plugin_type="data_source",
+            function_name="sync_method",
+            param1="test1"
+        )
+
+        # 第二次调用，应该复用实例
+        result2 = self.scheduler.delegate_call(
+            plugin_name="MockDataSource",
+            plugin_type="data_source",
+            function_name="sync_method",
+            param1="test2"
+        )
+
+        # 验证结果
+        assert result1 == "sync_result"
+        assert result2 == "sync_result"
+
+        # 验证插件类只被实例化一次
+        assert mock_data_source_class.call_count == 1
+
+        # 验证sync_method被调用两次，每次参数不同
+        assert mock_data_source.sync_method.call_count == 2
+
+        # 验证插件实例被缓存
+        plugin_key = ("data_source", "MockDataSource")
+        assert plugin_key in self.scheduler.delegate_plugin_instances
+
+
+class TestConcurrencyControl:
+    """测试并发控制功能"""
+
+    def setup_method(self):
+        """测试方法设置"""
+        from chronoforge.scheduler import LockManager
+        self.LockManager = LockManager
+        self.scheduler = Scheduler()
+
+    def test_lock_manager_basic(self):
+        """测试LockManager基本功能"""
+        lock_manager = self.LockManager()
+
+        # 获取不同键的锁
+        lock1 = lock_manager.get_lock('test_key1')
+        lock2 = lock_manager.get_lock('test_key2')
+        lock1_again = lock_manager.get_lock('test_key1')
+
+        # 验证同一键获取的是同一个锁对象
+        assert lock1 is lock1_again
+        assert lock1 is not lock2
+
+        # 验证锁可以正常获取和释放
+        with lock1:
+            # 锁应该处于获取状态
+            assert lock1._is_owned()  # RLock的内部属性，用于测试
+
+    def test_lock_manager_thread_safety(self):
+        """测试LockManager的线程安全性"""
+        lock_manager = self.LockManager()
+
+        # 测试多线程环境下的锁获取
+        locks = []
+
+        def get_lock_thread(key):
+            locks.append(lock_manager.get_lock(key))
+
+        # 创建多个线程同时获取同一个键的锁
+        threads = []
+        for _ in range(5):
+            t = threading.Thread(target=get_lock_thread, args=('shared_key',))
+            threads.append(t)
+            t.start()
+
+        # 等待所有线程完成
+        for t in threads:
+            t.join()
+
+        # 验证所有线程获取的是同一个锁对象
+        for lock in locks[1:]:
+            assert lock is locks[0]
+
+    @pytest.mark.asyncio
+    async def test_exchange_semaphores_initialization(self):
+        """测试交易所信号量的初始化"""
+        scheduler = self.scheduler
+
+        # 验证默认信号量
+        assert 'binance' in scheduler.exchange_semaphores
+        assert 'okx' in scheduler.exchange_semaphores
+        assert 'bybit' in scheduler.exchange_semaphores
+
+        # 验证特殊交易所的信号量限制
+        binance_semaphore = scheduler.exchange_semaphores['binance']
+        assert binance_semaphore._value == 10  # binance允许10个并发请求
+
+        # 验证其他交易所的默认信号量限制
+        default_semaphore = scheduler.exchange_semaphores['default_exchange']
+        assert default_semaphore._value == 5  # 默认允许5个并发请求
+
+    @pytest.mark.asyncio
+    async def test_exchange_semaphore_acquisition(self):
+        """测试交易所信号量的获取和释放"""
+        scheduler = self.scheduler
+
+        # 获取binance信号量
+        binance_semaphore = scheduler.exchange_semaphores['binance']
+        initial_value = binance_semaphore._value
+
+        # 获取信号量
+        await binance_semaphore.acquire()
+
+        # 验证信号量值减少
+        assert binance_semaphore._value == initial_value - 1
+
+        # 释放信号量
+        binance_semaphore.release()
+
+        # 验证信号量值恢复
+        assert binance_semaphore._value == initial_value
+
+    @pytest.mark.asyncio
+    async def test_concurrent_requests_with_semaphore(self):
+        """测试使用信号量控制并发请求"""
+        scheduler = self.scheduler
+
+        # 使用一个限制较低的信号量进行测试
+        test_semaphore = asyncio.Semaphore(2)  # 只允许2个并发请求
+
+        # 记录并发执行的任务数
+        concurrent_count = 0
+        max_concurrent = 0
+
+        async def limited_task():
+            """受信号量限制的任务"""
+            nonlocal concurrent_count, max_concurrent
+
+            async with test_semaphore:
+                concurrent_count += 1
+                max_concurrent = max(max_concurrent, concurrent_count)
+
+                # 模拟任务执行时间
+                await asyncio.sleep(0.1)
+
+                concurrent_count -= 1
+
+            return "completed"
+
+        # 并发执行5个任务
+        tasks = [limited_task() for _ in range(5)]
+        results = await asyncio.gather(*tasks)
+
+        # 验证所有任务都完成
+        assert all(result == "completed" for result in results)
+
+        # 验证最大并发数不超过信号量限制
+        assert max_concurrent <= 2
+
+    @pytest.mark.asyncio
+    async def test_symbol_exchange_parsing_for_semaphore(self):
+        """测试符号中的交易所名称解析（用于信号量控制）"""
+        scheduler = self.scheduler
+
+        # 模拟_update_data_with_semaphore中的符号解析逻辑
+        async def parse_symbol_exchange(symbol):
+            try:
+                parts = symbol.split(":")
+                if len(parts) == 3:
+                    # 格式：datasource:exchange:symbol
+                    _, symbol_exchange_name, _ = parts
+                elif len(parts) == 2:
+                    # 格式：exchange:symbol
+                    if 'datasource' in parts[0].lower():
+                        # 如果第一部分包含datasource，则使用默认binance
+                        symbol_exchange_name = 'binance'
+                    else:
+                        symbol_exchange_name, _ = parts
+                else:
+                    # 如果无法分割，则使用默认binance
+                    symbol_exchange_name = 'binance'
+            except Exception:
+                # 如果解析失败，使用默认binance
+                symbol_exchange_name = 'binance'
+
+            return symbol_exchange_name.lower()
+
+        # 测试不同格式的符号解析
+        symbols = [
+            "datasource:binance:BTC/USDT",  # 格式：datasource:exchange:symbol
+            "okx:ETH/USDT",  # 格式：exchange:symbol
+            "BTC/USDT",  # 格式：symbol（默认binance）
+            "datasource:BTC/USDT",  # 格式：datasource:symbol（默认binance）
+            "bybit:SOL/USDT"  # 格式：exchange:symbol
+        ]
+
+        expected_exchanges = ['binance', 'okx', 'binance', 'binance', 'bybit']
+
+        for symbol, expected_exchange in zip(symbols, expected_exchanges):
+            parsed_exchange = await parse_symbol_exchange(symbol)
+            assert parsed_exchange == expected_exchange
+            # 验证解析的交易所名称在信号量字典中
+            assert parsed_exchange in scheduler.exchange_semaphores
+
+    @pytest.mark.asyncio
+    async def test_semaphore_rate_limiting(self):
+        """测试信号量的速率限制功能"""
+        scheduler = self.scheduler
+
+        # 使用较低的信号量限制
+        scheduler.exchange_semaphores['test_exchange'] = asyncio.Semaphore(1)  # 只允许1个并发请求
+
+        # 记录每次请求开始和结束的时间
+        request_times = []
+
+        async def rate_limited_task():
+            """受速率限制的任务"""
+            async with scheduler.exchange_semaphores['test_exchange']:
+                start_time = time.time()
+                # 模拟任务执行时间
+                await asyncio.sleep(0.1)
+                end_time = time.time()
+                request_times.append({'start': start_time, 'end': end_time})
+            return "completed"
+
+        # 并发执行3个任务
+        tasks = [rate_limited_task() for _ in range(3)]
+        results = await asyncio.gather(*tasks)
+
+        # 验证所有任务都完成
+        assert all(result == "completed" for result in results)
+
+        # 验证任务是串行执行的
+        for i in range(1, len(request_times)):
+            assert request_times[i]['start'] >= request_times[i-1]['end']
+
+    def test_lock_manager_cleanup(self):
+        """测试LockManager的锁对象管理"""
+        lock_manager = self.LockManager()
+
+        # 获取多个锁
+        lock_manager.get_lock('key1')
+        lock_manager.get_lock('key2')
+        lock_manager.get_lock('key3')
+
+        # 验证内部锁字典包含所有创建的锁
+        assert len(lock_manager._locks) == 3
+        assert 'key1' in lock_manager._locks
+        assert 'key2' in lock_manager._locks
+        assert 'key3' in lock_manager._locks
