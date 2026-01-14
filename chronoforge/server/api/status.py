@@ -7,6 +7,18 @@ from chronoforge import __version__
 
 router = APIRouter(prefix="/status", tags=["status"])
 
+# 为了兼容，添加 /stats 端点的重定向
+from fastapi import APIRouter as APIRouterNoPrefix
+
+# 创建一个没有前缀的路由器，用于添加 /stats 端点
+compatibility_router = APIRouterNoPrefix(tags=["status"])
+
+
+@compatibility_router.get("/stats")
+async def get_stats_compatibility(scheduler: Scheduler = Depends(get_scheduler)):
+    """获取系统统计信息（兼容端点）"""
+    return await get_stats(scheduler)
+
 # 连通性测试缓存
 _connectivity_cache = {
     "status": False,
@@ -123,3 +135,77 @@ def get_tasks_status(scheduler: Scheduler = Depends(get_scheduler)):
             }
 
     return task_statuses
+
+
+@router.get("/stats")
+async def get_stats(scheduler: Scheduler = Depends(get_scheduler)):
+    """获取系统统计信息"""
+    import psutil
+    import os
+    from datetime import datetime
+
+    # 系统信息
+    try:
+        cpu_usage = psutil.cpu_percent(interval=0.1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        boot_time = psutil.boot_time()
+        uptime = time.time() - boot_time
+    except Exception:
+        # 如果无法获取系统信息，使用默认值
+        cpu_usage = 0
+        memory = type('obj', (object,), {
+            'percent': 0,
+            'total': 0,
+            'used': 0
+        })
+        disk = type('obj', (object,), {
+            'percent': 0,
+            'total': 0,
+            'used': 0
+        })
+        uptime = 0
+
+    # 任务信息
+    tasks = {
+        'total': len(scheduler.tasks),
+        'running': 0,
+        'idle': 0,
+        'failed': 0
+    }
+
+    for task_name, task_state in scheduler.task_states.items():
+        status = task_state.get("status", "idle")
+        if status == "running":
+            tasks['running'] += 1
+        elif status == "failed":
+            tasks['failed'] += 1
+        else:
+            tasks['idle'] += 1
+
+    # 存储信息
+    storage_info = {
+        'total_size': "Unknown",
+        'used_size': "Unknown",
+        'data_count': 0
+    }
+
+    # API请求统计（模拟，实际项目中可以使用中间件记录）
+    api_info = {
+        'requests_count': 0,
+        'requests_per_minute': 0
+    }
+
+    return {
+        "system": {
+            "cpu_usage": cpu_usage,
+            "memory_usage": memory.percent,
+            "disk_usage": disk.percent,
+            "uptime_seconds": uptime,
+            "python_version": f"{os.sys.version_info.major}.{os.sys.version_info.minor}.{os.sys.version_info.micro}",
+            "timestamp": datetime.now().isoformat()
+        },
+        "tasks": tasks,
+        "storage": storage_info,
+        "api": api_info
+    }

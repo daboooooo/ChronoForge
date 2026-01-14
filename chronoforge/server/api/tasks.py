@@ -308,13 +308,20 @@ async def get_task_data(
     # 应用时间范围过滤
     import pandas as pd
 
+    def normalize_timestamp(ts):
+        """标准化时间戳，确保无时区"""
+        dt = pd.to_datetime(ts)
+        if isinstance(dt, pd.Timestamp) and dt.tz is not None:
+            return dt.tz_convert(None)
+        return dt
+
     if start_time:
-        start_dt = pd.to_datetime(start_time)
-        all_data = [item for item in all_data if pd.to_datetime(item["time"]) >= start_dt]
+        start_dt = normalize_timestamp(start_time)
+        all_data = [item for item in all_data if normalize_timestamp(item["time"]) >= start_dt]
 
     if end_time:
-        end_dt = pd.to_datetime(end_time)
-        all_data = [item for item in all_data if pd.to_datetime(item["time"]) <= end_dt]
+        end_dt = normalize_timestamp(end_time)
+        all_data = [item for item in all_data if normalize_timestamp(item["time"]) <= end_dt]
 
     # 限制返回条数
     if len(all_data) > limit:

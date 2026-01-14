@@ -301,7 +301,7 @@ def add_tasks():
             "inplace": True
         },
         {
-            "name": "fred_daily_test",
+            "name": "fred_daily",
             "data_source_name": "FREDDataSource",
             "data_source_config": {
                 "api_key": fred_api_key
@@ -320,7 +320,7 @@ def add_tasks():
             "inplace": True
         },
         {
-            "name": "fred_weekly_test",
+            "name": "fred_weekly",
             "data_source_name": "FREDDataSource",
             "data_source_config": {
                 "api_key": fred_api_key
@@ -339,7 +339,7 @@ def add_tasks():
             "inplace": True
         },
         {
-            "name": "crypto_um_future_test",
+            "name": "crypto_um_future",
             "data_source_name": "CryptoUMFutureDataSource",
             "data_source_config": {},
             "storage_name": "DUCKDBStorage",
@@ -374,7 +374,7 @@ def add_tasks():
             "inplace": True
         },
         {
-            "name": "global_market_test",
+            "name": "global_market",
             "data_source_name": "GlobalMarketDataSource",
             "data_source_config": {},
             "storage_name": "DUCKDBStorage",

@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from chronoforge.scheduler import Scheduler
-from .api import tasks_router, plugins_router, status_router
+from .api import tasks_router, plugins_router, status_router, compatibility_router
 from .dependencies import set_scheduler, get_scheduler_instance
 from chronoforge import __version__
 
@@ -51,6 +51,7 @@ def create_app():
     app.include_router(tasks_router, prefix="/api")
     app.include_router(plugins_router, prefix="/api")
     app.include_router(status_router, prefix="/api")
+    app.include_router(compatibility_router, prefix="/api")
 
     # 根路径
     @app.get("/")
