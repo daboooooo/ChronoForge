@@ -34,8 +34,8 @@ STATUS_COLORS = {
 }
 
 # API基础URL
-API_BASE_URL = "http://localhost:8000/api"
-# API_BASE_URL = "http://192.168.1.22:8000/api"
+# API_BASE_URL = "http://localhost:8000/api"
+API_BASE_URL = "http://192.168.1.22:8000/api"
 
 # 直接使用正确格式的symbol，包含交易所信息
 crypto_symbols = ['binance:BTC/USDT', 'okx:ETH/USDT']
@@ -195,6 +195,48 @@ def start_chronoforge_service():
         return None
 
 
+def delete_existing_tasks():
+    """
+    删除现有任务，但保留由scheduler自动添加的任务
+    """
+    logger.info("删除现有任务，但保留由scheduler自动添加的任务...")
+
+    # 检查服务器是否开启
+    if not check_service_running():
+        console.print("[red]❌ 服务器未开启，无法删除任务[/red]")
+        return
+
+    try:
+        # 获取所有任务
+        tasks_url = f"{API_BASE_URL}/tasks"
+        response = requests.get(tasks_url)
+        if response.status_code == 200:
+            tasks = response.json().get("tasks", [])
+            console.print(f"[green]✅ 获取到 {len(tasks)} 个任务[/green]")
+
+            # 删除非自动添加的任务
+            for task in tasks:
+                task_name = task["name"]
+                # 检查任务是否需要保留
+                # 使用is_auto_created标记来判断任务是否由scheduler自动添加
+                is_auto_created = task.get("is_auto_created", False)
+                if is_auto_created:
+                    console.print(f"[yellow]⚠️  保留自动创建的任务: {task_name}[/yellow]")
+                    continue
+
+                # 删除任务
+                delete_url = f"{API_BASE_URL}/tasks/{task_name}"
+                delete_response = requests.delete(delete_url)
+                if delete_response.status_code in [200, 204]:
+                    console.print(f"[green]✅ 删除任务成功: {task_name}[/green]")
+                else:
+                    console.print(f"[red]❌ 删除任务失败: {task_name} - {delete_response.status_code} - {delete_response.text}[/red]")
+        else:
+            console.print(f"[red]❌ 获取任务列表失败: {response.status_code} - {response.text}[/red]")
+    except Exception as e:
+        console.print(f"[red]❌ 删除任务时出错: {e}[/red]")
+
+
 def add_tasks():
     """
     向ChronoForge服务添加任务
@@ -205,6 +247,9 @@ def add_tasks():
     if not check_service_running():
         console.print("[red]❌ 服务器未开启，无法添加任务[/red]")
         return
+
+    # 删除现有任务，但保留自动添加的任务
+    delete_existing_tasks()
 
     # 获取按成交量排序的top 90%交易对
     logger.info("获取按成交量排序的top 90%交易对...")

@@ -158,11 +158,16 @@ def monitor_server(base_url, duration=None, interval=2):
                         "%H:%M:%S", time.localtime(task_status.get("last_run_time", 0)))
                     last_status = task_status.get("last_run_status", "unknown")
 
+                    # 检查任务是否是自动添加的
+                    is_auto_created = task_status.get("is_auto_created", False)
+                    # 为自动添加的任务添加标记
+                    display_name = f"{task_name} [AUTO]" if is_auto_created else task_name
+
                     color_status = STATUS_COLORS.get(status, 'white')
                     color_last_status = STATUS_COLORS.get(last_status, 'white')
 
                     task_table.add_row(
-                        task_name,
+                        display_name,
                         f"[{color_status}]{status}[/{color_status}]",
                         created_at,
                         last_updated,

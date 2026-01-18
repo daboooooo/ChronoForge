@@ -105,6 +105,10 @@ def get_tasks_status(scheduler: Scheduler = Depends(get_scheduler)):
     # 首先处理所有已有的任务状态
     for task_name, task_state in scheduler.task_states.items():
         status = task_state.get("status", "idle")
+        
+        # 检查任务是否是自动创建的
+        task = scheduler.tasks.get(task_name)
+        is_auto_created = getattr(task, "is_auto_created", False) if task else False
 
         # 构建完整的任务状态信息
         task_statuses[task_name] = {
@@ -116,12 +120,16 @@ def get_tasks_status(scheduler: Scheduler = Depends(get_scheduler)):
             "last_run_time": task_state.get("last_run_time"),
             "last_run_status": task_state.get("last_run_status"),
             "error_message": task_state.get("error_message"),
-            "message": "Task is running" if status == "running" else "Task is idle"
+            "message": "Task is running" if status == "running" else "Task is idle",
+            "is_auto_created": is_auto_created
         }
 
     # 添加未运行的任务
     for task_name in scheduler.tasks:
         if task_name not in task_statuses:
+            task = scheduler.tasks.get(task_name)
+            is_auto_created = getattr(task, "is_auto_created", False) if task else False
+            
             task_statuses[task_name] = {
                 "name": task_name,
                 "status": "created",
@@ -131,7 +139,8 @@ def get_tasks_status(scheduler: Scheduler = Depends(get_scheduler)):
                 "last_run_time": None,
                 "last_run_status": None,
                 "error_message": None,
-                "message": "Task is idle"
+                "message": "Task is idle",
+                "is_auto_created": is_auto_created
             }
 
     return task_statuses

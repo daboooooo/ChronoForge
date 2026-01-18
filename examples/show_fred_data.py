@@ -213,47 +213,47 @@ def plot_fred_data(symbol_data_dict):
     if not symbol_data_dict:
         print("没有数据可绘制")
         return
-    
+
     # 创建画布
     plt.figure(figsize=(12, 8))
-    
+
     # 为每个符号分配不同的颜色
     colors = plt.cm.rainbow(range(len(symbol_data_dict)))
-    
+
     # 遍历每个符号的数据并绘制
     for i, (symbol, data) in enumerate(symbol_data_dict.items()):
         if not data or 'data' not in data or not data['data']:
             print(f"⚠️  符号 {symbol} 没有数据可绘制")
             continue
-        
+
         # 转换数据为 DataFrame
         df = pd.DataFrame(data['data'])
-        
+
         # 转换时间列为 datetime 类型
         df['time'] = pd.to_datetime(df['time'])
-        
+
         # 绘制折线图
         plt.plot(df['time'], df['volume'], color=colors[i], label=symbol, linewidth=2.0)
-    
+
     # 设置图表标题和标签
     plt.title('FRED 利率数据', fontsize=16)
     plt.xlabel('时间', fontsize=14)
     plt.ylabel('利率', fontsize=14)
-    
+
     # 设置日期格式
     plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
     plt.gca().xaxis.set_major_locator(mdates.AutoDateLocator())
     plt.gcf().autofmt_xdate()  # 自动旋转日期标签
-    
+
     # 添加图例
     plt.legend(loc='best', fontsize=12)
-    
+
     # 添加网格线
     plt.grid(True, alpha=0.3)
-    
+
     # 调整布局
     plt.tight_layout()
-    
+
     # 显示图表
     plt.show()
 
@@ -263,7 +263,7 @@ def get_symbol_data(symbol, start_time=None, end_time=None, limit=100):
     try:
         params = {'start_time': start_time, 'end_time': end_time, 'limit': limit}
         response = requests.get(f"{BASE_URL}/tasks/fred_daily/data?symbol={symbol}", params=params, timeout=10)
-        
+
         if response.status_code == 200:
             return response.json()
         else:
@@ -333,12 +333,12 @@ def main():
         "DGS20",
         "DGS30"
     ]
-    
+
     # 获取每个符号的数据
     symbol_data = {}
     start_time = "2024-01-01"
     limit = 50
-    
+
     for symbol in rate_symbols:
         print(f"获取符号 {symbol} 数据...")
         data = get_symbol_data(symbol, start_time=start_time, limit=limit)
@@ -347,7 +347,7 @@ def main():
             print(f"✅ 成功获取符号 {symbol} 的 {data.get('total', 0)} 条数据")
         # 等待 0.5 秒，避免请求过快
         time.sleep(0.5)
-    
+
     # 显示数据
     if symbol_data:
         # 合并所有数据用于显示
@@ -355,13 +355,13 @@ def main():
         for symbol, data in symbol_data.items():
             if data and 'data' in data:
                 all_data['data'].extend(data['data'])
-        
+
         # 按时间排序
         if all_data['data']:
             all_data['data'].sort(key=lambda x: x['time'])
-        
+
         display_data(all_data, "rate")
-        
+
         # 绘制图表
         print("\n绘制 FRED 利率数据图表...")
         plot_fred_data(symbol_data)

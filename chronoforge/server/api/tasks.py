@@ -25,7 +25,8 @@ def list_tasks(scheduler: Scheduler = Depends(get_scheduler)):
             "timeframe": task.timeframe,
             "timerange_str": f"{task.timerange.start_ts_ms}-{task.timerange.end_ts_ms}" if (
                 task.timerange.end_ts_ms) else f"{task.timerange.start_ts_ms}-",
-            "status": task_status.get("status", "idle")
+            "status": task_status.get("status", "idle"),
+            "is_auto_created": getattr(task, "is_auto_created", False)
         }
         tasks.append(task_dict)
     return {

@@ -61,7 +61,8 @@ class Task:
                  timeframe: Optional[str] = None,
                  timerange: Optional[TimeRange] = None,
                  data_source_config: Optional[Dict[str, Any]] = None,
-                 storage_config: Optional[Dict[str, Any]] = None):
+                 storage_config: Optional[Dict[str, Any]] = None,
+                 is_auto_created: bool = False):
         self.name = name
         self.data_source_name = data_source_name
         self.storage_name = storage_name
@@ -72,6 +73,7 @@ class Task:
         self.timerange = timerange
         self.data_source_config = data_source_config
         self.storage_config = storage_config
+        self.is_auto_created = is_auto_created
 
 
 async def _load_data_for_updating(
@@ -423,6 +425,7 @@ class Scheduler:
         # inside states
         self.tasks: dict[str, Task] = {}  # 任务名称到任务实例的映射
         self.task_states: dict[str, Any] = {}  # 任务名称到任务状态的映射
+        self._task_states_lock = threading.RLock()  # 任务状态锁，确保线程安全
         self._runner_thread: Optional[threading.Thread] = None  # 运行线程
         self.time_slot_manager = TimeSlotManager()
 
@@ -666,7 +669,8 @@ class Scheduler:
                         symbols=task_config['symbols'],
                         timeframe=task_config['timeframe'] or "1d",
                         timerange_str=task_config['timerange_str'] or "20220101-",
-                        inplace=True
+                        inplace=True,
+                        is_auto_created=True
                     )
                     # 保存方法名和完整的任务配置到任务中
                     if task_name in self.tasks:
@@ -938,7 +942,8 @@ class Scheduler:
                  symbols: Optional[list[str]] = None,
                  timeframe: Optional[str] = None,
                  timerange_str: Optional[str] = None,
-                 inplace: bool = False) -> None:
+                 inplace: bool = False,
+                 is_auto_created: bool = False) -> None:
         """
         添加任务
 
@@ -953,6 +958,7 @@ class Scheduler:
             timeframe: 时间框架，可选, 默认"1d"
             timerange_str: 时间范围字符串，可选, 默认"20220101-"
             inplace: 是否覆盖已存在任务，默认True
+            is_auto_created: 是否由scheduler自动创建，默认False
         """
         logger.debug(f"Adding task '{name}' with data source '{data_source_name}' and "
                      f"storage '{storage_name}'")
@@ -1039,7 +1045,8 @@ class Scheduler:
             timeframe=timeframe,
             timerange=timerange,
             data_source_config=data_source_config,
-            storage_config=storage_config
+            storage_config=storage_config,
+            is_auto_created=is_auto_created
         )
 
         # 更新任务状态
@@ -1095,20 +1102,21 @@ class Scheduler:
                 grouped_tasks = {}
                 for task_name, task in list(self.tasks.items()):
                     # 确保任务状态存在
-                    if task_name not in self.task_states:
-                        self.task_states[task_name] = {
-                            'status': 'created',
-                            'created_at': time.time(),
-                            'last_updated_at': time.time(),
-                            'next_run_time': None,
-                            'run_count': 0,
-                            'last_run_time': None,
-                            'last_run_status': None,
-                            'error_message': None
-                        }
+                    with self._task_states_lock:
+                        if task_name not in self.task_states:
+                            self.task_states[task_name] = {
+                                'status': 'created',
+                                'created_at': time.time(),
+                                'last_updated_at': time.time(),
+                                'next_run_time': None,
+                                'run_count': 0,
+                                'last_run_time': None,
+                                'last_run_status': None,
+                                'error_message': None
+                            }
 
                     # 检查时间槽
-                    # 对于周期性任务，once=True会导致只执行一次，所以我们需要区分处理
+                    # 对于周期性任务，每个时间槽内只执行一次
                     is_periodic_task = hasattr(task, 'method_name') and hasattr(task,
                                                                                 'method_params')
                     is_in_slot = self.time_slot_manager.is_in_timeslot(name=task_name,
@@ -1120,16 +1128,26 @@ class Scheduler:
                     if not is_in_slot:
                         logger.debug(f"Task {task_name} is not in timeslot, skipping")
                         # 更新任务状态为等待
-                        if self.task_states[task_name]['status'] not in ['waiting', 'created',
+                        with self._task_states_lock:
+                            if self.task_states[task_name]['status'] not in ['waiting', 'created',
                                                                          'replaced']:
-                            self.task_states[task_name].update({
-                                'status': 'waiting',
-                                'last_updated_at': time.time()
-                            })
+                                self.task_states[task_name].update({
+                                    'status': 'waiting',
+                                    'last_updated_at': time.time()
+                                })
                         continue
 
+                    # 如果任务在时间槽内，更新状态为pending
+                    with self._task_states_lock:
+                        if self.task_states[task_name]['status'] not in ['pending', 'created', 'replaced', 'running', 'executing', 'completed', 'failed']:
+                            self.task_states[task_name].update({
+                                'status': 'pending',
+                                'last_updated_at': time.time()
+                            })
+
                     # 检查任务是否已在运行
-                    task_state = self.task_states[task_name]
+                    with self._task_states_lock:
+                        task_state = self.task_states[task_name].copy()
                     if 'future' in task_state and isinstance(task_state['future'], cf.Future):
                         if not task_state['future'].done():
                             logger.debug(f"Task {task_name} is already running "
@@ -1138,20 +1156,36 @@ class Scheduler:
 
                     # 对于周期性任务，检查是否到了执行时间
                     current_time = time.time()
+                    is_time_to_execute = True
                     if hasattr(task, 'method_name') and hasattr(task, 'method_params'):
                         interval = task.method_params.get('interval', 60)
                         # 初始化下次执行时间
-                        if task_state['next_run_time'] is None:
-                            task_state['next_run_time'] = current_time
+                        with self._task_states_lock:
+                            if self.task_states[task_name]['next_run_time'] is None:
+                                self.task_states[task_name]['next_run_time'] = current_time
+                                task_state = self.task_states[task_name].copy()
+                            else:
+                                task_state = self.task_states[task_name].copy()
 
                         # 检查是否到了执行时间
                         if current_time < task_state['next_run_time']:
                             logger.debug(f"Task {task_name} is not yet time to execute, "
                                          f"next run at {task_state['next_run_time']}")
-                            continue
+                            is_time_to_execute = False
+                        else:
+                            # 计算下次执行时间
+                            with self._task_states_lock:
+                                self.task_states[task_name]['next_run_time'] = current_time + interval
 
-                        # 计算下次执行时间
-                        task_state['next_run_time'] = current_time + interval
+                    # 如果还没到执行时间，跳过执行但更新状态为pending
+                    if not is_time_to_execute:
+                        with self._task_states_lock:
+                            if self.task_states[task_name]['status'] not in ['pending', 'created', 'replaced']:
+                                self.task_states[task_name].update({
+                                    'status': 'pending',
+                                    'last_updated_at': time.time()
+                                })
+                        continue
 
                     # 根据任务的交易所或数据源进行分组
                     group_key = 'default'
@@ -1179,11 +1213,12 @@ class Scheduler:
                         future = self.thread_pool.submit(self.execute_task, task)
 
                         # 更新任务状态为运行中
-                        self.task_states[task_name].update({
-                            'future': future,
-                            'status': 'running',
-                            'last_updated_at': time.time()
-                        })
+                        with self._task_states_lock:
+                            self.task_states[task_name].update({
+                                'future': future,
+                                'status': 'running',
+                                'last_updated_at': time.time()
+                            })
 
                         logger.debug(
                             f"Task {task_name} submitted to thread pool from group {group_key}")
@@ -1206,12 +1241,13 @@ class Scheduler:
 
     def _clean_completed_tasks(self) -> None:
         """清理已完成的任务状态，只清理future对象，保留任务历史状态"""
-        for task_name, state in self.task_states.items():
-            if isinstance(state, dict) and 'future' in state:
-                if state['future'].done():
-                    # 清理future对象，但保留其他状态信息
-                    del state['future']
-                    logger.debug(f"Cleaned up future for completed task: {task_name}")
+        with self._task_states_lock:
+            for task_name, state in self.task_states.items():
+                if isinstance(state, dict) and 'future' in state:
+                    if state['future'].done():
+                        # 清理future对象，但保留其他状态信息
+                        del state['future']
+                        logger.debug(f"Cleaned up future for completed task: {task_name}")
 
     def stop(self) -> None:
         """停止调度器（同步版本）"""
@@ -1503,25 +1539,27 @@ class Scheduler:
 
         try:
             # 确保任务状态存在
-            if task_name not in self.task_states:
-                self.task_states[task_name] = {
-                    'status': 'created',
-                    'created_at': time.time(),
-                    'last_updated_at': time.time(),
-                    'next_run_time': None,
-                    'run_count': 0,
-                    'last_run_time': None,
-                    'last_run_status': None,
-                    'error_message': None
-                }
+            with self._task_states_lock:
+                if task_name not in self.task_states:
+                    self.task_states[task_name] = {
+                        'status': 'created',
+                        'created_at': time.time(),
+                        'last_updated_at': time.time(),
+                        'next_run_time': None,
+                        'run_count': 0,
+                        'last_run_time': None,
+                        'last_run_status': None,
+                        'error_message': None
+                    }
 
             # 更新任务状态为执行中
-            self.task_states[task_name].update({
-                'status': 'executing',
-                'last_updated_at': time.time(),
-                'last_run_time': time.time(),
-                'error_message': None
-            })
+            with self._task_states_lock:
+                self.task_states[task_name].update({
+                    'status': 'executing',
+                    'last_updated_at': time.time(),
+                    'last_run_time': time.time(),
+                    'error_message': None
+                })
 
             # 使用共享事件循环执行任务
             self._init_shared_event_loop()
@@ -1533,28 +1571,30 @@ class Scheduler:
             _ = future.result()  # 阻塞直到任务完成
 
             # 更新任务状态为完成
-            if task_name in self.task_states:
-                self.task_states[task_name].update({
-                    'status': 'completed',
-                    'last_updated_at': time.time(),
-                    'run_count': self.task_states[task_name].get('run_count', 0) + 1,
-                    'last_run_status': 'success',
-                    'error_message': None
-                })
+            with self._task_states_lock:
+                if task_name in self.task_states:
+                    self.task_states[task_name].update({
+                        'status': 'completed',
+                        'last_updated_at': time.time(),
+                        'run_count': self.task_states[task_name].get('run_count', 0) + 1,
+                        'last_run_status': 'success',
+                        'error_message': None
+                    })
             logger.info(f"Task {task_name} completed successfully")
         except Exception as e:
             error_msg = str(e)
             logger.exception(f"Task {task_name} execution error: {e}")
 
             # 更新任务状态为失败
-            if task_name in self.task_states:
-                self.task_states[task_name].update({
-                    'status': 'failed',
-                    'last_updated_at': time.time(),
-                    'run_count': self.task_states[task_name].get('run_count', 0) + 1,
-                    'last_run_status': 'failed',
-                    'error_message': error_msg
-                })
+            with self._task_states_lock:
+                if task_name in self.task_states:
+                    self.task_states[task_name].update({
+                        'status': 'failed',
+                        'last_updated_at': time.time(),
+                        'run_count': self.task_states[task_name].get('run_count', 0) + 1,
+                        'last_run_status': 'failed',
+                        'error_message': error_msg
+                    })
         finally:
             # 确保即使发生异常也不会阻止任务状态清理
             pass

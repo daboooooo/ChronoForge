@@ -617,7 +617,7 @@ class TimeSlotManager:
             _end_time = datetime.strptime(
                 str(_now.date()) +
                 str(_now.hour) + ':' + timeslot.end, '%Y-%m-%d%H:%M:%S')
-        if _start_time < _now < _end_time:
+        if _start_time <= _now <= _end_time:
             return True
         return False
 
