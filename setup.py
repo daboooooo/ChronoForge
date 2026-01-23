@@ -61,5 +61,14 @@ setup(
         "Programming Language :: Python :: 3",
         "Operating System :: OS Independent"
     ],
-    python_requires='>=3.8'
+    python_requires='>=3.8',
+    extras_require={
+        'dev': [
+            'mypy>=1.0.0',
+            'black>=22.0.0',
+            'isort>=5.0.0',
+            'pytest>=7.0.0',
+            'coverage>=7.0.0'
+        ]
+    }
 )

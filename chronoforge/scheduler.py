@@ -379,7 +379,7 @@ class Scheduler:
                 try:
                     self._shared_event_loop.stop()
                     self._shared_event_loop.close()
-                except Exception:
+                except (RuntimeError, OSError):
                     # 忽略清理异常
                     pass
 
@@ -397,7 +397,7 @@ class Scheduler:
                     # 确保事件循环关闭
                     try:
                         self._shared_event_loop.close()
-                    except Exception:
+                    except (RuntimeError, OSError):
                         pass
 
             # 启动事件循环线程
@@ -499,7 +499,7 @@ class Scheduler:
                         self._shared_event_loop.stop()
                         # 关闭事件循环
                         self._shared_event_loop.close()
-                except Exception:
+                except (RuntimeError, OSError):
                     # 在清理阶段忽略异常
                     pass
             self._shared_event_loop = None
@@ -667,35 +667,35 @@ class Scheduler:
                 )
 
                 # 添加任务，保存方法名和参数
-                try:
-                    # 使用装饰器中指定的存储配置
-                    storage_name = task_config['storage_name']
-                    storage_config = task_config['storage_config']
+        try:
+            # 使用装饰器中指定的存储配置
+            storage_name = task_config['storage_name']
+            storage_config = task_config['storage_config']
 
-                    self.add_task(
-                        name=task_name,
-                        data_source_name=plugin.__name__,
-                        data_source_config={},
-                        storage_name=storage_name,
-                        storage_config=storage_config,
-                        time_slot=time_slot,
-                        symbols=task_config['symbols'],
-                        timeframe=task_config['timeframe'] or "1d",
-                        timerange_str=task_config['timerange_str'] or "20220101-",
-                        inplace=True,
-                        is_auto_created=True
-                    )
-                    # 保存方法名和完整的任务配置到任务中
-                    if task_name in self.tasks:
-                        self.tasks[task_name].method_name = name
-                        self.tasks[task_name].method_params = task_config
-                    logger.info(
-                        f"Created periodic task {task_name} for "
-                        f"method {name} in plugin {plugin.__name__}")
-                except Exception as e:
-                    logger.error(
-                        f"Failed to create periodic task for "
-                        f"method {name} in plugin {plugin.__name__}: {e}")
+            self.add_task(
+                name=task_name,
+                data_source_name=plugin.__name__,
+                data_source_config={},
+                storage_name=storage_name,
+                storage_config=storage_config,
+                time_slot=time_slot,
+                symbols=task_config['symbols'],
+                timeframe=task_config['timeframe'] or "1d",
+                timerange_str=task_config['timerange_str'] or "20220101-",
+                inplace=True,
+                is_auto_created=True
+            )
+            # 保存方法名和完整的任务配置到任务中
+            if task_name in self.tasks:
+                self.tasks[task_name].method_name = name
+                self.tasks[task_name].method_params = task_config
+            logger.info(
+                f"Created periodic task {task_name} for "
+                f"method {name} in plugin {plugin.__name__}")
+        except (ValueError, KeyError, RuntimeError) as e:
+            logger.error(
+                f"Failed to create periodic task for "
+                f"method {name} in plugin {plugin.__name__}: {e}")
 
     def register_plugin(self, plugin: Any) -> Tuple[bool, str]:
         """ 识别插件类型，验证插件，完成注册
@@ -1481,7 +1481,7 @@ class Scheduler:
                                                 try:
                                                     tickers_df[col] = pd.to_datetime(tickers_df[col])
                                                     tickers_df[col] = tickers_df[col].astype(int) // 10**6
-                                                except:
+                                                except Exception:
                                                     # 如果转换失败，将列转换为字符串类型，确保类型一致
                                                     tickers_df[col] = tickers_df[col].astype(str)
                                         # 转换所有其他列为字符串类型，确保类型一致
@@ -1534,7 +1534,7 @@ class Scheduler:
                                                 try:
                                                     tickers_df[col] = pd.to_datetime(tickers_df[col])
                                                     tickers_df[col] = tickers_df[col].astype(int) // 10**6
-                                                except:
+                                                except Exception:
                                                     # 如果转换失败，将列转换为字符串类型，确保类型一致
                                                     tickers_df[col] = tickers_df[col].astype(str)
                                         # 转换所有其他列为字符串类型，确保类型一致
