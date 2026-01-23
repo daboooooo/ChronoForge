@@ -3,6 +3,7 @@
 
 import argparse
 import sys
+from chronoforge.logging_config import setup_logging
 
 
 def main():
@@ -108,20 +109,22 @@ def main():
         print(f"API文档: http://{host}:{port}/docs")
         print("按 Ctrl+C 停止服务")
 
-        # 配置uvicorn日志格式
+        # 使用统一的日志配置
+        setup_logging()
+
+        # 配置uvicorn日志格式，使其与rich日志兼容
         log_config = {
             "version": 1,
             "disable_existing_loggers": False,
             "formatters": {
                 "default": {
                     "()": "uvicorn.logging.DefaultFormatter",
-                    "fmt": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                    "fmt": "%(message)s",
                     "datefmt": "%Y-%m-%d %H:%M:%S",
                 },
                 "access": {
                     "()": "uvicorn.logging.AccessFormatter",
-                    "fmt": "%(asctime)s - %(name)s - %(levelname)s - %(client_addr)s" +
-                           " - %(request_line)s - %(status_code)s",
+                    "fmt": "%(message)s",
                     "datefmt": "%Y-%m-%d %H:%M:%S",
                 },
             },
@@ -139,20 +142,15 @@ def main():
             },
             "loggers": {
                 "uvicorn": {
-                    "handlers": ["default"],
                     "level": "INFO",
+                    "propagate": True,
                 },
                 "uvicorn.error": {
                     "level": "INFO",
+                    "propagate": True,
                 },
                 "uvicorn.access": {
                     "handlers": ["access"],
-                    "level": "INFO",
-                    "propagate": False,
-                },
-                # 添加应用程序日志配置
-                "chronoforge": {
-                    "handlers": ["default"],
                     "level": "INFO",
                     "propagate": False,
                 },

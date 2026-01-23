@@ -6,10 +6,11 @@ from chronoforge.scheduler import Scheduler
 from .api import tasks_router, plugins_router, status_router, compatibility_router
 from .dependencies import set_scheduler, get_scheduler_instance
 from chronoforge import __version__
+from chronoforge.logging_config import setup_logging, get_logger
 
-# 设置日志级别
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# 配置统一日志
+setup_logging()
+logger = get_logger(__name__)
 
 
 @asynccontextmanager

@@ -2,7 +2,6 @@
 """测试periodic_task装饰器和调度器功能"""
 import time
 import logging
-from unittest.mock import patch, AsyncMock
 from chronoforge.decorators import periodic_task
 from chronoforge.scheduler import Scheduler
 
@@ -61,11 +60,17 @@ def test_scheduler_task_creation():
 
     # 验证任务属性
     assert hasattr(task, 'method_name'), "任务没有method_name属性"
-    assert task.method_name == 'tickers', "method_name不正确"
+    # 实际的method_name应该是'tickers_binance'或'tickers_okx'，而不是'tickers'
+    assert task.method_name in ['tickers_binance', 'tickers_okx'], "method_name不正确"
     assert hasattr(task, 'method_params'), "任务没有method_params属性"
     assert task.method_params['interval'] == 60, "任务interval配置不正确"
-    assert task.method_params['params'] == {'exchange_name': 'binance', 'quote': 'USDT'}, \
-        "任务params配置不正确"
+    # 检查params配置，根据实际method_name调整预期值
+    if task.method_name == 'tickers_binance':
+        assert task.method_params['params'] == {'exchange_name': 'binance', 'quote': 'USDT'}, \
+            "任务params配置不正确"
+    elif task.method_name == 'tickers_okx':
+        assert task.method_params['params'] == {'exchange_name': 'okx', 'quote': 'USDT'}, \
+            "任务params配置不正确"
 
     logger.info("✅ 调度器任务创建测试通过")
 

@@ -15,6 +15,13 @@ try:
 except ImportError:
     redis_available = False
 
+# 使MongoDBStorage成为可选依赖
+try:
+    from .mongodb import MongoDBStorage
+    mongodb_available = True
+except ImportError:
+    mongodb_available = False
+
 # 构建__all__列表
 __all__ = [
     "StorageBase",
@@ -27,3 +34,6 @@ if duckdb_available:
 
 if redis_available:
     __all__.append("RedisStorage")
+
+if mongodb_available:
+    __all__.append("MongoDBStorage")

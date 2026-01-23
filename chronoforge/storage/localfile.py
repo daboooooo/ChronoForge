@@ -153,9 +153,13 @@ class LocalFileStorage(StorageBase):
         try:
             # 根据数据格式保存文件
             if self.data_format == 'feather':
-                data.to_feather(file_path_str)
+                # Feather 格式对索引支持有限，保存前重置索引
+                data_reset = data.reset_index(drop=True)
+                data_reset.to_feather(file_path_str)
             elif self.data_format == 'parquet':
-                data.to_parquet(file_path_str)
+                # Parquet 格式建议不保存索引
+                data_reset = data.reset_index(drop=True)
+                data_reset.to_parquet(file_path_str)
             elif self.data_format == 'json':
                 data.to_json(file_path_str, orient='records', lines=True)
             elif self.data_format == 'jsongz':
@@ -233,6 +237,13 @@ class LocalFileStorage(StorageBase):
 
             # 创建数据副本，避免修改原始数据
             data_copy = data.copy()
+
+            # 确保time列转换为UTC时区的datetime64类型（如果存在）
+            if 'time' in data_copy.columns:
+                # 如果是datetime类型，确保它是UTC时区的
+                if pd.api.types.is_datetime64_any_dtype(data_copy['time']):
+                    # 转换为UTC时区的datetime64[ns, UTC]类型
+                    data_copy['time'] = pd.to_datetime(data_copy['time'], utc=True)
 
             # 确保timestamp列转换为整数类型（如果存在）
             if ('timestamp' in data_copy.columns and

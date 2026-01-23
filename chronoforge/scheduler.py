@@ -1,9 +1,9 @@
 """调度器 - ChronoForge的中央控制器"""
 import os
 import asyncio
-import logging
 import inspect
 import weakref
+import psutil
 from typing import Any, Dict, Optional, Tuple, get_type_hints
 from collections import defaultdict
 import pandas as pd
@@ -14,9 +14,9 @@ from chronoforge.data_source import (CryptoSpotDataSource, FREDDataSource, Bitco
                                      CryptoUMFutureDataSource, GlobalMarketDataSource)
 from chronoforge.storage import StorageBase, verify_storage_instance
 from chronoforge.storage import LocalFileStorage
-# from chronoforge.decorators import periodic_task
 
-# 使DUCKDBStorage和RedisStorage成为可选依赖
+
+# 使DUCKDBStorage、RedisStorage和MongoDBStorage成为可选依赖
 try:
     from chronoforge.storage import DUCKDBStorage
 except ImportError:
@@ -26,12 +26,21 @@ try:
     from chronoforge.storage import RedisStorage
 except ImportError:
     RedisStorage = None
+
+try:
+    from chronoforge.storage import MongoDBStorage
+except ImportError:
+    MongoDBStorage = None
 from chronoforge.utils import TimeSlot, TimeSlotManager, TimeRange, parse_timeframe_to_milliseconds
+from chronoforge.logging_config import setup_logging, get_logger
 import threading
 import time
 from datetime import datetime
 
-logger = logging.getLogger(__name__)
+# 配置日志
+setup_logging()
+
+logger = get_logger(__name__)
 SUPPORTE_TIMEFRAMES = ["1w", "1d", "4h", "1h"]
 
 
@@ -448,7 +457,8 @@ class Scheduler:
         self.builtin_storages = [
             "LocalFileStorage",
             "DUCKDBStorage",
-            "RedisStorage"
+            "RedisStorage",
+            "MongoDBStorage"
         ]
 
         # 定义任务存储文件路径
@@ -465,8 +475,11 @@ class Scheduler:
         # 只有在RedisStorage可用时才注册
         if RedisStorage is not None:
             self.register_plugin(RedisStorage)
+        # 只有在MongoDBStorage可用时才注册
+        if MongoDBStorage is not None:
+            self.register_plugin(MongoDBStorage)
 
-        # register inside data source plugins
+        # register inside data source plugins after storage plugins
         self.register_plugin(CryptoSpotDataSource)
         self.register_plugin(FREDDataSource)
         self.register_plugin(BitcoinFGIDataSource)
@@ -1086,6 +1099,11 @@ class Scheduler:
     def run(self) -> None:
         """运行调度器，检查时间槽并执行任务"""
         logger.info("Scheduler running")
+
+        # 内存检测相关变量
+        last_memory_check_time = time.time()
+        memory_check_interval = 60  # 每60秒检查一次内存
+
         try:
             # 使用_stop_event.is_set()作为循环条件，与start方法保持一致
             while not self._stop_event.is_set():
@@ -1096,6 +1114,22 @@ class Scheduler:
                 current_time = datetime.now()
                 logger.debug(f"Current time: {current_time} ({current_time.timestamp() * 1000})")
                 logger.debug(f"Found {len(self.tasks)} Tasks: {self.tasks.keys()}")
+
+                # 定期检测内存占用
+                current_time_sec = time.time()
+                if current_time_sec - last_memory_check_time >= memory_check_interval:
+                    # 获取内存统计信息
+                    mem_stats = self._get_memory_stats()
+
+                    # 记录内存使用情况
+                    logger.info(f"Memory Usage - RSS: {mem_stats['rss_mb']:.2f} MB, VMS: {mem_stats['vms_mb']:.2f} MB, "
+                                f"Threads: {mem_stats['thread_count']}, Tasks: {mem_stats['task_count']}, "
+                                f"Task Status: {mem_stats['task_status_counts']}, "
+                                f"Data Sources: {mem_stats['data_source_count']}, Storage: {mem_stats['storage_count']}, "
+                                f"Plugin Instances: {mem_stats['plugin_instance_count']}")
+
+                    # 更新上次检查时间
+                    last_memory_check_time = current_time_sec
 
                 # 任务分组：根据交易所或数据源对任务进行分组
                 # 这样可以更有效地管理连接和并发，减少资源竞争
@@ -1130,7 +1164,7 @@ class Scheduler:
                         # 更新任务状态为等待
                         with self._task_states_lock:
                             if self.task_states[task_name]['status'] not in ['waiting', 'created',
-                                                                         'replaced']:
+                                                                             'replaced']:
                                 self.task_states[task_name].update({
                                     'status': 'waiting',
                                     'last_updated_at': time.time()
@@ -1139,7 +1173,10 @@ class Scheduler:
 
                     # 如果任务在时间槽内，更新状态为pending
                     with self._task_states_lock:
-                        if self.task_states[task_name]['status'] not in ['pending', 'created', 'replaced', 'running', 'executing', 'completed', 'failed']:
+                        if self.task_states[task_name]['status'] not in ['pending', 'created',
+                                                                         'replaced', 'running',
+                                                                         'executing', 'completed',
+                                                                         'failed']:
                             self.task_states[task_name].update({
                                 'status': 'pending',
                                 'last_updated_at': time.time()
@@ -1175,12 +1212,14 @@ class Scheduler:
                         else:
                             # 计算下次执行时间
                             with self._task_states_lock:
-                                self.task_states[task_name]['next_run_time'] = current_time + interval
+                                self.task_states[task_name]['next_run_time'] = \
+                                    current_time + interval
 
                     # 如果还没到执行时间，跳过执行但更新状态为pending
                     if not is_time_to_execute:
                         with self._task_states_lock:
-                            if self.task_states[task_name]['status'] not in ['pending', 'created', 'replaced']:
+                            if self.task_states[task_name]['status'] not in ['pending', 'created',
+                                                                             'replaced']:
                                 self.task_states[task_name].update({
                                     'status': 'pending',
                                     'last_updated_at': time.time()
@@ -1238,6 +1277,41 @@ class Scheduler:
             logger.error(f"Error in scheduler run loop: {e}")
         finally:
             logger.info("Scheduler run loop exited")
+
+    def _get_memory_stats(self) -> Dict[str, Any]:
+        """获取详细的内存使用统计信息"""
+        # 获取进程内存信息
+        process = psutil.Process(os.getpid())
+        mem_info = process.memory_info()
+
+        # 计算内存使用量（MB）
+        rss_mb = mem_info.rss / (1024 * 1024)  # 物理内存
+        vms_mb = mem_info.vms / (1024 * 1024)  # 虚拟内存
+
+        # 获取组件统计信息
+        task_count = len(self.tasks)
+        data_source_count = len(self.data_source_instances)
+        storage_count = len(self.storage_instances)
+        plugin_instance_count = len(self.delegate_plugin_instances)
+        thread_count = process.num_threads()
+
+        # 获取任务状态统计
+        task_status_counts = defaultdict(int)
+        with self._task_states_lock:
+            for task_state in self.task_states.values():
+                status = task_state.get('status', 'unknown')
+                task_status_counts[status] += 1
+
+        return {
+            'rss_mb': rss_mb,
+            'vms_mb': vms_mb,
+            'thread_count': thread_count,
+            'task_count': task_count,
+            'task_status_counts': dict(task_status_counts),
+            'data_source_count': data_source_count,
+            'storage_count': storage_count,
+            'plugin_instance_count': plugin_instance_count
+        }
 
     def _clean_completed_tasks(self) -> None:
         """清理已完成的任务状态，只清理future对象，保留任务历史状态"""
@@ -1360,7 +1434,128 @@ class Scheduler:
                     # 检查结果类型，如果是字典，需要转换为DataFrame
                     import pandas as pd
                     data_to_save = result
-                    if isinstance(result, dict):
+
+                    # 特殊处理tickers任务结果，避免创建超宽DataFrame
+                    if isinstance(result, dict) and task.method_name in ['tickers_binance', 'tickers_okx']:
+                        # 获取方法参数中的quote值
+                        quote = None
+                        if hasattr(task, 'method_params') and 'params' in task.method_params:
+                            quote = task.method_params['params'].get('quote')
+
+                        tickers_data = result
+
+                        # 检查返回结果是否已经是按quote过滤后的单层字典
+                        # 如果是嵌套字典（未指定quote或quote为空），则按原逻辑处理
+                        is_nested_dict = any(isinstance(v, dict) for v in result.values())
+
+                        if is_nested_dict:
+                            # tickers结果是嵌套字典，需要特殊处理
+                            for nested_quote, nested_tickers_data in result.items():
+                                if isinstance(nested_tickers_data, dict):
+                                    # 将每个交易对转换为一行，创建合理的DataFrame
+                                    tickers_df = pd.DataFrame.from_dict(nested_tickers_data, orient='index')
+
+                                    # 数据类型处理：统一数据类型，确保Feather格式兼容
+                                    if not tickers_df.empty:
+                                        # 重命名索引为symbol，保留交易对信息
+                                        tickers_df = tickers_df.reset_index().rename(columns={'index': 'symbol'})
+
+                                        # 确保所有列名都是字符串类型
+                                        tickers_df.columns = [str(col) for col in tickers_df.columns]
+
+                                        # 转换所有列的数据类型，确保Feather格式兼容
+                                        for col in tickers_df.columns:
+                                            try:
+                                                # 特殊处理symbol列，确保为字符串类型
+                                                if col == 'symbol':
+                                                    tickers_df[col] = tickers_df[col].astype(str)
+                                                # 转换所有数值列为float，避免混合类型
+                                                elif pd.api.types.is_numeric_dtype(tickers_df[col]):
+                                                    tickers_df[col] = tickers_df[col].astype(float)
+                                                # 转换时间戳列为int，避免混合类型
+                                                elif 'timestamp' in col.lower():
+                                                    if pd.api.types.is_numeric_dtype(tickers_df[col]):
+                                                        tickers_df[col] = tickers_df[col].astype(int)
+                                                    else:
+                                                        # 尝试转换为datetime，然后转换为int（毫秒）
+                                                        try:
+                                                            tickers_df[col] = pd.to_datetime(tickers_df[col])
+                                                            tickers_df[col] = tickers_df[col].astype(int) // 10**6
+                                                        except:
+                                                            # 如果转换失败，将列转换为字符串类型，确保类型一致
+                                                            tickers_df[col] = tickers_df[col].astype(str)
+                                                # 转换所有其他列为字符串类型，确保类型一致
+                                                else:
+                                                    tickers_df[col] = tickers_df[col].astype(str)
+                                            except Exception as e:
+                                                logger.warning(f"转换列 {col} 数据类型失败: {e}")
+                                                # 转换失败时，将列转换为字符串类型，确保类型一致
+                                                tickers_df[col] = tickers_df[col].astype(str)
+
+                                    # 保存到存储
+                                    nested_storage_id = f"{storage_id}_{nested_quote}"
+                                    success = await storage.save(
+                                        id=nested_storage_id,
+                                        data=tickers_df,
+                                        sub=task.sub
+                                    )
+                                    if not success:
+                                        logger.error(f"Failed to save task {task.name} result for {nested_quote} to "
+                                                     f"storage {task.storage_name}")
+                        else:
+                            # tickers结果是单层字典（已按quote过滤），直接转换为DataFrame
+                            tickers_df = pd.DataFrame.from_dict(tickers_data, orient='index')
+
+                            # 数据类型处理：统一数据类型，确保Feather格式兼容
+                            if not tickers_df.empty:
+                                # 重命名索引为symbol，保留交易对信息
+                                tickers_df = tickers_df.reset_index().rename(columns={'index': 'symbol'})
+
+                                # 确保所有列名都是字符串类型
+                                tickers_df.columns = [str(col) for col in tickers_df.columns]
+
+                                # 转换所有列的数据类型，确保Feather格式兼容
+                                for col in tickers_df.columns:
+                                    try:
+                                        # 特殊处理symbol列，确保为字符串类型
+                                        if col == 'symbol':
+                                            tickers_df[col] = tickers_df[col].astype(str)
+                                        # 转换所有数值列为float，避免混合类型
+                                        elif pd.api.types.is_numeric_dtype(tickers_df[col]):
+                                            tickers_df[col] = tickers_df[col].astype(float)
+                                        # 转换时间戳列为int，避免混合类型
+                                        elif 'timestamp' in col.lower():
+                                            if pd.api.types.is_numeric_dtype(tickers_df[col]):
+                                                tickers_df[col] = tickers_df[col].astype(int)
+                                            else:
+                                                # 尝试转换为datetime，然后转换为int（毫秒）
+                                                try:
+                                                    tickers_df[col] = pd.to_datetime(tickers_df[col])
+                                                    tickers_df[col] = tickers_df[col].astype(int) // 10**6
+                                                except:
+                                                    # 如果转换失败，将列转换为字符串类型，确保类型一致
+                                                    tickers_df[col] = tickers_df[col].astype(str)
+                                        # 转换所有其他列为字符串类型，确保类型一致
+                                        else:
+                                            tickers_df[col] = tickers_df[col].astype(str)
+                                    except Exception as e:
+                                        logger.warning(f"转换列 {col} 数据类型失败: {e}")
+                                        # 转换失败时，将列转换为字符串类型，确保类型一致
+                                        tickers_df[col] = tickers_df[col].astype(str)
+
+                            # 保存到存储
+                            nested_storage_id = f"{storage_id}_{quote if quote else 'all'}"
+                            success = await storage.save(
+                                id=nested_storage_id,
+                                data=tickers_df,
+                                sub=task.sub
+                            )
+                            if not success:
+                                logger.error(f"Failed to save task {task.name} result for {quote if quote else 'all'} to "
+                                             f"storage {task.storage_name}")
+                        return
+
+                    elif isinstance(result, dict):
                         # 将字典转换为适合存储的格式
                         # 如果字典值是DataFrame，直接使用
                         if all(isinstance(v, pd.DataFrame) for v in result.values()):
@@ -1372,10 +1567,7 @@ class Scheduler:
                                     data=df,
                                     sub=task.sub
                                 )
-                                if success:
-                                    logger.info(f"Task {task.name} result {key} saved to "
-                                                f"storage {task.storage_name}")
-                                else:
+                                if not success:
                                     logger.error(f"Failed to save task {task.name} result {key} to "
                                                  f"storage {task.storage_name}")
                             return
@@ -1398,9 +1590,7 @@ class Scheduler:
                         data=data_to_save,
                         sub=task.sub
                     )
-                    if success:
-                        logger.info(f"Task {task.name} result saved to storage {task.storage_name}")
-                    else:
+                    if not success:
                         logger.error(f"Failed to save task {task.name} result to storage")
         except Exception as e:
             logger.error(f"Error handling task {task.name} result: {e}")

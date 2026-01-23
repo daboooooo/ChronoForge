@@ -7,7 +7,7 @@ from unittest.mock import patch, AsyncMock
 from datetime import datetime
 from chronoforge.storage import LocalFileStorage
 
-# 使DUCKDBStorage和RedisStorage成为可选依赖
+# 使DUCKDBStorage、RedisStorage和MongoDBStorage成为可选依赖
 try:
     from chronoforge.storage import DUCKDBStorage
 except ImportError:
@@ -17,6 +17,11 @@ try:
     from chronoforge.storage import RedisStorage
 except ImportError:
     RedisStorage = None
+
+try:
+    from chronoforge.storage import MongoDBStorage
+except ImportError:
+    MongoDBStorage = None
 
 
 class TestLocalFileStorage:
@@ -632,3 +637,265 @@ class TestRedisStorage:
         # 验证连接已关闭
         assert redis_storage._connection is None
         mock_conn.close.assert_called_once()
+
+
+@pytest.mark.skipif(MongoDBStorage is None, reason="MongoDBStorage not available")
+class TestMongoDBStorage:
+    """测试MongoDB存储"""
+
+    @pytest.fixture
+    def test_dataframe(self):
+        """创建测试数据框"""
+        data = {
+            "time": [datetime(2024, 1, 1), datetime(2024, 1, 2), datetime(2024, 1, 3)],
+            "open": [100, 200, 300],
+            "high": [110, 210, 310],
+            "low": [90, 190, 290],
+            "close": [105, 205, 305],
+            "volume": [1000, 2000, 3000]
+        }
+        return pd.DataFrame(data)
+
+    @pytest.fixture
+    def mongodb_storage(self):
+        """创建MongoDB存储实例"""
+        config = {
+            "uri": "mongodb://localhost:27017",
+            "db_name": "test_chronoforge",
+            "collection_prefix": "test_"
+        }
+        return MongoDBStorage(config)
+
+    @patch('chronoforge.storage.mongodb.MongoClient')
+    def test_initialization(self, mock_mongo_client):
+        """测试MongoDB存储初始化"""
+        # 设置mock返回值
+        mock_db = {}
+        mock_client = mock_mongo_client.return_value
+        mock_client.admin.command.return_value = {"ok": 1}
+        mock_client.__getitem__.return_value = mock_db
+        
+        config = {
+            "uri": "mongodb://localhost:27017",
+            "db_name": "test_db",
+            "collection_prefix": "test_"
+        }
+        storage = MongoDBStorage(config)
+        assert storage.config == config
+        assert storage.name == "MongoDBStorage"
+        assert storage.uri == config["uri"]
+        assert storage.db_name == config["db_name"]
+        assert storage.collection_prefix == config["collection_prefix"]
+
+    @patch('chronoforge.storage.mongodb.MongoClient')
+    def test_initialization_with_defaults(self, mock_mongo_client):
+        """测试使用默认配置初始化MongoDB存储"""
+        # 设置mock返回值
+        mock_db = {}
+        mock_client = mock_mongo_client.return_value
+        mock_client.admin.command.return_value = {"ok": 1}
+        mock_client.__getitem__.return_value = mock_db
+        
+        storage = MongoDBStorage()
+        assert storage.uri == "mongodb://localhost:27017"
+        assert storage.db_name == "chronoforge"
+        assert storage.collection_prefix == "data_"
+
+    @patch('chronoforge.storage.mongodb.MongoClient')
+    def test_connect(self, mock_mongo_client):
+        """测试连接到MongoDB"""
+        # 设置mock返回值
+        mock_db = {}
+        mock_client = mock_mongo_client.return_value
+        mock_client.admin.command.return_value = {"ok": 1}
+        mock_client.__getitem__.return_value = mock_db
+
+        # 创建存储实例（这会触发连接）
+        storage = MongoDBStorage()
+
+        # 验证连接调用
+        mock_mongo_client.assert_called_once()
+        mock_client.admin.command.assert_called_once_with('ping')
+        mock_client.__getitem__.assert_called_once_with("chronoforge")
+
+    @patch('chronoforge.storage.mongodb.MongoClient')
+    def test_get_collection(self, mock_mongo_client):
+        """测试获取MongoDB集合"""
+        # 设置mock返回值
+        mock_collection = {}
+        mock_db = mock_mongo_client.return_value.__getitem__.return_value
+        mock_db.__getitem__.return_value = mock_collection
+        mock_client = mock_mongo_client.return_value
+        mock_client.admin.command.return_value = {"ok": 1}
+
+        # 创建存储实例
+        storage = MongoDBStorage()
+
+        # 测试获取集合
+        collection = storage._get_collection("sub1")
+        assert collection == mock_collection
+        mock_db.__getitem__.assert_called_once()
+
+        # 测试不带sub参数获取集合
+        collection2 = storage._get_collection()
+        assert collection2 == mock_collection
+        assert mock_db.__getitem__.call_count == 2
+
+    @pytest.mark.asyncio
+    @patch('chronoforge.storage.mongodb.MongoClient')
+    async def test_exists(self, mock_mongo_client):
+        """测试检查数据是否存在"""
+        # 设置mock返回值
+        mock_collection = mock_mongo_client.return_value.__getitem__.return_value.__getitem__.return_value
+        mock_collection.count_documents.return_value = 1
+        mock_mongo_client.return_value.admin.command.return_value = {"ok": 1}
+
+        # 创建存储实例
+        storage = MongoDBStorage()
+
+        # 测试数据存在
+        exists_result = await storage.exists("test_id", "test_sub")
+        assert exists_result is True
+        mock_collection.count_documents.assert_called_once_with({"data_id": "test_id"}, limit=1)
+
+        # 测试数据不存在
+        mock_collection.count_documents.return_value = 0
+        exists_result = await storage.exists("test_id", "test_sub")
+        assert exists_result is False
+
+    @pytest.mark.asyncio
+    @patch('chronoforge.storage.mongodb.MongoClient')
+    async def test_delete(self, mock_mongo_client):
+        """测试删除数据"""
+        # 设置mock返回值
+        mock_collection = mock_mongo_client.return_value.__getitem__.return_value.__getitem__.return_value
+        mock_result = type('obj', (object,), {'deleted_count': 1})()
+        mock_collection.delete_many.return_value = mock_result
+        mock_mongo_client.return_value.admin.command.return_value = {"ok": 1}
+
+        # 创建存储实例
+        storage = MongoDBStorage()
+
+        # 测试删除数据
+        delete_result = await storage.delete("test_id", "test_sub")
+        assert delete_result is True
+        mock_collection.delete_many.assert_called_once_with({"data_id": "test_id"})
+
+    @pytest.mark.asyncio
+    @patch('chronoforge.storage.mongodb.MongoClient')
+    async def test_lists(self, mock_mongo_client):
+        """测试列出数据"""
+        # 设置mock返回值
+        mock_collection = mock_mongo_client.return_value.__getitem__.return_value.__getitem__.return_value
+        mock_collection.distinct.return_value = ["symbol1_1d", "symbol2_1d"]
+        
+        # 设置get_time_range返回值
+        mock_min_doc = {"time": datetime(2024, 1, 1)}
+        mock_max_doc = {"time": datetime(2024, 1, 3)}
+        mock_collection.find_one.side_effect = [mock_min_doc, mock_max_doc, mock_min_doc, mock_max_doc]
+        
+        mock_mongo_client.return_value.admin.command.return_value = {"ok": 1}
+
+        # 创建存储实例
+        storage = MongoDBStorage()
+
+        # 测试列出数据
+        items = await storage.lists("test_sub")
+        assert isinstance(items, list)
+        assert len(items) == 2
+        mock_collection.distinct.assert_called_once_with("data_id")
+
+    @pytest.mark.asyncio
+    @patch('chronoforge.storage.mongodb.MongoClient')
+    async def test_save(self, mock_mongo_client, test_dataframe):
+        """测试保存数据到MongoDB"""
+        # 设置mock返回值
+        mock_collection = mock_mongo_client.return_value.__getitem__.return_value.__getitem__.return_value
+        mock_collection.delete_many.return_value = None
+        mock_collection.insert_many.return_value = None
+        mock_mongo_client.return_value.admin.command.return_value = {"ok": 1}
+
+        # 创建存储实例
+        storage = MongoDBStorage()
+
+        # 测试保存数据
+        save_result = await storage.save("test_id", test_dataframe, "test_sub")
+        assert save_result is True
+        mock_collection.delete_many.assert_called_once_with({"data_id": "test_id"})
+        mock_collection.insert_many.assert_called_once()
+        assert len(mock_collection.insert_many.call_args[0][0]) == len(test_dataframe)
+
+    @pytest.mark.asyncio
+    @patch('chronoforge.storage.mongodb.MongoClient')
+    async def test_load(self, mock_mongo_client, test_dataframe):
+        """测试从MongoDB加载数据"""
+        # 设置mock返回值
+        test_records = test_dataframe.to_dict(orient="records")
+        for record in test_records:
+            record["_id"] = f"test_id_{record['time']}"
+            record["data_id"] = "test_id"
+        
+        mock_collection = mock_mongo_client.return_value.__getitem__.return_value.__getitem__.return_value
+        
+        # 创建一个可以迭代的mock cursor，使用list来模拟cursor
+        mock_collection.find.return_value = test_records
+        mock_mongo_client.return_value.admin.command.return_value = {"ok": 1}
+
+        # 创建存储实例
+        storage = MongoDBStorage()
+
+        # 测试加载数据
+        loaded_data = await storage.load("test_id", "test_sub")
+        assert loaded_data is not None
+        assert not loaded_data.empty
+        assert len(loaded_data) == len(test_dataframe)
+        mock_collection.find.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch('chronoforge.storage.mongodb.MongoClient')
+    async def test_save_empty_data(self, mock_mongo_client):
+        """测试保存空数据到MongoDB"""
+        # 设置mock返回值
+        mock_mongo_client.return_value.admin.command.return_value = {"ok": 1}
+
+        # 创建存储实例
+        storage = MongoDBStorage()
+        empty_data = pd.DataFrame()
+
+        # 测试保存空数据
+        save_result = await storage.save("empty_id", empty_data, "test_sub")
+        assert save_result is True
+
+    @pytest.mark.asyncio
+    @patch('chronoforge.storage.mongodb.MongoClient')
+    async def test_context_manager(self, mock_mongo_client, test_dataframe):
+        """测试MongoDB存储的异步上下文管理器"""
+        # 设置mock返回值
+        mock_collection = mock_mongo_client.return_value.__getitem__.return_value.__getitem__.return_value
+        mock_collection.delete_many.return_value = None
+        mock_collection.insert_many.return_value = None
+        mock_mongo_client.return_value.admin.command.return_value = {"ok": 1}
+
+        # 测试上下文管理器
+        async with MongoDBStorage() as storage:
+            save_result = await storage.save("test_id", test_dataframe, "test_sub")
+            assert save_result is True
+
+    @pytest.mark.asyncio
+    @patch('chronoforge.storage.mongodb.MongoClient')
+    async def test_close(self, mock_mongo_client):
+        """测试关闭MongoDB连接"""
+        # 设置mock返回值
+        mock_client = mock_mongo_client.return_value
+        mock_client.admin.command.return_value = {"ok": 1}
+        mock_mongo_client.return_value.__getitem__.return_value = {}
+
+        # 创建存储实例
+        storage = MongoDBStorage()
+        assert storage.client is not None
+
+        # 测试关闭连接
+        await storage.close()
+        assert storage.client is None
+        assert storage.db is None
+        mock_client.close.assert_called_once()

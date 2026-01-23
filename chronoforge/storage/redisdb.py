@@ -67,8 +67,6 @@ class RedisStorage(StorageBase):
             self._connection = None
             logger.debug("关闭了Redis连接")
 
-
-
     async def __aenter__(self):
         """异步上下文管理器的进入方法"""
         return self

@@ -789,8 +789,6 @@ class CryptoSpotDataSource(DataSourceBase):
             logger.warning(f"⚠️ 未下载到 {symbol} - {timeframe} 新数据")
             return pd.DataFrame(columns=['time', 'open', 'high', 'low', 'close', 'volume'])
 
-    @periodic_task(interval=60, symbols=[], timeframe=None, timerange_str=None,
-                   params={'exchange_name': 'binance', 'quote': 'USDT'})
     async def tickers(self, exchange_name: str, quote: Optional[str] = None) -> Any:
         """获取所有交易所的Spot交易对tickers
 
@@ -807,6 +805,34 @@ class CryptoSpotDataSource(DataSourceBase):
             return tickers
 
         return tickers.get(quote, {})
+
+    @periodic_task(interval=60, symbols=[], timeframe=None, timerange_str=None,
+                   params={'exchange_name': 'binance', 'quote': 'USDT'})
+    async def tickers_binance(self, exchange_name: str, quote: Optional[str] = None) -> Any:
+        """获取Binance交易所的Spot交易对tickers
+
+        Args:
+            exchange_name (str): 交易所名称
+            quote (Optional[str], optional): 报价资产. Defaults to None.
+
+        Returns:
+            dict: 键为交易所名称，值为该交易所的tickers数据
+        """
+        return await self.tickers(exchange_name, quote)
+
+    @periodic_task(interval=60, symbols=[], timeframe=None, timerange_str=None,
+                   params={'exchange_name': 'okx', 'quote': 'USDT'})
+    async def tickers_okx(self, exchange_name: str, quote: Optional[str] = None) -> Any:
+        """获取OKX交易所的Spot交易对tickers
+
+        Args:
+            exchange_name (str): 交易所名称
+            quote (Optional[str], optional): 报价资产. Defaults to None.
+
+        Returns:
+            dict: 键为交易所名称，值为该交易所的tickers数据
+        """
+        return await self.tickers(exchange_name, quote)
 
     async def top_volume_symbols(self, exchange_name: str, quote: str,
                                  top_n: Optional[int] = None,

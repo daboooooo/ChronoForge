@@ -34,8 +34,8 @@ STATUS_COLORS = {
 }
 
 # API基础URL
-# API_BASE_URL = "http://localhost:8000/api"
-API_BASE_URL = "http://192.168.1.22:8000/api"
+API_BASE_URL = "http://localhost:8000/api"
+# API_BASE_URL = "http://192.168.1.22:8000/api"
 
 # 直接使用正确格式的symbol，包含交易所信息
 crypto_symbols = ['binance:BTC/USDT', 'okx:ETH/USDT']
@@ -251,8 +251,10 @@ def add_tasks():
     # 删除现有任务，但保留自动添加的任务
     delete_existing_tasks()
 
-    # 获取按成交量排序的top 90%交易对
-    logger.info("获取按成交量排序的top 90%交易对...")
+    input("请确认删除任务后，按Enter键继续...")
+
+    # 获取按成交量排序的top 80%交易对
+    logger.info("获取按成交量排序的top 80%交易对...")
     try:
         # 调用CryptoSpotDataSource的top_volume_symbols方法
         delegate_call_url = f"{API_BASE_URL}/plugins/delegate-call"
@@ -263,7 +265,7 @@ def add_tasks():
             "kwargs": {
                 "exchange_name": "binance",
                 "quote": "USDT",
-                "top_percent": 90
+                "top_percent": 80
             }
         }
 
@@ -298,10 +300,8 @@ def add_tasks():
             "name": "crypto_1d",
             "data_source_name": "CryptoSpotDataSource",
             "data_source_config": {},
-            "storage_name": "DUCKDBStorage",
-            "storage_config": {
-                'db_path': './tmp/geigei.db'
-            },
+            "storage_name": "MongoDBStorage",
+            "storage_config": {},
             "time_slot": {
                 "start": "00:30",
                 "end": "59:00"
@@ -351,10 +351,8 @@ def add_tasks():
             "data_source_config": {
                 "api_key": fred_api_key
             },
-            "storage_name": "DUCKDBStorage",
-            "storage_config": {
-                'db_path': './tmp/geigei.db'
-            },
+            "storage_name": "MongoDBStorage",
+            "storage_config": {},
             "time_slot": {
                 "start": "00:30",
                 "end": "59:00"
