@@ -1456,52 +1456,54 @@ class Scheduler:
                                     tickers_df = pd.DataFrame.from_dict(nested_tickers_data, orient='index')
 
                                     # 数据类型处理：统一数据类型，确保Feather格式兼容
-                                    if not tickers_df.empty:
-                                        # 重命名索引为symbol，保留交易对信息
-                                        tickers_df = tickers_df.reset_index().rename(columns={'index': 'symbol'})
+                            if not tickers_df.empty:
+                                # 重命名索引为symbol，保留交易对信息
+                                tickers_df = tickers_df.reset_index().rename(columns={'index': 'symbol'})
 
-                                        # 确保所有列名都是字符串类型
-                                        tickers_df.columns = [str(col) for col in tickers_df.columns]
+                                # 确保所有列名都是字符串类型
+                                tickers_df.columns = [str(col) for col in tickers_df.columns]
 
-                                        # 转换所有列的数据类型，确保Feather格式兼容
-                                        for col in tickers_df.columns:
-                                            try:
-                                                # 特殊处理symbol列，确保为字符串类型
-                                                if col == 'symbol':
+                                # 转换所有列的数据类型，确保Feather格式兼容
+                                for col in tickers_df.columns:
+                                    try:
+                                        # 特殊处理symbol列，确保为字符串类型
+                                        if col == 'symbol':
+                                            tickers_df[col] = tickers_df[col].astype(str)
+                                        # 转换所有数值列为float，避免混合类型
+                                        elif pd.api.types.is_numeric_dtype(tickers_df[col]):
+                                            tickers_df[col] = tickers_df[col].astype(float)
+                                        # 转换时间戳列为int，避免混合类型
+                                        elif 'timestamp' in col.lower():
+                                            if pd.api.types.is_numeric_dtype(tickers_df[col]):
+                                                tickers_df[col] = tickers_df[col].astype(int)
+                                            else:
+                                                # 尝试转换为datetime，然后转换为int（毫秒）
+                                                try:
+                                                    tickers_df[col] = pd.to_datetime(tickers_df[col])
+                                                    tickers_df[col] = tickers_df[col].astype(int) // 10**6
+                                                except:
+                                                    # 如果转换失败，将列转换为字符串类型，确保类型一致
                                                     tickers_df[col] = tickers_df[col].astype(str)
-                                                # 转换所有数值列为float，避免混合类型
-                                                elif pd.api.types.is_numeric_dtype(tickers_df[col]):
-                                                    tickers_df[col] = tickers_df[col].astype(float)
-                                                # 转换时间戳列为int，避免混合类型
-                                                elif 'timestamp' in col.lower():
-                                                    if pd.api.types.is_numeric_dtype(tickers_df[col]):
-                                                        tickers_df[col] = tickers_df[col].astype(int)
-                                                    else:
-                                                        # 尝试转换为datetime，然后转换为int（毫秒）
-                                                        try:
-                                                            tickers_df[col] = pd.to_datetime(tickers_df[col])
-                                                            tickers_df[col] = tickers_df[col].astype(int) // 10**6
-                                                        except:
-                                                            # 如果转换失败，将列转换为字符串类型，确保类型一致
-                                                            tickers_df[col] = tickers_df[col].astype(str)
-                                                # 转换所有其他列为字符串类型，确保类型一致
-                                                else:
-                                                    tickers_df[col] = tickers_df[col].astype(str)
-                                            except Exception as e:
-                                                logger.warning(f"转换列 {col} 数据类型失败: {e}")
-                                                # 转换失败时，将列转换为字符串类型，确保类型一致
-                                                tickers_df[col] = tickers_df[col].astype(str)
+                                        # 转换所有其他列为字符串类型，确保类型一致
+                                        else:
+                                            tickers_df[col] = tickers_df[col].astype(str)
+                                    except Exception as e:
+                                        logger.warning(f"转换列 {col} 数据类型失败: {e}")
+                                        # 转换失败时，将列转换为字符串类型，确保类型一致
+                                        tickers_df[col] = tickers_df[col].astype(str)
 
-                                    # 保存到存储
-                                    nested_storage_id = f"{storage_id}_{nested_quote}"
-                                    success = await storage.save(
-                                        id=nested_storage_id,
-                                        data=tickers_df,
-                                        sub=task.sub
-                                    )
-                                    if not success:
-                                        logger.error(f"Failed to save task {task.name} result for {nested_quote} to "
-                                                     f"storage {task.storage_name}")
+                                # 保存到存储
+                                nested_storage_id = f"{storage_id}_{nested_quote}"
+                                success = await storage.save(
+                                    id=nested_storage_id,
+                                    data=tickers_df,
+                                    sub=task.sub
+                                )
+                                if not success:
+                                    logger.error(f"Failed to save task {task.name} result for {nested_quote} to "
+                                                 f"storage {task.storage_name}")
+                            else:
+                                logger.debug(f"跳过保存空数据: {nested_quote} - {nested_storage_id}")
                         else:
                             # tickers结果是单层字典（已按quote过滤），直接转换为DataFrame
                             tickers_df = pd.DataFrame.from_dict(tickers_data, orient='index')
@@ -1543,16 +1545,19 @@ class Scheduler:
                                         # 转换失败时，将列转换为字符串类型，确保类型一致
                                         tickers_df[col] = tickers_df[col].astype(str)
 
-                            # 保存到存储
-                            nested_storage_id = f"{storage_id}_{quote if quote else 'all'}"
-                            success = await storage.save(
-                                id=nested_storage_id,
-                                data=tickers_df,
-                                sub=task.sub
-                            )
-                            if not success:
-                                logger.error(f"Failed to save task {task.name} result for {quote if quote else 'all'} to "
-                                             f"storage {task.storage_name}")
+                                # 保存到存储
+                                nested_storage_id = f"{storage_id}_{quote if quote else 'all'}"
+                                success = await storage.save(
+                                    id=nested_storage_id,
+                                    data=tickers_df,
+                                    sub=task.sub
+                                )
+                                if not success:
+                                    logger.error(f"Failed to save task {task.name} result for {quote if quote else 'all'} to "
+                                                 f"storage {task.storage_name}")
+                            else:
+                                nested_storage_id = f"{storage_id}_{quote if quote else 'all'}"
+                                logger.debug(f"跳过保存空数据: {quote if quote else 'all'} - {nested_storage_id}")
                         return
 
                     elif isinstance(result, dict):
