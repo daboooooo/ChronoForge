@@ -726,18 +726,13 @@ class Scheduler:
                 # 确定任务类型
                 interval = task_config.get('interval')
                 is_periodic = interval is not None
-
-                # 优先使用装饰器中指定的task_type，如果没有则根据是否有interval确定
-                decorator_task_type = task_config.get('task_type')
-                if decorator_task_type:
-                    task_type = decorator_task_type
-                elif is_periodic:
+                if is_periodic:
                     task_type = Task.TASK_TYPES['PERIODIC']
                 else:
                     task_type = Task.TASK_TYPES['TIME_SLOT']
 
                 # 根据任务类型设置任务后缀
-                task_suffix = "_periodic" if task_type == Task.TASK_TYPES['PERIODIC'] else ""
+                task_suffix = "_periodic" if task_type == Task.TASK_TYPES['PERIODIC'] else "_timeslot"
 
                 # 生成任务名称
                 task_name = f"{plugin.__name__}_{name}{task_suffix}"
@@ -753,8 +748,8 @@ class Scheduler:
                 else:
                     # 使用全天时间段
                     time_slot = TimeSlot(
-                        start="00:00:00",
-                        end="23:59:59"
+                        start="00:00",
+                        end="23:59"
                     )
 
                 # 添加任务，保存方法名和参数
@@ -779,22 +774,20 @@ class Scheduler:
                     )
 
                     # 保存方法名和完整的任务配置到任务中
-                    if task_name in self.tasks:
-                        # 使用统一配置存储
-                        self.tasks[task_name].config['method_name'] = name
-                        self.tasks[task_name].config['method_params'] = task_config
+                    self.tasks[task_name].config['method_name'] = name
+                    self.tasks[task_name].config['method_params'] = task_config
 
-                        # 保存间隔配置（仅用于周期性任务）
-                        if is_periodic:
-                            self.tasks[task_name].config['interval'] = interval
+                    # 保存间隔配置（仅用于周期性任务）
+                    if is_periodic:
+                        self.tasks[task_name].config['interval'] = interval
 
-                        # 保存其他配置参数
-                        if 'max_retries' in task_config:
-                            self.tasks[task_name].config['max_retries'] = task_config['max_retries']
-                        if 'retry_delay' in task_config:
-                            self.tasks[task_name].config['retry_delay'] = task_config['retry_delay']
-                        if 'priority' in task_config:
-                            self.tasks[task_name].config['priority'] = task_config['priority']
+                    # 保存其他配置参数
+                    if 'max_retries' in task_config:
+                        self.tasks[task_name].config['max_retries'] = task_config['max_retries']
+                    if 'retry_delay' in task_config:
+                        self.tasks[task_name].config['retry_delay'] = task_config['retry_delay']
+                    if 'priority' in task_config:
+                        self.tasks[task_name].config['priority'] = task_config['priority']
 
                     logger.info(
                         f"Created {task_type} task {task_name} for "
@@ -1777,7 +1770,7 @@ class Scheduler:
 
             # 检查是否是周期性任务（有指定的method_name）
             if hasattr(task, 'method_name') and task.method_name is not None:
-                logger.info(f"Executing periodic method {task.method_name} for task {task.name}")
+                logger.debug(f"Executing periodic method {task.method_name} for task {task.name}")
 
                 # 获取方法对象
                 method = getattr(ds, task.method_name)
@@ -1811,8 +1804,7 @@ class Scheduler:
                         result = await method(**params)
                         logger.info(
                             f"Periodic method {task.method_name} executed successfully "
-                            f"(attempt {attempt+1}/{max_retries+1}), "
-                            f"result type: {type(result)}")
+                            f"(attempt {attempt+1}/{max_retries+1})")
 
                         # 处理任务结果（可以根据需要扩展）
                         await self._handle_task_result(task, result)
@@ -1841,7 +1833,7 @@ class Scheduler:
 
             # 否则执行默认的K线更新逻辑
             else:
-                logger.info(f"Executing default K-line update for task {task.name}")
+                logger.debug(f"Executing default K-line update for task {task.name}")
 
                 async def update_with_semaphore(symbol):
                     """使用全局信号量包装的更新函数"""

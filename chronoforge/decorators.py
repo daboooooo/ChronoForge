@@ -21,8 +21,7 @@ def api_callable(func: Callable[..., Any]) -> Callable[..., Any]:
 def create_task(interval: int = None, symbols: List[str] = None, timeframe: str = None,
                 timerange_str: str = None, storage_name: str = "LocalFileStorage",
                 storage_config: Dict = None, params: Dict = None, max_retries: int = 3,
-                retry_delay: int = 1, priority: int = 0, time_slot: Dict = None,
-                task_type: str = None):
+                retry_delay: int = 1, priority: int = 0, time_slot: Dict = None):
     """装饰器，用于标记需要执行的函数，可以是周期性任务或基于time_slot的任务
 
     Args:
@@ -37,13 +36,8 @@ def create_task(interval: int = None, symbols: List[str] = None, timeframe: str 
         retry_delay: 重试延迟（秒），默认1秒
         priority: 任务优先级，默认0
         time_slot: 时间槽配置，格式为{'start': 'HH:MM:SS', 'end': 'HH:MM:SS'}，可选
-        task_type: 任务类型，可选值为'periodic', 'time_slot', 'inner'，默认为None
     """
     def decorator(func):
-        # 确定任务类型
-        is_periodic = interval is not None
-        func.is_periodic_task = is_periodic
-        
         # 构建任务配置
         func.task_config = {
             'interval': interval,
@@ -56,8 +50,7 @@ def create_task(interval: int = None, symbols: List[str] = None, timeframe: str 
             'max_retries': max_retries,
             'retry_delay': retry_delay,
             'priority': priority,
-            'time_slot': time_slot,
-            'task_type': task_type
+            'time_slot': time_slot
         }
         return func
     return decorator
