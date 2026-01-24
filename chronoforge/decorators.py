@@ -52,5 +52,8 @@ def create_task(interval: int = None, symbols: List[str] = None, timeframe: str 
             'priority': priority,
             'time_slot': time_slot
         }
+        # 添加is_periodic_task属性，标记这是一个周期性任务
+        # scheduler利用它来判断一个函数是否被装饰器装饰
+        func.is_periodic_task = True
         return func
     return decorator
