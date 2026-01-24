@@ -4,11 +4,10 @@ import time
 from unittest.mock import Mock, AsyncMock, patch
 from chronoforge import Scheduler
 from chronoforge.utils import TimeSlot
-from chronoforge.decorators import periodic_task
+from chronoforge.decorators import create_task
 from chronoforge.data_source import DataSourceBase
 import pandas as pd
 import threading
-from typing import List
 
 
 class TestScheduler:
@@ -187,7 +186,7 @@ class TestPeriodicTask:
     def test_periodic_task_decorator_basic(self):
         """测试periodic_task装饰器的基本功能"""
 
-        @periodic_task(interval=2, symbols=['BTC/USDT'], params={'key': 'value'})
+        @create_task(interval=2, symbols=['BTC/USDT'], params={'key': 'value'})
         async def test_func(self, key=None):
             return {'result': 'success', 'key': key}
 
@@ -206,7 +205,7 @@ class TestPeriodicTask:
     def test_periodic_task_decorator_with_storage(self):
         """测试带有存储配置的periodic_task装饰器"""
 
-        @periodic_task(
+        @create_task(
             interval=5,
             symbols=['ETH/USDT'],
             storage_name="LocalFileStorage",
@@ -251,7 +250,7 @@ class TestPeriodicTask:
             async def close_all_connections(self):
                 pass
 
-            @periodic_task(interval=1, symbols=['TEST/USDT'], params={'test_param': 'test_value'})
+            @create_task(interval=1, symbols=['TEST/USDT'], params={'test_param': 'test_value'})
             async def test_method(self, test_param=None):
                 return {'status': 'success', 'param': test_param}
 
@@ -460,6 +459,18 @@ class TestDynamicInterval:
                     self.next_run_time = time.time()
                     self.interval = 60
                     self.method_params = {}
+                    self.task_type = "periodic"
+                    self.config = {
+                        'interval': 60,
+                        'method_name': None,
+                        'method_params': {}
+                    }
+                    self.task_type = "periodic"
+                    self.config = {
+                        'interval': 60,
+                        'method_name': None,
+                        'method_params': {}
+                    }
 
             scheduler.tasks[f"test_task_{i}"] = MockTask(f"test_task_{i}")
 
@@ -499,6 +510,12 @@ class TestDynamicInterval:
                     self.next_run_time = time.time()
                     self.interval = 60
                     self.method_params = {}
+                    self.task_type = "periodic"
+                    self.config = {
+                        'interval': 60,
+                        'method_name': None,
+                        'method_params': {}
+                    }
 
             scheduler.tasks[f"test_task_{i}"] = MockTask(f"test_task_{i}")
 
@@ -538,6 +555,12 @@ class TestDynamicInterval:
                     self.next_run_time = time.time()
                     self.interval = 60
                     self.method_params = {}
+                    self.task_type = "periodic"
+                    self.config = {
+                        'interval': 60,
+                        'method_name': None,
+                        'method_params': {}
+                    }
 
             scheduler.tasks[f"test_task_{i}"] = MockTask(f"test_task_{i}")
 
@@ -728,7 +751,7 @@ class TestRetryMechanism:
             async def close_all_connections(self):
                 pass
 
-            @periodic_task(interval=1, symbols=['TEST/USDT'], max_retries=3, retry_delay=0.1)
+            @create_task(interval=1, symbols=['TEST/USDT'], max_retries=3, retry_delay=0.1)
             async def flaky_task(self, param=None):
                 """一个不稳定的任务，可能会失败"""
                 self.error_count += 1
@@ -797,7 +820,7 @@ class TestRetryMechanism:
             return await original_flaky_task.__get__(self, self.__class__)(param)
 
         # 替换类的方法
-        self.RetryTestDataSource.flaky_task = periodic_task(
+        self.RetryTestDataSource.flaky_task = create_task(
             interval=1, symbols=['TEST/USDT'], max_retries=3, retry_delay=0.1)(timed_flaky_task)
 
         # 创建数据源实例
@@ -880,7 +903,7 @@ class TestDynamicParameterPassing:
             async def close_all_connections(self):
                 pass
 
-            @periodic_task(interval=1, symbols=['BTC/USDT', 'ETH/USDT'],
+            @create_task(interval=1, symbols=['BTC/USDT', 'ETH/USDT'],
                            params={'exchange_name': 'binance', 'quote': 'USDT'})
             async def test_dynamic_params(self, exchange_name=None, quote=None, custom_param=None):
                 """测试动态参数传递的任务"""
@@ -898,7 +921,7 @@ class TestDynamicParameterPassing:
                     'custom_param': custom_param
                 }
 
-            @periodic_task(interval=2, symbols=['SOL/USDT'], params={'exchange_name': 'bybit'})
+            @create_task(interval=2, symbols=['SOL/USDT'], params={'exchange_name': 'bybit'})
             async def test_partial_params(self, exchange_name=None, quote=None):
                 """测试部分参数传递的任务"""
                 return {
@@ -1110,6 +1133,52 @@ class TestDelegateCall:
         # 验证插件实例被缓存
         plugin_key = ("data_source", "MockDataSource")
         assert plugin_key in self.scheduler.delegate_plugin_instances
+
+    def test_delegate_call_api_callable_decorator(self):
+        """测试被api_callable装饰的函数可以被调用"""
+        # 导入api_callable装饰器
+        from chronoforge.decorators import api_callable
+
+        # 定义一个带api_callable装饰器的模拟数据源
+        class MockDataSource:
+            def __init__(self, config):
+                self.config = config
+
+            @property
+            def name(self):
+                return "MockDataSource"
+
+            @api_callable
+            def decorated_method(self, param1, param2):
+                return f"{param1}_{param2}"
+
+            def non_decorated_method(self):
+                return "non_decorated"
+
+        # 模拟list_supported_plugins方法
+        self.scheduler.list_supported_plugins = Mock(return_value=["MockDataSource"])
+
+        # 模拟get_supported_plugin方法
+        self.scheduler.get_supported_plugin = Mock(return_value=MockDataSource)
+
+        # 测试被装饰的方法可以被调用
+        result = self.scheduler.delegate_call(
+            plugin_name="MockDataSource",
+            plugin_type="data_source",
+            function_name="decorated_method",
+            param1="test",
+            param2="value"
+        )
+        assert result == "test_value"
+
+        # 测试未被装饰的方法不能被调用
+        with pytest.raises(ValueError) as excinfo:
+            self.scheduler.delegate_call(
+                plugin_name="MockDataSource",
+                plugin_type="data_source",
+                function_name="non_decorated_method"
+            )
+        assert "is not marked as api_callable" in str(excinfo.value)
 
 
 class TestConcurrencyControl:

@@ -246,16 +246,10 @@ def verify_storage_instance(storage) -> Tuple[bool, str]:
             errors.append(f"'get_time_range' must have parameters {expected}, "
                           f"got {actual}")
 
-    # ---- 8. 检查所有方法是否为异步函数 ----
-    for method_name in ["save", "load", "delete", "exists", "lists", "get_time_range"]:
-        method = getattr(temp_instance, method_name, None)
-        if method and not inspect.iscoroutinefunction(method):
-            # 检查是否有__wrapped__属性，处理装饰器情况
-            wrapped = getattr(method, "__wrapped__", None)
-            if not wrapped or not inspect.iscoroutinefunction(wrapped):
-                # 对于测试兼容性，我们暂时不强制要求异步函数
-                # errors.append(f"'{method_name}' must be defined as an async function.")
-                pass
+    # ---- 8. 异步方法要求 ----
+    # 当前设计允许同步和异步方法，不强制要求异步函数
+    # 这是为了提高测试兼容性和灵活性
+    # 存储插件可以根据需要选择实现同步或异步方法
 
     # ---- 8. 检查构造函数 config 参数是否存在 ----
     init_sig = inspect.signature(cls.__init__)

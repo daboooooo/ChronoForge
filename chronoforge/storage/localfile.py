@@ -66,13 +66,28 @@ class LocalFileStorage(StorageBase):
         Returns:
             Path: 数据文件的绝对路径对象
         """
+        # -------------------------------
+        # 文件路径构建逻辑
+        # 目的：构建稳定的绝对文件路径，不依赖于当前工作目录
+        # 策略：
+        # 1. 确保基础路径是绝对路径
+        # 2. 处理子目录
+        # 3. 构建文件名
+        # -------------------------------
         # 构建基础路径
         base_path = Path(self.datadir)
 
-        # 确保基础路径是绝对路径
+        # -------------------------------
+        # 绝对路径处理
+        # 目的：确保无论从哪个目录运行脚本，路径都能正确解析
+        # 处理逻辑：
+        # 1. 如果基础路径不是绝对路径，获取项目根目录作为参考点
+        # 2. 检查是否在examples目录下运行
+        # 3. 如果在examples目录下，使用父目录作为参考点
+        # 4. 否则使用当前工作目录
+        # -------------------------------
         if not base_path.is_absolute():
             # 获取项目根目录作为参考点，而不是依赖当前工作目录
-            # 这确保无论从哪个目录运行脚本，路径都能正确解析
             import __main__  # noqa: C0415
             main_script_dir = Path(__main__.__file__).parent if hasattr(__main__, '__file__') \
                 else Path.cwd()
@@ -85,7 +100,13 @@ class LocalFileStorage(StorageBase):
                 # 否则使用当前工作目录
                 base_path = base_path.absolute()
 
-        # 如果提供了子目录参数，添加子目录
+        # -------------------------------
+        # 子目录处理
+        # 目的：处理子目录，确保子目录存在（如果需要）
+        # 处理逻辑：
+        # 1. 如果提供了子目录参数，添加到基础路径
+        # 2. 如果create_subdir为True，确保子目录存在
+        # -------------------------------
         if sub:
             base_path = base_path / sub
             # 只有在create_subdir为True时才创建子目录
@@ -93,7 +114,13 @@ class LocalFileStorage(StorageBase):
                 # 确保子目录存在
                 base_path.mkdir(parents=True, exist_ok=True)
 
-        # 确定文件格式，优先使用file_format，同时保持向后兼容性
+        # -------------------------------
+        # 文件名构建
+        # 目的：构建安全的文件名
+        # 处理逻辑：
+        # 1. 将ID中的"/"替换为"_"，避免创建额外目录
+        # 2. 添加文件扩展名
+        # -------------------------------
         # 构建文件名 - 保持与测试的兼容性
         id_str = id.replace("/", "_")
         filename = f'{id_str}{self.extension}'

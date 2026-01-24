@@ -61,6 +61,13 @@ lock_manager = LockManager()
 
 class Task:
     """任务类，封装任务相关信息"""
+    # 任务类型枚举
+    TASK_TYPES = {
+        'PERIODIC': 'periodic',       # 周期性任务
+        'TIME_SLOT': 'time_slot',     # 基于时间槽的任务
+        'INNER': 'inner'              # 内部任务（由装饰器创建）
+    }
+
     def __init__(self, name: str,
                  data_source_name: str,
                  storage_name: str,
@@ -71,7 +78,8 @@ class Task:
                  timerange: Optional[TimeRange] = None,
                  data_source_config: Optional[Dict[str, Any]] = None,
                  storage_config: Optional[Dict[str, Any]] = None,
-                 is_auto_created: bool = False):
+                 is_auto_created: bool = False,
+                 task_type: Optional[str] = None):
         self.name = name
         self.data_source_name = data_source_name
         self.storage_name = storage_name
@@ -83,6 +91,43 @@ class Task:
         self.data_source_config = data_source_config
         self.storage_config = storage_config
         self.is_auto_created = is_auto_created
+
+        # 任务类型，默认为TIME_SLOT
+        self.task_type = task_type or self.TASK_TYPES['TIME_SLOT']
+
+        # 统一配置存储，用于存储任务的各种配置参数
+        self.config = {
+            'interval': None,           # 执行间隔（秒），仅用于周期性任务
+            'method_name': None,         # 内部任务的方法名
+            'method_params': None,       # 内部任务的方法参数
+            'max_retries': 3,            # 最大重试次数
+            'retry_delay': 1,            # 重试延迟（秒）
+            'priority': 0,               # 任务优先级
+            'run_count': 0,              # 任务运行次数
+            'last_run_time': None,       # 上次运行时间
+            'last_run_status': None,     # 上次运行状态
+            'error_message': None        # 错误信息
+        }
+
+    @property
+    def method_name(self):
+        """保持向后兼容性：获取任务的方法名"""
+        return self.config['method_name']
+
+    @method_name.setter
+    def method_name(self, value):
+        """保持向后兼容性：设置任务的方法名"""
+        self.config['method_name'] = value
+
+    @property
+    def method_params(self):
+        """保持向后兼容性：获取任务的方法参数"""
+        return self.config['method_params']
+
+    @method_params.setter
+    def method_params(self, value):
+        """保持向后兼容性：设置任务的方法参数"""
+        self.config['method_params'] = value
 
 
 async def _load_data_for_updating(
@@ -277,16 +322,18 @@ class Scheduler:
         else:
             raise ValueError(f"Invalid plugin type: {plugin_type}")
 
-    def datasource_functions(self, data_source_name: str) -> Dict[str, Any]:
-        """枚举指定数据源的所有公共函数、参数和返回值
+    def api_callable_function(self, plugin_name: str, plugin_type: str) -> Dict[str, Any]:
+        """枚举指定插件的所有被@api_callable装饰的函数、参数和返回值
 
         Args:
-            data_source_name: 数据源名称
+            plugin_name: 插件名称
+            plugin_type: 插件类型，可选值为"data_source", "storage"
 
         Returns:
-            Dict[str, Any]: 包含数据源函数信息的字典，格式为：
+            Dict[str, Any]: 包含插件函数信息的字典，格式为：
             {
-                "data_source_name": "数据源名称",
+                "plugin_name": "插件名称",
+                "plugin_type": "插件类型",
                 "functions": [
                     {
                         "name": "函数名称",
@@ -303,24 +350,29 @@ class Scheduler:
                 ]
             }
         """
-        # 检查数据源是否支持
-        if data_source_name not in self.list_supported_plugins("data_source"):
-            raise ValueError(f"Data source {data_source_name} not supported")
+        # 检查插件类型是否有效
+        if plugin_type not in ["data_source", "storage"]:
+            raise ValueError(f"Invalid plugin type: {plugin_type}")
 
-        # 获取数据源类
-        data_source_class = self.get_supported_plugin("data_source", data_source_name)
+        # 检查插件是否支持
+        if plugin_name not in self.list_supported_plugins(plugin_type):
+            raise ValueError(f"{plugin_type} {plugin_name} not supported")
 
-        # 创建数据源实例（使用默认配置）
-        data_source_instance = data_source_class({})
+        # 获取插件类
+        plugin_class = self.get_supported_plugin(plugin_type, plugin_name)
+
+        # 创建插件实例（使用默认配置）
+        plugin_instance = plugin_class({})
 
         # 准备结果字典
         result = {
-            "data_source_name": data_source_name,
+            "plugin_name": plugin_name,
+            "plugin_type": plugin_type,
             "functions": []
         }
 
-        # 获取所有公共方法（排除私有方法和基本方法）
-        for name, method in inspect.getmembers(data_source_instance, inspect.ismethod):
+        # 获取所有公共方法（只保留被@api_callable装饰的方法）
+        for name, method in inspect.getmembers(plugin_instance, inspect.ismethod):
             # 排除私有方法（以_开头）
             if name.startswith('_'):
                 continue
@@ -331,6 +383,10 @@ class Scheduler:
                         '__init_subclass__', '__le__', '__lt__', '__ne__', '__new__',
                         '__reduce__', '__reduce_ex__', '__repr__', '__setattr__',
                         '__sizeof__', '__str__', '__subclasshook__']:
+                continue
+
+            # 只保留被@api_callable装饰的方法
+            if not hasattr(method, 'is_api_callable') or not method.is_api_callable:
                 continue
 
             # 获取方法签名和类型注解
@@ -525,6 +581,12 @@ class Scheduler:
             ValueError: 当插件类型无效、插件不支持或函数不存在时
             Exception: 函数执行过程中发生的异常
         """
+        # 快速参数验证
+        if not plugin_name or not isinstance(plugin_name, str):
+            raise ValueError("plugin_name must be a non-empty string")
+        if not function_name or not isinstance(function_name, str):
+            raise ValueError("function_name must be a non-empty string")
+
         # 检查插件类型是否有效
         if plugin_type not in ["data_source", "storage"]:
             raise ValueError(f"Invalid plugin type: {plugin_type}")
@@ -538,29 +600,30 @@ class Scheduler:
 
         # 从缓存中获取或创建插件实例
         plugin_key = (plugin_type, plugin_name)
-        if plugin_key not in self.delegate_plugin_instances:
-            # 创建插件实例（使用默认配置）
-            self.delegate_plugin_instances[plugin_key] = plugin_class({})
-            logger.debug(f"Created new plugin instance for {plugin_type}: {plugin_name}")
-        plugin_instance = self.delegate_plugin_instances[plugin_key]
+        plugin_instance = self.delegate_plugin_instances.get(plugin_key)
+        if plugin_instance is None:
+            try:
+                # 创建插件实例（使用默认配置）
+                plugin_instance = plugin_class({})
+                self.delegate_plugin_instances[plugin_key] = plugin_instance
+                logger.debug(f"Created new plugin instance for {plugin_type}: {plugin_name}")
+            except Exception as e:
+                logger.error(
+                    f"Failed to create plugin instance for {plugin_type}: {plugin_name}: {str(e)}")
+                raise ValueError(f"Failed to create plugin instance: {str(e)}") from e
 
-        # 检查函数是否存在且为公共方法
+        # 检查函数是否存在
         if not hasattr(plugin_instance, function_name):
             raise ValueError(f"Function {function_name} not found in {plugin_name}")
 
         # 获取函数对象
         func = getattr(plugin_instance, function_name)
 
-        # 检查函数是否不是私有方法，允许使用模拟对象进行测试
+        # 检查函数是否为公共方法
         if function_name.startswith('_'):
             raise ValueError(f"Function {function_name} is not a public method")
 
-        # 对于非私有方法，允许使用模拟对象进行测试，不强制要求是真实的方法
-        # 但如果是真实的函数，确保它是可调用的
-        if not callable(func):
-            raise ValueError(f"Function {function_name} is not callable")
-
-        # 检查函数是否在允许调用的方法列表中（排除基本方法）
+        # 检查函数是否为基本方法
         if function_name in ['__class__', '__delattr__', '__dir__', '__eq__', '__format__',
                              '__ge__', '__getattribute__', '__gt__', '__hash__', '__init__',
                              '__init_subclass__', '__le__', '__lt__', '__ne__', '__new__',
@@ -568,37 +631,41 @@ class Scheduler:
                              '__sizeof__', '__str__', '__subclasshook__']:
             raise ValueError(f"Function {function_name} is a basic method and cannot be called")
 
-        logger.info(f"Calling {plugin_type} {plugin_name} "
-                    f"method: {function_name} with kwargs: {kwargs}")
+        # 检查函数是否可调用
+        if not callable(func):
+            raise ValueError(f"Function {function_name} is not callable")
+
+        # 检查函数是否被@api_callable装饰
+        if not hasattr(func, 'is_api_callable') or not func.is_api_callable:
+            raise ValueError(f"Function {function_name} is not marked as api_callable")
+
+        logger.info(f"Calling {plugin_type} {plugin_name}.{function_name} with kwargs: {kwargs}")
 
         # 调用函数并返回结果
         try:
-            # 检查函数是否为异步函数
+            # 调用函数
             if inspect.iscoroutinefunction(func):
-                # 如果是异步函数，使用共享事件循环运行
-                logger.debug(f"函数 {function_name} 是异步函数，使用共享事件循环运行")
-
-                # 确保共享事件循环已初始化
+                # 异步函数处理
+                logger.debug(f"Calling async function {function_name} using shared event loop")
                 self._init_shared_event_loop()
-
-                # 使用共享事件循环运行异步函数
-                result = asyncio.run_coroutine_threadsafe(func(**kwargs),
-                                                          self._shared_event_loop).result()
+                future = asyncio.run_coroutine_threadsafe(func(**kwargs), self._shared_event_loop)
+                result = future.result()
             else:
-                # 如果是同步函数，直接调用
-                logger.debug(f"函数 {function_name} 是同步函数，直接调用")
+                # 同步函数处理
+                logger.debug(f"Calling sync function {function_name}")
                 result = func(**kwargs)
 
-            logger.info(f"Function {function_name} called successfully, "
-                        f"result type: {type(result)}")
+            logger.info(
+                f"Successfully called {function_name} in {plugin_name}, "
+                f"result type: {type(result)}")
 
-            # 检查返回结果类型，如果是pandas.DataFrame，转换为可序列化的格式
+            # 处理特殊返回类型
             try:
                 import pandas as pd
                 if isinstance(result, pd.DataFrame):
-                    # 将DataFrame转换为字典格式，包含数据和元数据
-                    logger.debug(f"将DataFrame转换为可序列化格式，形状: {result.shape}")
-                    result_dict = {
+                    logger.debug(
+                        f"Converting DataFrame to serializable format, shape: {result.shape}")
+                    return {
                         "data": result.to_dict(orient="records"),
                         "metadata": {
                             "columns": result.columns.tolist(),
@@ -606,14 +673,13 @@ class Scheduler:
                             "dtypes": result.dtypes.astype(str).to_dict()
                         }
                     }
-                    return result_dict
             except ImportError:
                 # 如果没有安装pandas，直接返回结果
                 pass
 
             return result
         except Exception as e:
-            logger.error(f"Error calling function {function_name}: {e}", exc_info=True)
+            logger.error(f"Error calling {plugin_name}.{function_name}: {str(e)}", exc_info=True)
             raise
 
     def get_supported_plugin(self, plugin_type: str, plugin_name: str) -> Any:
@@ -638,8 +704,8 @@ class Scheduler:
                 return plugin
         raise ValueError(f"Plugin {plugin_name} not supported")
 
-    def _create_periodic_tasks(self, plugin: Any, plugin_type: str):
-        """为插件中被@periodic_task装饰的方法创建周期性任务
+    def _create_inner_tasks(self, plugin: Any, plugin_type: str):
+        """为插件中被@create_task装饰的方法创建任务，可以是周期性任务或基于time_slot的任务
 
         Args:
             plugin: 插件类
@@ -653,18 +719,43 @@ class Scheduler:
 
         # 遍历插件的所有方法
         for name, method in inspect.getmembers(plugin_instance, inspect.ismethod):
-            # 检查方法是否被@periodic_task装饰
-            if hasattr(method, 'is_periodic_task') and method.is_periodic_task:
+            # 检查方法是否被@create_task装饰
+            if hasattr(method, 'is_periodic_task'):
                 task_config = method.task_config
 
-                # 生成任务名称
-                task_name = f"{plugin.__name__}_{name}_periodic"
+                # 确定任务类型
+                interval = task_config.get('interval')
+                is_periodic = interval is not None
 
-                # 创建时间槽，使用全天时间段
-                time_slot = TimeSlot(
-                    start="00:00:00",
-                    end="23:59:59"
-                )
+                # 优先使用装饰器中指定的task_type，如果没有则根据是否有interval确定
+                decorator_task_type = task_config.get('task_type')
+                if decorator_task_type:
+                    task_type = decorator_task_type
+                elif is_periodic:
+                    task_type = Task.TASK_TYPES['PERIODIC']
+                else:
+                    task_type = Task.TASK_TYPES['TIME_SLOT']
+
+                # 根据任务类型设置任务后缀
+                task_suffix = "_periodic" if task_type == Task.TASK_TYPES['PERIODIC'] else ""
+
+                # 生成任务名称
+                task_name = f"{plugin.__name__}_{name}{task_suffix}"
+
+                # 创建时间槽
+                if 'time_slot' in task_config and task_config['time_slot']:
+                    # 使用装饰器中指定的time_slot
+                    time_slot_config = task_config['time_slot']
+                    time_slot = TimeSlot(
+                        start=time_slot_config['start'],
+                        end=time_slot_config['end']
+                    )
+                else:
+                    # 使用全天时间段
+                    time_slot = TimeSlot(
+                        start="00:00:00",
+                        end="23:59:59"
+                    )
 
                 # 添加任务，保存方法名和参数
                 try:
@@ -683,18 +774,34 @@ class Scheduler:
                         timeframe=task_config['timeframe'] or "1d",
                         timerange_str=task_config['timerange_str'] or "20220101-",
                         inplace=True,
-                        is_auto_created=True
+                        is_auto_created=True,
+                        task_type=task_type
                     )
+
                     # 保存方法名和完整的任务配置到任务中
                     if task_name in self.tasks:
-                        self.tasks[task_name].method_name = name
-                        self.tasks[task_name].method_params = task_config
+                        # 使用统一配置存储
+                        self.tasks[task_name].config['method_name'] = name
+                        self.tasks[task_name].config['method_params'] = task_config
+
+                        # 保存间隔配置（仅用于周期性任务）
+                        if is_periodic:
+                            self.tasks[task_name].config['interval'] = interval
+
+                        # 保存其他配置参数
+                        if 'max_retries' in task_config:
+                            self.tasks[task_name].config['max_retries'] = task_config['max_retries']
+                        if 'retry_delay' in task_config:
+                            self.tasks[task_name].config['retry_delay'] = task_config['retry_delay']
+                        if 'priority' in task_config:
+                            self.tasks[task_name].config['priority'] = task_config['priority']
+
                     logger.info(
-                        f"Created periodic task {task_name} for "
+                        f"Created {task_type} task {task_name} for "
                         f"method {name} in plugin {plugin.__name__}")
                 except (ValueError, KeyError, RuntimeError) as e:
                     logger.error(
-                        f"Failed to create periodic task for "
+                        f"Failed to create task for "
                         f"method {name} in plugin {plugin.__name__}: {e}")
 
     def register_plugin(self, plugin: Any) -> Tuple[bool, str]:
@@ -718,8 +825,8 @@ class Scheduler:
             success, msg = verify_datasource_instance(plugin)
             if success:
                 self.supported_data_sources.append(plugin)
-                # 检查插件中是否有被@periodic_task装饰的方法
-                self._create_periodic_tasks(plugin, "data_source")
+                # 检查插件中是否有被@create_task装饰的方法
+                self._create_inner_tasks(plugin, "data_source")
                 return True, "Data source instance registered successfully"
             else:
                 return False, msg
@@ -788,6 +895,56 @@ class Scheduler:
         else:
             return False
 
+    def _build_task_info_dict(self, task: Task) -> Dict[str, Any]:
+        """构建任务信息字典
+
+        Args:
+            task: 任务实例
+
+        Returns:
+            Dict[str, Any]: 任务信息字典
+        """
+        import datetime
+        # 将毫秒时间戳转换为YYYYMMDD格式
+        start_date = datetime.datetime.fromtimestamp(
+            task.timerange.start_ts_ms / 1000).strftime("%Y%m%d")
+        end_date = "" if not task.timerange.end_ts_ms else datetime.datetime.fromtimestamp(
+            task.timerange.end_ts_ms / 1000).strftime("%Y%m%d")
+        timerange_str = f"{start_date}-{end_date}" if end_date else f"{start_date}-"
+
+        return {
+            "name": task.name,
+            "data_source_name": task.data_source_name,
+            "data_source_config": task.data_source_config,
+            "storage_name": task.storage_name,
+            "storage_config": task.storage_config,
+            "time_slot": {
+                "start": task.time_slot.start,
+                "end": task.time_slot.end
+            },
+            "symbols": task.symbols,
+            "timeframe": task.timeframe,
+            "timerange_str": timerange_str
+        }
+
+    def _save_tasks_dict_to_file(self, tasks_dict: Dict[str, Any], task_name: str = None) -> None:
+        """将任务字典保存到本地文件
+
+        Args:
+            tasks_dict: 任务字典
+            task_name: 单个任务名称（可选），用于日志记录
+        """
+        import json
+        try:
+            with open(self.tasks_file_path, 'w') as f:
+                json.dump(tasks_dict, f, indent=2)
+            if task_name:
+                logger.debug(f"Task {task_name} 已保存到本地文件")
+            else:
+                logger.debug(f"已保存 {len(tasks_dict)} 个任务到本地文件")
+        except Exception as e:
+            logger.error(f"保存任务到文件时出错: {e}")
+
     def save_task_to_file(self, task_name: str) -> None:
         """将单个任务保存到本地文件
 
@@ -796,6 +953,11 @@ class Scheduler:
         """
         task = self.tasks.get(task_name)
         if not task:
+            return
+
+        # 只保存由add_task创建的任务，不存储自动生成的任务
+        if task.is_auto_created:
+            logger.debug(f"Task {task_name} 是自动生成的任务，不保存到本地文件")
             return
 
         # 检查任务是否使用内置插件
@@ -822,44 +984,21 @@ class Scheduler:
             return
 
         # 保存任务信息
-        # 将毫秒时间戳转换为YYYYMMDD格式
-        import datetime
-        start_date = datetime.datetime.fromtimestamp(
-            task.timerange.start_ts_ms / 1000).strftime("%Y%m%d")
-        end_date = "" if not task.timerange.end_ts_ms else datetime.datetime.fromtimestamp(
-            task.timerange.end_ts_ms / 1000).strftime("%Y%m%d")
-        timerange_str = f"{start_date}-{end_date}" if end_date else f"{start_date}-"
-
-        tasks_dict[task_name] = {
-            "name": task.name,
-            "data_source_name": task.data_source_name,
-            "data_source_config": task.data_source_config,
-            "storage_name": task.storage_name,
-            "storage_config": task.storage_config,
-            "time_slot": {
-                "start": task.time_slot.start,
-                "end": task.time_slot.end
-            },
-            "symbols": task.symbols,
-            "timeframe": task.timeframe,
-            "timerange_str": timerange_str
-        }
-
-        try:
-            with open(self.tasks_file_path, 'w') as f:
-                json.dump(tasks_dict, f, indent=2)
-            logger.debug(f"Task {task_name} 已保存到本地文件")
-        except Exception as e:
-            logger.error(f"保存任务到文件时出错: {e}")
+        tasks_dict[task_name] = self._build_task_info_dict(task)
+        self._save_tasks_dict_to_file(tasks_dict, task_name)
 
     def save_all_tasks_to_file(self) -> None:
         """将所有使用内置插件的任务保存到本地文件
         """
-        import json
         tasks_dict = {}
 
         # 遍历所有任务
         for task_name, task in self.tasks.items():
+            # 只保存由add_task创建的任务，不存储自动生成的任务
+            if task.is_auto_created:
+                logger.debug(f"Task {task_name} 是自动生成的任务，不保存到本地文件")
+                continue
+
             # 检查任务是否使用内置插件
             if not self.is_builtin_plugin(task.data_source_name, "data_source"):
                 continue
@@ -868,34 +1007,9 @@ class Scheduler:
                 continue
 
             # 保存任务信息
-            # 将毫秒时间戳转换为YYYYMMDD格式
-            start_date = datetime.fromtimestamp(
-                task.timerange.start_ts_ms / 1000).strftime("%Y%m%d")
-            end_date = "" if not task.timerange.end_ts_ms else datetime.fromtimestamp(
-                task.timerange.end_ts_ms / 1000).strftime("%Y%m%d")
-            timerange_str = f"{start_date}-{end_date}" if end_date else f"{start_date}-"
+            tasks_dict[task_name] = self._build_task_info_dict(task)
 
-            tasks_dict[task_name] = {
-                "name": task.name,
-                "data_source_name": task.data_source_name,
-                "data_source_config": task.data_source_config,
-                "storage_name": task.storage_name,
-                "storage_config": task.storage_config,
-                "time_slot": {
-                    "start": task.time_slot.start,
-                    "end": task.time_slot.end
-                },
-                "symbols": task.symbols,
-                "timeframe": task.timeframe,
-                "timerange_str": timerange_str
-            }
-
-        try:
-            with open(self.tasks_file_path, 'w') as f:
-                json.dump(tasks_dict, f, indent=2)
-            logger.debug(f"已保存 {len(tasks_dict)} 个任务到本地文件")
-        except Exception as e:
-            logger.error(f"保存所有任务到文件时出错: {e}")
+        self._save_tasks_dict_to_file(tasks_dict)
 
     def load_tasks_from_file(self) -> None:
         """从本地文件加载任务
@@ -956,7 +1070,8 @@ class Scheduler:
                  timeframe: Optional[str] = None,
                  timerange_str: Optional[str] = None,
                  inplace: bool = False,
-                 is_auto_created: bool = False) -> None:
+                 is_auto_created: bool = False,
+                 task_type: Optional[str] = None) -> None:
         """
         添加任务
 
@@ -972,6 +1087,7 @@ class Scheduler:
             timerange_str: 时间范围字符串，可选, 默认"20220101-"
             inplace: 是否覆盖已存在任务，默认True
             is_auto_created: 是否由scheduler自动创建，默认False
+            task_type: 任务类型，可选值为'periodic', 'time_slot', 'inner'
         """
         logger.debug(f"Adding task '{name}' with data source '{data_source_name}' and "
                      f"storage '{storage_name}'")
@@ -1059,7 +1175,8 @@ class Scheduler:
             timerange=timerange,
             data_source_config=data_source_config,
             storage_config=storage_config,
-            is_auto_created=is_auto_created
+            is_auto_created=is_auto_created,
+            task_type=task_type
         )
 
         # 更新任务状态
@@ -1122,10 +1239,13 @@ class Scheduler:
                     mem_stats = self._get_memory_stats()
 
                     # 记录内存使用情况
-                    logger.info(f"Memory Usage - RSS: {mem_stats['rss_mb']:.2f} MB, VMS: {mem_stats['vms_mb']:.2f} MB, "
-                                f"Threads: {mem_stats['thread_count']}, Tasks: {mem_stats['task_count']}, "
+                    logger.info(f"Memory Usage - RSS: {mem_stats['rss_mb']:.2f} MB, "
+                                f"VMS: {mem_stats['vms_mb']:.2f} MB, "
+                                f"Threads: {mem_stats['thread_count']}, "
+                                f"Tasks: {mem_stats['task_count']}, "
                                 f"Task Status: {mem_stats['task_status_counts']}, "
-                                f"Data Sources: {mem_stats['data_source_count']}, Storage: {mem_stats['storage_count']}, "
+                                f"Data Sources: {mem_stats['data_source_count']}, "
+                                f"Storage: {mem_stats['storage_count']}, "
                                 f"Plugin Instances: {mem_stats['plugin_instance_count']}")
 
                     # 更新上次检查时间
@@ -1149,14 +1269,17 @@ class Scheduler:
                                 'error_message': None
                             }
 
+                    # 统一判断任务类型
+                    is_periodic = task.task_type == Task.TASK_TYPES['PERIODIC']
+                    is_inner_task = task.config['method_name'] is not None
+
                     # 检查时间槽
-                    # 对于周期性任务，每个时间槽内只执行一次
-                    is_periodic_task = hasattr(task, 'method_name') and hasattr(task,
-                                                                                'method_params')
+                    # 对于周期性任务，每个时间槽内根据间隔执行；对于其他任务，每个时间槽内只执行一次
                     is_in_slot = self.time_slot_manager.is_in_timeslot(name=task_name,
-                                                                       once=not is_periodic_task)
+                                                                       once=not is_periodic)
                     logger.debug(f"Task {task_name}: is_in_timeslot={is_in_slot}, "
-                                 f"time_slot={task.time_slot}, is_periodic_task={is_periodic_task}")
+                                 f"time_slot={task.time_slot}, is_periodic={is_periodic}, "
+                                 f"is_inner_task={is_inner_task}")
 
                     # 更新任务状态为等待下次执行
                     if not is_in_slot:
@@ -1191,11 +1314,14 @@ class Scheduler:
                                          "in thread pool, skipping")
                             continue
 
-                    # 对于周期性任务，检查是否到了执行时间
+                    # 检查是否到了执行时间
                     current_time = time.time()
                     is_time_to_execute = True
-                    if hasattr(task, 'method_name') and hasattr(task, 'method_params'):
-                        interval = task.method_params.get('interval', 60)
+
+                    # 对于周期性任务，检查执行间隔
+                    if is_periodic:
+                        interval = task.config['interval'] or 60
+
                         # 初始化下次执行时间
                         with self._task_states_lock:
                             if self.task_states[task_name]['next_run_time'] is None:
@@ -1207,7 +1333,8 @@ class Scheduler:
                         # 检查是否到了执行时间
                         if current_time < task_state['next_run_time']:
                             logger.debug(f"Task {task_name} is not yet time to execute, "
-                                         f"next run at {task_state['next_run_time']}")
+                                         f"next run at {task_state['next_run_time']}, "
+                                         f"interval={interval}")
                             is_time_to_execute = False
                         else:
                             # 计算下次执行时间
@@ -1226,9 +1353,17 @@ class Scheduler:
                                 })
                         continue
 
-                    # 根据任务的交易所或数据源进行分组
+                    # -------------------------------
+                    # 任务分组逻辑
+                    # 目的：将任务按照交易所、数据源或连接池进行分组，以便更有效地管理资源
+                    # 分组策略：
+                    # 1. 优先按交易所分组，避免单个交易所请求过多
+                    # 2. 其次按数据源分组，确保同一数据源的任务有序执行
+                    # 3. 最后按连接池分组，优化连接使用
+                    # 4. 默认分组为'default'
+                    # -------------------------------
                     group_key = 'default'
-                    if hasattr(task, 'method_params'):
+                    if hasattr(task, 'method_params') and task.method_params is not None:
                         # 检查是否有交易所参数
                         if 'exchange' in task.method_params:
                             group_key = f"exchange:{task.method_params['exchange']}"
@@ -1243,7 +1378,14 @@ class Scheduler:
                         grouped_tasks[group_key] = []
                     grouped_tasks[group_key].append((task_name, task, task_state))
 
-                # 按组执行任务，确保每组内部的任务顺序执行
+                # -------------------------------
+                # 任务执行逻辑
+                # 目的：按组执行任务，确保每组内部的任务顺序执行，避免资源竞争
+                # 执行策略：
+                # 1. 遍历所有任务组
+                # 2. 对每个任务组，顺序提交任务到线程池
+                # 3. 更新任务状态为运行中
+                # -------------------------------
                 for group_key, group_tasks in grouped_tasks.items():
                     logger.debug(
                         f"Processing task group: {group_key} with {len(group_tasks)} tasks")
@@ -1261,8 +1403,15 @@ class Scheduler:
 
                         logger.debug(
                             f"Task {task_name} submitted to thread pool from group {group_key}")
-                # 实现动态间隔调整：根据任务数量和执行频率调整检查间隔
-                # 任务越多，间隔越短，确保响应性；任务越少，间隔越长，减少CPU占用
+                # -------------------------------
+                # 动态间隔调整逻辑
+                # 目的：根据任务数量动态调整检查间隔，平衡响应性和CPU占用
+                # 调整策略：
+                # - 无任务时：5秒间隔，减少CPU占用
+                # - 少量任务（<10）：1秒间隔，保证响应性
+                # - 中等任务量（10-50）：0.5秒间隔
+                # - 大量任务（>50）：0.2秒间隔，确保高并发下的任务及时执行
+                # -------------------------------
                 task_count = len(self.tasks)
                 if task_count == 0:
                     interval = 5.0  # 无任务时，间隔5秒
@@ -1415,6 +1564,119 @@ class Scheduler:
             self.delegate_plugin_instances.clear()
             logger.info("Scheduler stopped (async)")
 
+    async def _convert_tickers_dataframe(self, tickers_dict: dict) -> pd.DataFrame:
+        """将tickers字典转换为标准化的DataFrame
+
+        Args:
+            tickers_dict: tickers字典，键为交易对，值为交易对数据
+
+        Returns:
+            pd.DataFrame: 标准化的tickers DataFrame
+        """
+        import pandas as pd
+        # 将每个交易对转换为一行，创建合理的DataFrame
+        tickers_df = pd.DataFrame.from_dict(tickers_dict, orient='index')
+
+        # 数据类型处理：统一数据类型，确保Feather格式兼容
+        if not tickers_df.empty:
+            # 重命名索引为symbol，保留交易对信息
+            tickers_df = tickers_df.reset_index().rename(
+                columns={'index': 'symbol'})
+
+            # 确保所有列名都是字符串类型
+            tickers_df.columns = [str(col) for col in tickers_df.columns]
+
+            # 转换所有列的数据类型，确保Feather格式兼容
+            for col in tickers_df.columns:
+                try:
+                    # 特殊处理symbol列，确保为字符串类型
+                    if col == 'symbol':
+                        tickers_df[col] = tickers_df[col].astype(str)
+                    # 转换所有数值列为float，避免混合类型
+                    elif pd.api.types.is_numeric_dtype(tickers_df[col]):
+                        tickers_df[col] = tickers_df[col].astype(float)
+                    # 转换时间戳列为int，避免混合类型
+                    elif 'timestamp' in col.lower():
+                        if pd.api.types.is_numeric_dtype(tickers_df[col]):
+                            tickers_df[col] = tickers_df[col].astype(int)
+                        else:
+                            # 尝试转换为datetime，然后转换为int（毫秒）
+                            try:
+                                tickers_df[col] = pd.to_datetime(tickers_df[col])
+                                tickers_df[col] = tickers_df[col].astype(int) // 10**6
+                            except Exception:
+                                # 如果转换失败，将列转换为字符串类型，确保类型一致
+                                tickers_df[col] = tickers_df[col].astype(str)
+                    # 转换所有其他列为字符串类型，确保类型一致
+                    else:
+                        tickers_df[col] = tickers_df[col].astype(str)
+                except Exception as e:
+                    logger.warning(f"转换列 {col} 数据类型失败: {e}")
+                    # 转换失败时，将列转换为字符串类型，确保类型一致
+                    tickers_df[col] = tickers_df[col].astype(str)
+
+        return tickers_df
+
+    async def _save_tickers_dataframe(self, storage, storage_id: str, tickers_df: pd.DataFrame,
+                                      task: Task, quote: str) -> None:
+        """将tickers DataFrame保存到存储
+
+        Args:
+            storage: 存储实例
+            storage_id: 基础存储ID
+            tickers_df: 要保存的tickers DataFrame
+            task: 任务实例
+            quote: quote值，用于生成存储ID后缀
+        """
+        # 保存到存储
+        nested_storage_id = f"{storage_id}_{quote}"
+        if not tickers_df.empty:
+            success = await storage.save(
+                id=nested_storage_id,
+                data=tickers_df,
+                sub=task.sub
+            )
+            if not success:
+                logger.error(f"Failed to save task {task.name} result "
+                             f"for {quote} to "
+                             f"storage {task.storage_name}")
+        else:
+            logger.debug(f"跳过保存空数据: {quote} - {nested_storage_id}")
+
+    async def _process_tickers_result(self, storage, storage_id: str, task: Task,
+                                      result: dict, quote: str) -> None:
+        """处理tickers任务结果
+
+        Args:
+            storage: 存储实例
+            storage_id: 存储ID
+            task: 任务实例
+            result: 任务执行结果
+            quote: 方法参数中的quote值
+        """
+        # 检查返回结果是否已经是按quote过滤后的单层字典
+        # 如果是嵌套字典（未指定quote或quote为空），则按原逻辑处理
+        is_nested_dict = any(isinstance(v, dict) for v in result.values())
+
+        if is_nested_dict:
+            # 处理嵌套字典类型的tickers结果
+            # 例如：{'USDT': {'BTC/USDT': {...}, 'ETH/USDT': {...}}}
+            for nested_quote, nested_tickers_data in result.items():
+                if isinstance(nested_tickers_data, dict):
+                    # 转换tickers数据为DataFrame
+                    tickers_df = await self._convert_tickers_dataframe(nested_tickers_data)
+                    # 保存tickers DataFrame到存储
+                    await self._save_tickers_dataframe(storage, storage_id, tickers_df,
+                                                       task, nested_quote)
+        else:
+            # 处理单层字典类型的tickers结果
+            # 例如：{'BTC/USDT': {...}, 'ETH/USDT': {...}}
+            # tickers结果是单层字典（已按quote过滤），直接转换为DataFrame
+            tickers_df = await self._convert_tickers_dataframe(result)
+            # 保存tickers DataFrame到存储
+            await self._save_tickers_dataframe(storage, storage_id, tickers_df, task,
+                                               quote if quote else 'all')
+
     async def _handle_task_result(self, task: Task, result: Any) -> None:
         """处理任务执行结果
 
@@ -1423,6 +1685,13 @@ class Scheduler:
             result: 任务执行结果
         """
         try:
+            # -------------------------------
+            # 任务结果处理主流程
+            # 1. 检查是否配置了存储
+            # 2. 根据任务类型和结果类型选择合适的处理方式
+            # 3. 将结果转换为适合存储的格式
+            # 4. 保存结果到存储
+            # -------------------------------
             # 检查是否配置了存储
             if task.storage_name and hasattr(task, 'method_name'):
                 storage = self.storage_instances.get(task.name)
@@ -1435,131 +1704,24 @@ class Scheduler:
                     import pandas as pd
                     data_to_save = result
 
-                    # 特殊处理tickers任务结果，避免创建超宽DataFrame
-                    if isinstance(result, dict) and task.method_name in ['tickers_binance', 'tickers_okx']:
+                    # -------------------------------
+                    # 特殊处理tickers任务结果
+                    # 目的：避免创建超宽DataFrame，优化存储格式
+                    # -------------------------------
+                    if isinstance(result, dict) and task.method_name in ['tickers_binance',
+                                                                         'tickers_okx']:
                         # 获取方法参数中的quote值
                         quote = None
                         if hasattr(task, 'method_params') and 'params' in task.method_params:
                             quote = task.method_params['params'].get('quote')
 
-                        tickers_data = result
-
-                        # 检查返回结果是否已经是按quote过滤后的单层字典
-                        # 如果是嵌套字典（未指定quote或quote为空），则按原逻辑处理
-                        is_nested_dict = any(isinstance(v, dict) for v in result.values())
-
-                        if is_nested_dict:
-                            # tickers结果是嵌套字典，需要特殊处理
-                            for nested_quote, nested_tickers_data in result.items():
-                                if isinstance(nested_tickers_data, dict):
-                                    # 将每个交易对转换为一行，创建合理的DataFrame
-                                    tickers_df = pd.DataFrame.from_dict(nested_tickers_data, orient='index')
-
-                                    # 数据类型处理：统一数据类型，确保Feather格式兼容
-                            if not tickers_df.empty:
-                                # 重命名索引为symbol，保留交易对信息
-                                tickers_df = tickers_df.reset_index().rename(columns={'index': 'symbol'})
-
-                                # 确保所有列名都是字符串类型
-                                tickers_df.columns = [str(col) for col in tickers_df.columns]
-
-                                # 转换所有列的数据类型，确保Feather格式兼容
-                                for col in tickers_df.columns:
-                                    try:
-                                        # 特殊处理symbol列，确保为字符串类型
-                                        if col == 'symbol':
-                                            tickers_df[col] = tickers_df[col].astype(str)
-                                        # 转换所有数值列为float，避免混合类型
-                                        elif pd.api.types.is_numeric_dtype(tickers_df[col]):
-                                            tickers_df[col] = tickers_df[col].astype(float)
-                                        # 转换时间戳列为int，避免混合类型
-                                        elif 'timestamp' in col.lower():
-                                            if pd.api.types.is_numeric_dtype(tickers_df[col]):
-                                                tickers_df[col] = tickers_df[col].astype(int)
-                                            else:
-                                                # 尝试转换为datetime，然后转换为int（毫秒）
-                                                try:
-                                                    tickers_df[col] = pd.to_datetime(tickers_df[col])
-                                                    tickers_df[col] = tickers_df[col].astype(int) // 10**6
-                                                except Exception:
-                                                    # 如果转换失败，将列转换为字符串类型，确保类型一致
-                                                    tickers_df[col] = tickers_df[col].astype(str)
-                                        # 转换所有其他列为字符串类型，确保类型一致
-                                        else:
-                                            tickers_df[col] = tickers_df[col].astype(str)
-                                    except Exception as e:
-                                        logger.warning(f"转换列 {col} 数据类型失败: {e}")
-                                        # 转换失败时，将列转换为字符串类型，确保类型一致
-                                        tickers_df[col] = tickers_df[col].astype(str)
-
-                                # 保存到存储
-                                nested_storage_id = f"{storage_id}_{nested_quote}"
-                                success = await storage.save(
-                                    id=nested_storage_id,
-                                    data=tickers_df,
-                                    sub=task.sub
-                                )
-                                if not success:
-                                    logger.error(f"Failed to save task {task.name} result for {nested_quote} to "
-                                                 f"storage {task.storage_name}")
-                            else:
-                                logger.debug(f"跳过保存空数据: {nested_quote} - {nested_storage_id}")
-                        else:
-                            # tickers结果是单层字典（已按quote过滤），直接转换为DataFrame
-                            tickers_df = pd.DataFrame.from_dict(tickers_data, orient='index')
-
-                            # 数据类型处理：统一数据类型，确保Feather格式兼容
-                            if not tickers_df.empty:
-                                # 重命名索引为symbol，保留交易对信息
-                                tickers_df = tickers_df.reset_index().rename(columns={'index': 'symbol'})
-
-                                # 确保所有列名都是字符串类型
-                                tickers_df.columns = [str(col) for col in tickers_df.columns]
-
-                                # 转换所有列的数据类型，确保Feather格式兼容
-                                for col in tickers_df.columns:
-                                    try:
-                                        # 特殊处理symbol列，确保为字符串类型
-                                        if col == 'symbol':
-                                            tickers_df[col] = tickers_df[col].astype(str)
-                                        # 转换所有数值列为float，避免混合类型
-                                        elif pd.api.types.is_numeric_dtype(tickers_df[col]):
-                                            tickers_df[col] = tickers_df[col].astype(float)
-                                        # 转换时间戳列为int，避免混合类型
-                                        elif 'timestamp' in col.lower():
-                                            if pd.api.types.is_numeric_dtype(tickers_df[col]):
-                                                tickers_df[col] = tickers_df[col].astype(int)
-                                            else:
-                                                # 尝试转换为datetime，然后转换为int（毫秒）
-                                                try:
-                                                    tickers_df[col] = pd.to_datetime(tickers_df[col])
-                                                    tickers_df[col] = tickers_df[col].astype(int) // 10**6
-                                                except Exception:
-                                                    # 如果转换失败，将列转换为字符串类型，确保类型一致
-                                                    tickers_df[col] = tickers_df[col].astype(str)
-                                        # 转换所有其他列为字符串类型，确保类型一致
-                                        else:
-                                            tickers_df[col] = tickers_df[col].astype(str)
-                                    except Exception as e:
-                                        logger.warning(f"转换列 {col} 数据类型失败: {e}")
-                                        # 转换失败时，将列转换为字符串类型，确保类型一致
-                                        tickers_df[col] = tickers_df[col].astype(str)
-
-                                # 保存到存储
-                                nested_storage_id = f"{storage_id}_{quote if quote else 'all'}"
-                                success = await storage.save(
-                                    id=nested_storage_id,
-                                    data=tickers_df,
-                                    sub=task.sub
-                                )
-                                if not success:
-                                    logger.error(f"Failed to save task {task.name} result for {quote if quote else 'all'} to "
-                                                 f"storage {task.storage_name}")
-                            else:
-                                nested_storage_id = f"{storage_id}_{quote if quote else 'all'}"
-                                logger.debug(f"跳过保存空数据: {quote if quote else 'all'} - {nested_storage_id}")
+                        # 处理tickers结果
+                        await self._process_tickers_result(storage, storage_id, task, result, quote)
                         return
 
+                    # -------------------------------
+                    # 处理一般字典类型结果
+                    # -------------------------------
                     elif isinstance(result, dict):
                         # 将字典转换为适合存储的格式
                         # 如果字典值是DataFrame，直接使用
@@ -1580,6 +1742,9 @@ class Scheduler:
                             # 将字典转换为简单的DataFrame
                             data_to_save = pd.DataFrame([result])
 
+                    # -------------------------------
+                    # 处理其他类型结果
+                    # -------------------------------
                     # 如果不是DataFrame且不是空值，尝试转换
                     elif not isinstance(result, pd.DataFrame) and result is not None:
                         try:
@@ -1589,7 +1754,9 @@ class Scheduler:
                                            f"for task {task.name}")
                             return
 
-                    # 保存数据
+                    # -------------------------------
+                    # 保存数据到存储
+                    # -------------------------------
                     success = await storage.save(
                         id=storage_id,
                         data=data_to_save,
@@ -1609,7 +1776,7 @@ class Scheduler:
             st = self.storage_instances.get(task.name)
 
             # 检查是否是周期性任务（有指定的method_name）
-            if hasattr(task, 'method_name'):
+            if hasattr(task, 'method_name') and task.method_name is not None:
                 logger.info(f"Executing periodic method {task.method_name} for task {task.name}")
 
                 # 获取方法对象

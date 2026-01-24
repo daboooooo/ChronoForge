@@ -49,11 +49,14 @@ def list_plugins_by_type(plugin_type: str, scheduler: Scheduler = Depends(get_sc
     )
 
 
-@router.get("/data_source/{data_source_name}/functions", response_model=DataSourceFunctionsResponse)
-def get_datasource_functions(data_source_name: str, scheduler: Scheduler = Depends(get_scheduler)):
-    """获取数据源的函数列表"""
+@router.get("/{plugin_type}/{plugin_name}/functions", response_model=DataSourceFunctionsResponse)
+def get_plugin_functions(plugin_type: str, plugin_name: str, scheduler: Scheduler = Depends(get_scheduler)):
+    """获取插件的函数列表"""
     try:
-        functions_info = scheduler.datasource_functions(data_source_name)
+        if plugin_type not in ["data_source", "storage"]:
+            raise HTTPException(status_code=400, detail="Invalid plugin type. Must be 'data_source' or 'storage'")
+
+        functions_info = scheduler.api_callable_function(plugin_name, plugin_type)
 
         # 转换为响应模型
         function_infos = []
@@ -74,8 +77,9 @@ def get_datasource_functions(data_source_name: str, scheduler: Scheduler = Depen
                 return_type=func["return_type"]
             ))
 
+        # 兼容旧的响应模型
         return DataSourceFunctionsResponse(
-            data_source_name=data_source_name,
+            data_source_name=plugin_name,  # 保持兼容，后续可更新响应模型
             functions=function_infos,
             total=len(function_infos)
         )

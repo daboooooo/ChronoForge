@@ -421,8 +421,10 @@ class TestPluginsAPI:
 
     def test_get_datasource_functions(self, mock_scheduler):
         """测试获取数据源函数列表"""
-        # 模拟datasource_functions方法返回值
-        mock_scheduler.datasource_functions.return_value = {
+        # 模拟api_callable_function方法返回值
+        mock_scheduler.api_callable_function.return_value = {
+            "plugin_name": "test_source",
+            "plugin_type": "data_source",
             "functions": [
                 {
                     "name": "get_data",
@@ -562,8 +564,8 @@ class TestServerAPIErrorHandling:
 
     def test_get_datasource_functions_error(self, mock_scheduler):
         """测试获取数据源函数时的错误处理"""
-        # 模拟datasource_functions抛出异常
-        mock_scheduler.datasource_functions.side_effect = ValueError("Data source not found")
+        # 模拟api_callable_function抛出异常
+        mock_scheduler.api_callable_function.side_effect = ValueError("Data source not found")
 
         response = client.get("/api/plugins/data_source/invalid_source/functions")
         assert response.status_code == 400

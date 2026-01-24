@@ -288,6 +288,91 @@ class TestCryptoSpotDataSource:
                 timeframe="1d",
                 start_ts_ms=1640995200000
             )
+    
+    @pytest.mark.asyncio
+    async def test_top_volume_symbols_basic(self):
+        """测试top_volume_symbols方法的基本功能"""
+        from chronoforge.data_source.crypto_spot import CryptoSpotDataSource
+        
+        data_source = self.CryptoSpotDataSource(config=self.mock_config)
+        
+        # 模拟tickers方法的返回值
+        mock_tickers = {
+            'BTC/USDT': {'quoteVolume': 1000000, 'info': {'volume': '1000000'}}, 
+            'ETH/USDT': {'quoteVolume': 500000, 'info': {'volume': '500000'}}, 
+            'BNB/USDT': {'quoteVolume': 200000, 'info': {'volume': '200000'}}
+        }
+        
+        # 使用patch模拟tickers方法
+        with patch.object(data_source, 'tickers', return_value=mock_tickers):
+            # 测试基本调用
+            result = await data_source.top_volume_symbols('binance', 'USDT')
+            
+            # 验证结果
+            assert isinstance(result, list)
+            assert len(result) == 3
+            assert result == ['BTC/USDT', 'ETH/USDT', 'BNB/USDT']
+    
+    @pytest.mark.asyncio
+    async def test_top_volume_symbols_with_top_n(self):
+        """测试top_volume_symbols方法的top_n参数"""
+        from chronoforge.data_source.crypto_spot import CryptoSpotDataSource
+        
+        data_source = self.CryptoSpotDataSource(config=self.mock_config)
+        
+        # 模拟tickers方法的返回值
+        mock_tickers = {
+            'BTC/USDT': {'quoteVolume': 1000000, 'info': {'volume': '1000000'}}, 
+            'ETH/USDT': {'quoteVolume': 500000, 'info': {'volume': '500000'}}, 
+            'BNB/USDT': {'quoteVolume': 200000, 'info': {'volume': '200000'}}
+        }
+        
+        # 使用patch模拟tickers方法
+        with patch.object(data_source, 'tickers', return_value=mock_tickers):
+            # 测试top_n参数
+            result = await data_source.top_volume_symbols('binance', 'USDT', top_n=2)
+            
+            # 验证结果
+            assert isinstance(result, list)
+            assert len(result) == 2
+            assert result == ['BTC/USDT', 'ETH/USDT']
+    
+    @pytest.mark.asyncio
+    async def test_top_volume_symbols_with_top_percent(self):
+        """测试top_volume_symbols方法的top_percent参数"""
+        from chronoforge.data_source.crypto_spot import CryptoSpotDataSource
+        
+        data_source = self.CryptoSpotDataSource(config=self.mock_config)
+        
+        # 模拟tickers方法的返回值（10个交易对）
+        mock_tickers = {}
+        for i in range(10):
+            mock_tickers[f'SYMBOL{i}/USDT'] = {'quoteVolume': (10 - i) * 100000, 'info': {'volume': str((10 - i) * 100000)}}
+        
+        # 使用patch模拟tickers方法
+        with patch.object(data_source, 'tickers', return_value=mock_tickers):
+            # 测试top_percent参数（取前30%）
+            result = await data_source.top_volume_symbols('binance', 'USDT', top_percent=30)
+            
+            # 验证结果
+            assert isinstance(result, list)
+            assert len(result) == 3  # 10 * 30% = 3
+            assert result == ['SYMBOL0/USDT', 'SYMBOL1/USDT', 'SYMBOL2/USDT']
+    
+    @pytest.mark.asyncio
+    async def test_top_volume_symbols_empty_result(self):
+        """测试top_volume_symbols方法返回空结果的情况"""
+        from chronoforge.data_source.crypto_spot import CryptoSpotDataSource
+        
+        data_source = self.CryptoSpotDataSource(config=self.mock_config)
+        
+        # 模拟tickers方法返回空字典
+        with patch.object(data_source, 'tickers', return_value={}):
+            result = await data_source.top_volume_symbols('binance', 'USDT')
+            
+            # 验证结果
+            assert isinstance(result, list)
+            assert len(result) == 0
 
 
 class TestDataSourceVerification:

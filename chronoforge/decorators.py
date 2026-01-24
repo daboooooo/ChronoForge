@@ -1,14 +1,32 @@
-"""装饰器模块"""
+"""插件装饰器定义"""
+from typing import Callable, Any, List, Dict
 
 
-def periodic_task(interval: int = 60, symbols: list = None, timeframe: str = None,
-                  timerange_str: str = None, storage_name: str = "LocalFileStorage",
-                  storage_config: dict = None, params: dict = None, max_retries: int = 3,
-                  retry_delay: int = 1, priority: int = 0):
-    """装饰器，用于标记需要周期性执行的函数
+def api_callable(func: Callable[..., Any]) -> Callable[..., Any]:
+    """标记插件的函数可以被delegate_call调用
+
+    装饰器用于标识插件中哪些函数可以通过delegate_call动态调用。
+    只有被此装饰器标记的函数才能被外部通过API调用。
 
     Args:
-        interval: 执行间隔（秒），默认60秒
+        func: 要标记的函数
+
+    Returns:
+        Callable[..., Any]: 被标记的函数
+    """
+    func.is_api_callable = True
+    return func
+
+
+def create_task(interval: int = None, symbols: List[str] = None, timeframe: str = None,
+                timerange_str: str = None, storage_name: str = "LocalFileStorage",
+                storage_config: Dict = None, params: Dict = None, max_retries: int = 3,
+                retry_delay: int = 1, priority: int = 0, time_slot: Dict = None,
+                task_type: str = None):
+    """装饰器，用于标记需要执行的函数，可以是周期性任务或基于time_slot的任务
+
+    Args:
+        interval: 执行间隔（秒），默认None表示非周期性任务
         symbols: 交易对列表，可选
         timeframe: 时间框架，可选
         timerange_str: 时间范围字符串，可选
@@ -18,9 +36,15 @@ def periodic_task(interval: int = 60, symbols: list = None, timeframe: str = Non
         max_retries: 最大重试次数，默认3次
         retry_delay: 重试延迟（秒），默认1秒
         priority: 任务优先级，默认0
+        time_slot: 时间槽配置，格式为{'start': 'HH:MM:SS', 'end': 'HH:MM:SS'}，可选
+        task_type: 任务类型，可选值为'periodic', 'time_slot', 'inner'，默认为None
     """
     def decorator(func):
-        func.is_periodic_task = True
+        # 确定任务类型
+        is_periodic = interval is not None
+        func.is_periodic_task = is_periodic
+        
+        # 构建任务配置
         func.task_config = {
             'interval': interval,
             'symbols': symbols or [],
@@ -31,7 +55,9 @@ def periodic_task(interval: int = 60, symbols: list = None, timeframe: str = Non
             'params': params or {},
             'max_retries': max_retries,
             'retry_delay': retry_delay,
-            'priority': priority
+            'priority': priority,
+            'time_slot': time_slot,
+            'task_type': task_type
         }
         return func
     return decorator

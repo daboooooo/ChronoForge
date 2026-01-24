@@ -10,7 +10,7 @@ import requests
 from datetime import datetime, timezone
 from .base import DataSourceBase, ParsedSymbol
 from chronoforge.utils import parse_timeframe_to_milliseconds, with_retry
-from chronoforge.decorators import periodic_task
+from chronoforge.decorators import create_task, api_callable
 
 logger = logging.getLogger(__name__)
 
@@ -58,10 +58,25 @@ class ExchangeConnectionPool:
         Returns:
             ccxt.Exchange: 可用的交易所实例
         """
+        # -------------------------------
+        # 连接池获取连接主流程
+        # 1. 更新请求统计信息
+        # 2. 检查并清理过期连接
+        # 3. 从可用连接队列获取连接
+        # 4. 自适应调整连接池大小
+        # 5. 创建新连接（如果需要）
+        # -------------------------------
         current_time = time.time()
         self._request_count += 1
         self._last_request_time = current_time
 
+        # -------------------------------
+        # 连接有效性检查
+        # 目的：清理过期连接，确保返回的连接是有效的
+        # 检查策略：
+        # 1. 时间标准：超过有效期的连接过期
+        # 2. 使用频率标准：长期未使用（超过有效期的一半）的连接过期
+        # -------------------------------
         # 智能连接复用：优先使用最近使用的连接
         connections_to_check = list(self.available_connections)
         self.available_connections.clear()
@@ -90,7 +105,10 @@ class ExchangeConnectionPool:
             else:
                 expired_connections.append(connection_info)
 
-        # 关闭所有过期连接
+        # -------------------------------
+        # 清理过期连接
+        # 目的：释放资源，避免资源泄露
+        # -------------------------------
         for connection_info in expired_connections:
             try:
                 await self._close_connection(connection_info)
@@ -108,7 +126,11 @@ class ExchangeConnectionPool:
         for connection_info in valid_connections:
             self.available_connections.append(connection_info)
 
-        # 如果有可用连接，返回最近使用的一个
+        # -------------------------------
+        # 获取可用连接
+        # 目的：返回一个可用的连接给调用者
+        # 策略：优先使用最近使用的连接（从队列尾部获取）
+        # -------------------------------
         if self.available_connections:
             connection_info = self.available_connections.pop()
             conn_id = id(connection_info['instance'])
@@ -119,10 +141,20 @@ class ExchangeConnectionPool:
             connection_info['last_used_time'] = current_time
             return connection_info['instance']
 
-        # 自适应调整连接数
-        self._adjust_max_connections()
+        # -------------------------------
+        # 自适应调整连接池大小
+        # 目的：根据请求频率动态调整连接池大小，优化资源使用
+        # 策略：每60秒调整一次，根据请求频率增加或减少连接数
+        # -------------------------------
+        await self._adjust_max_connections()
 
-        # 如果没有可用连接，检查是否可以创建新连接
+        # -------------------------------
+        # 创建新连接
+        # 目的：当没有可用连接时，创建新连接满足需求
+        # 策略：
+        # 1. 如果当前连接数小于最大连接数，创建新连接
+        # 2. 否则，创建额外连接并记录警告
+        # -------------------------------
         if len(self.all_connections) < self._max_connections:
             return await self._create_new_connection()
 
@@ -145,7 +177,7 @@ class ExchangeConnectionPool:
                 self.available_connections.append(connection_info)
                 break
 
-    def _adjust_max_connections(self):
+    async def _adjust_max_connections(self):
         """
         自适应调整最大连接数
         根据最近的请求频率和连接使用情况动态调整
@@ -176,9 +208,9 @@ class ExchangeConnectionPool:
         self._last_adjust_time = current_time
 
         # 清理不常用的连接
-        self._clean_unused_connections()
+        await self._clean_unused_connections()
 
-    def _clean_unused_connections(self):
+    async def _clean_unused_connections(self):
         """
         清理不常用的连接，保持连接池高效
         """
@@ -210,18 +242,15 @@ class ExchangeConnectionPool:
                         self.available_connections.remove(conn)
                         break
 
-                # 从所有连接列表中移除
-                if connection_info in self.all_connections:
-                    self.all_connections.remove(connection_info)
+                # 关闭连接
+                await self._close_connection(connection_info)
 
                 # 清理使用计数
                 conn_id = id(connection_info['instance'])
                 if conn_id in self._connection_usage_counts:
                     del self._connection_usage_counts[conn_id]
 
-                # 标记为需要关闭，在下次获取连接时会被关闭
-                # 不再在同步方法中调用异步的close方法，避免死锁
-                logger.info(f"标记不常用连接为需要关闭: {self.exchange_name}")
+                logger.info(f"关闭不常用连接: {self.exchange_name}")
 
     async def _create_new_connection(self) -> ccxt.Exchange:
         """
@@ -789,6 +818,7 @@ class CryptoSpotDataSource(DataSourceBase):
             logger.warning(f"⚠️ 未下载到 {symbol} - {timeframe} 新数据")
             return pd.DataFrame(columns=['time', 'open', 'high', 'low', 'close', 'volume'])
 
+    @api_callable
     async def tickers(self, exchange_name: str, quote: Optional[str] = None) -> Any:
         """获取所有交易所的Spot交易对tickers
 
@@ -806,8 +836,8 @@ class CryptoSpotDataSource(DataSourceBase):
 
         return tickers.get(quote, {})
 
-    @periodic_task(interval=60, symbols=[], timeframe=None, timerange_str=None,
-                   params={'exchange_name': 'binance', 'quote': 'USDT'})
+    @create_task(interval=60, symbols=[], timeframe=None, timerange_str=None,
+                 params={'exchange_name': 'binance', 'quote': 'USDT'})
     async def tickers_binance(self, exchange_name: str, quote: Optional[str] = None) -> Any:
         """获取Binance交易所的Spot交易对tickers
 
@@ -820,8 +850,8 @@ class CryptoSpotDataSource(DataSourceBase):
         """
         return await self.tickers(exchange_name, quote)
 
-    @periodic_task(interval=60, symbols=[], timeframe=None, timerange_str=None,
-                   params={'exchange_name': 'okx', 'quote': 'USDT'})
+    @create_task(interval=60, symbols=[], timeframe=None, timerange_str=None,
+                 params={'exchange_name': 'okx', 'quote': 'USDT'})
     async def tickers_okx(self, exchange_name: str, quote: Optional[str] = None) -> Any:
         """获取OKX交易所的Spot交易对tickers
 
@@ -834,6 +864,7 @@ class CryptoSpotDataSource(DataSourceBase):
         """
         return await self.tickers(exchange_name, quote)
 
+    @api_callable
     async def top_volume_symbols(self, exchange_name: str, quote: str,
                                  top_n: Optional[int] = None,
                                  top_percent: Optional[int] = None) -> list[str]:

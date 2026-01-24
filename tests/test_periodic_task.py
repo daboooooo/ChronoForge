@@ -2,7 +2,7 @@
 """测试periodic_task装饰器和调度器功能"""
 import time
 import logging
-from chronoforge.decorators import periodic_task
+from chronoforge.decorators import create_task
 from chronoforge.scheduler import Scheduler
 
 # 配置日志
@@ -15,7 +15,7 @@ def test_periodic_task_decorator():
     """测试periodic_task装饰器的基本功能"""
     logger.info("=== 测试装饰器基本功能 ===")
 
-    @periodic_task(interval=2, symbols=['BTC/USDT'], params={'key': 'value'})
+    @create_task(interval=2, symbols=['BTC/USDT'], params={'key': 'value'})
     async def test_func(self, key=None):
         logger.info(f"测试函数执行，key={key}")
         return {'result': 'success', 'key': key}
