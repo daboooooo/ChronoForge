@@ -729,8 +729,8 @@ class Scheduler:
                     task_type = Task.TASK_TYPES['PERIODIC']
                     # 使用全天时间段
                     time_slot = TimeSlot(
-                        start="00:00",
-                        end="23:59"
+                        start="00:00:00",
+                        end="23:59:59"
                     )
                     task_suffix = "periodic"
                 else:
