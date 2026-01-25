@@ -21,7 +21,7 @@ def api_callable(func: Callable[..., Any]) -> Callable[..., Any]:
 def create_task(interval: int = None, symbols: List[str] = None, timeframe: str = None,
                 timerange_str: str = None, storage_name: str = "LocalFileStorage",
                 storage_config: Dict = None, params: Dict = None, max_retries: int = 3,
-                retry_delay: int = 1, priority: int = 0, time_slot: Dict = None):
+                retry_delay: int = 1, time_slot: Dict = None):
     """装饰器，用于标记需要执行的函数，可以是周期性任务或基于time_slot的任务
 
     Args:
@@ -34,7 +34,6 @@ def create_task(interval: int = None, symbols: List[str] = None, timeframe: str 
         params: 方法调用参数，可选
         max_retries: 最大重试次数，默认3次
         retry_delay: 重试延迟（秒），默认1秒
-        priority: 任务优先级，默认0
         time_slot: 时间槽配置，格式为{'start': 'HH:MM:SS', 'end': 'HH:MM:SS'}，可选
     """
     def decorator(func):
@@ -49,11 +48,10 @@ def create_task(interval: int = None, symbols: List[str] = None, timeframe: str 
             'params': params or {},
             'max_retries': max_retries,
             'retry_delay': retry_delay,
-            'priority': priority,
             'time_slot': time_slot
         }
-        # 添加is_periodic_task属性，标记这是一个周期性任务
+        # 添加is_internal_task属性，标记这是一个周期性任务
         # scheduler利用它来判断一个函数是否被装饰器装饰
-        func.is_periodic_task = True
+        func.is_internal_task = True
         return func
     return decorator

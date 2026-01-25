@@ -102,7 +102,6 @@ class Task:
             'method_params': None,       # 内部任务的方法参数
             'max_retries': 3,            # 最大重试次数
             'retry_delay': 1,            # 重试延迟（秒）
-            'priority': 0,               # 任务优先级
             'run_count': 0,              # 任务运行次数
             'last_run_time': None,       # 上次运行时间
             'last_run_status': None,     # 上次运行状态
@@ -704,7 +703,7 @@ class Scheduler:
                 return plugin
         raise ValueError(f"Plugin {plugin_name} not supported")
 
-    def _create_inner_tasks(self, plugin: Any, plugin_type: str):
+    def _create_internal_task(self, plugin: Any, plugin_type: str):
         """为插件中被@create_task装饰的方法创建任务，可以是周期性任务或基于time_slot的任务
 
         Args:
@@ -719,38 +718,32 @@ class Scheduler:
 
         # 遍历插件的所有方法
         for name, method in inspect.getmembers(plugin_instance, inspect.ismethod):
-            # 检查方法是否被@create_task装饰
-            if hasattr(method, 'is_periodic_task'):
+            # 检查方法是否被@create_task装饰, 且is_internal_task为True
+            if hasattr(method, 'is_internal_task') and method.is_internal_task:
                 task_config = method.task_config
 
-                # 确定任务类型
+                # 确定任务类型, 周期任务或基于time_slot的任务
                 interval = task_config.get('interval')
                 is_periodic = interval is not None
                 if is_periodic:
                     task_type = Task.TASK_TYPES['PERIODIC']
-                else:
-                    task_type = Task.TASK_TYPES['TIME_SLOT']
-
-                # 根据任务类型设置任务后缀
-                task_suffix = "_periodic" if task_type == Task.TASK_TYPES['PERIODIC'] else "_timeslot"
-
-                # 生成任务名称
-                task_name = f"{plugin.__name__}_{name}{task_suffix}"
-
-                # 创建时间槽
-                if 'time_slot' in task_config and task_config['time_slot']:
-                    # 使用装饰器中指定的time_slot
-                    time_slot_config = task_config['time_slot']
-                    time_slot = TimeSlot(
-                        start=time_slot_config['start'],
-                        end=time_slot_config['end']
-                    )
-                else:
                     # 使用全天时间段
                     time_slot = TimeSlot(
                         start="00:00",
                         end="23:59"
                     )
+                    task_suffix = "periodic"
+                else:
+                    task_type = Task.TASK_TYPES['TIME_SLOT']
+                    # 使用装饰器中指定的time_slot
+                    time_slot = TimeSlot(
+                        start=task_config['time_slot']['start'],
+                        end=task_config['time_slot']['end']
+                    )
+                    task_suffix = "timeslot"
+
+                # 生成任务名称
+                task_name = f"{plugin.__name__}_{name}_{task_suffix}"
 
                 # 添加任务，保存方法名和参数
                 try:
@@ -786,16 +779,12 @@ class Scheduler:
                         self.tasks[task_name].config['max_retries'] = task_config['max_retries']
                     if 'retry_delay' in task_config:
                         self.tasks[task_name].config['retry_delay'] = task_config['retry_delay']
-                    if 'priority' in task_config:
-                        self.tasks[task_name].config['priority'] = task_config['priority']
 
-                    logger.info(
-                        f"Created {task_type} task {task_name} for "
-                        f"method {name} in plugin {plugin.__name__}")
+                    logger.info(f"Created {task_type} task {task_name} for "
+                                f"method {name} in plugin {plugin.__name__}")
                 except (ValueError, KeyError, RuntimeError) as e:
-                    logger.error(
-                        f"Failed to create task for "
-                        f"method {name} in plugin {plugin.__name__}: {e}")
+                    logger.error(f"Failed to create task for "
+                                 f"method {name} in plugin {plugin.__name__}: {e}")
 
     def register_plugin(self, plugin: Any) -> Tuple[bool, str]:
         """ 识别插件类型，验证插件，完成注册
@@ -819,7 +808,7 @@ class Scheduler:
             if success:
                 self.supported_data_sources.append(plugin)
                 # 检查插件中是否有被@create_task装饰的方法
-                self._create_inner_tasks(plugin, "data_source")
+                self._create_internal_task(plugin, "data_source")
                 return True, "Data source instance registered successfully"
             else:
                 return False, msg
@@ -1276,7 +1265,6 @@ class Scheduler:
 
                     # 更新任务状态为等待下次执行
                     if not is_in_slot:
-                        logger.debug(f"Task {task_name} is not in timeslot, skipping")
                         # 更新任务状态为等待
                         with self._task_states_lock:
                             if self.task_states[task_name]['status'] not in ['waiting', 'created',
@@ -1319,9 +1307,7 @@ class Scheduler:
                         with self._task_states_lock:
                             if self.task_states[task_name]['next_run_time'] is None:
                                 self.task_states[task_name]['next_run_time'] = current_time
-                                task_state = self.task_states[task_name].copy()
-                            else:
-                                task_state = self.task_states[task_name].copy()
+                            task_state = self.task_states[task_name].copy()
 
                         # 检查是否到了执行时间
                         if current_time < task_state['next_run_time']:

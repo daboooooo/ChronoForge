@@ -21,8 +21,8 @@ def test_periodic_task_decorator():
         return {'result': 'success', 'key': key}
 
     # 断言装饰器是否正确添加了属性
-    assert hasattr(test_func, 'is_periodic_task'), "装饰器没有添加is_periodic_task属性"
-    assert test_func.is_periodic_task is True, "is_periodic_task属性值不正确"
+    assert hasattr(test_func, 'is_internal_task'), "装饰器没有添加is_internal_task属性"
+    assert test_func.is_internal_task is True, "is_internal_task属性值不正确"
     assert hasattr(test_func, 'task_config'), "装饰器没有添加task_config属性"
 
     # 断言task_config内容是否正确
