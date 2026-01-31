@@ -86,7 +86,7 @@ async def test_storage_performance(storage_name: str, storage_config: dict, test
     try:
         # 测试保存性能
         start_time = time.time()
-        save_result = await storage.save(test_id, test_data, sub="test_performance")
+        save_result = await storage.save(test_id, test_data, sub="test_performance", metadata=None)
         save_time = time.time() - start_time
         results["save_time"] = save_time
         results["save_success"] = save_result
@@ -95,7 +95,7 @@ async def test_storage_performance(storage_name: str, storage_config: dict, test
         
         # 测试加载性能
         start_time = time.time()
-        loaded_data = await storage.load(test_id, sub="test_performance")
+        loaded_data = await storage.load(test_id, sub="test_performance", metadata=None)
         load_time = time.time() - start_time
         results["load_time"] = load_time
         results["load_success"] = loaded_data is not None and not loaded_data.empty

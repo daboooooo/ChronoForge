@@ -8,10 +8,16 @@ from typing import Any, Dict, Optional, Tuple, get_type_hints
 from collections import defaultdict
 import pandas as pd
 import concurrent.futures as cf
-
+import threading
+import time
+import json
+from datetime import datetime
+from chronoforge.utils import TimeSlot, TimeSlotManager, TimeRange, parse_timeframe_to_milliseconds
+from chronoforge.logging_config import setup_logging, get_logger
 from chronoforge.data_source import DataSourceBase, verify_datasource_instance
 from chronoforge.data_source import (CryptoSpotDataSource, FREDDataSource, BitcoinFGIDataSource,
-                                     CryptoUMFutureDataSource, GlobalMarketDataSource)
+                                     CryptoUMFutureDataSource, GlobalMarketDataSource,
+                                     CoinGeckoDataSource)
 from chronoforge.storage import StorageBase, verify_storage_instance
 from chronoforge.storage import LocalFileStorage
 
@@ -31,11 +37,6 @@ try:
     from chronoforge.storage import MongoDBStorage
 except ImportError:
     MongoDBStorage = None
-from chronoforge.utils import TimeSlot, TimeSlotManager, TimeRange, parse_timeframe_to_milliseconds
-from chronoforge.logging_config import setup_logging, get_logger
-import threading
-import time
-from datetime import datetime
 
 # 配置日志
 setup_logging()
@@ -507,7 +508,8 @@ class Scheduler:
             "FREDDataSource",
             "BitcoinFGIDataSource",
             "CryptoUMFutureDataSource",
-            "GlobalMarketDataSource"
+            "GlobalMarketDataSource",
+            "CoinGeckoDataSource"
         ]
         self.builtin_storages = [
             "LocalFileStorage",
@@ -540,9 +542,14 @@ class Scheduler:
         self.register_plugin(BitcoinFGIDataSource)
         self.register_plugin(CryptoUMFutureDataSource)
         self.register_plugin(GlobalMarketDataSource)
+        self.register_plugin(CoinGeckoDataSource)
 
         # 从本地文件加载任务
         self.load_tasks_from_file()
+
+        # 初始化内部任务存储
+        from chronoforge.internal_task_storage import init_internal_storage
+        init_internal_storage()
 
         # 注册资源清理函数
         def _cleanup():
@@ -660,7 +667,6 @@ class Scheduler:
 
             # 处理特殊返回类型
             try:
-                import pandas as pd
                 if isinstance(result, pd.DataFrame):
                     logger.debug(
                         f"Converting DataFrame to serializable format, shape: {result.shape}")
@@ -774,6 +780,9 @@ class Scheduler:
                     if is_periodic:
                         self.tasks[task_name].config['interval'] = interval
 
+                    # 保存存储相关配置
+                    self.tasks[task_name].config['enable_storage'] = task_config.get('enable_storage', False)
+
                     # 保存其他配置参数
                     if 'max_retries' in task_config:
                         self.tasks[task_name].config['max_retries'] = task_config['max_retries']
@@ -786,35 +795,38 @@ class Scheduler:
                     logger.error(f"Failed to create task for "
                                  f"method {name} in plugin {plugin.__name__}: {e}")
 
-    def register_plugin(self, plugin: Any) -> Tuple[bool, str]:
+    def register_plugin(self, plugin: Any):
         """ 识别插件类型，验证插件，完成注册
 
         Args:
             plugin: 任意插件实例
 
         Returns:
-            Tuple[bool, str]: 注册结果（成功/失败）和消息
+            tuple: (success, message)
         """
         # 检查插件类型并添加到相应列表
         if issubclass(plugin, StorageBase):
             success, msg = verify_storage_instance(plugin)
             if success:
                 self.supported_storages.append(plugin)
-                return True, "Storage instance registered successfully"
+                logger.warning(f"STORAGE instance {plugin.__name__} registered successfully")
             else:
-                return False, msg
+                logger.error(f"Failed to register STORAGE instance {plugin.__name__}: {msg}")
+            return success, msg
         elif issubclass(plugin, DataSourceBase):
             success, msg = verify_datasource_instance(plugin)
             if success:
                 self.supported_data_sources.append(plugin)
                 # 检查插件中是否有被@create_task装饰的方法
                 self._create_internal_task(plugin, "data_source")
-                return True, "Data source instance registered successfully"
+                logger.warning(f"DATA SOURCE instance {plugin.__name__} registered successfully")
             else:
-                return False, msg
+                logger.error(f"Failed to register DATA SOURCE instance {plugin.__name__}: {msg}")
+            return success, msg
         else:
-            logger.error("Unsupported instance type: %s", type(plugin))
-            return False, "Unsupported instance type"
+            msg = f"Unsupported instance type: {type(plugin)}"
+            logger.error(msg)
+            return False, msg
 
     def delete_task(self, name: str) -> None:
         """删除任务
@@ -845,7 +857,6 @@ class Scheduler:
         del self.tasks[name]
 
         # 从本地文件中移除任务
-        import json
         try:
             with open(self.tasks_file_path, 'r') as f:
                 tasks_dict = json.load(f)
@@ -886,11 +897,10 @@ class Scheduler:
         Returns:
             Dict[str, Any]: 任务信息字典
         """
-        import datetime
         # 将毫秒时间戳转换为YYYYMMDD格式
-        start_date = datetime.datetime.fromtimestamp(
+        start_date = datetime.fromtimestamp(
             task.timerange.start_ts_ms / 1000).strftime("%Y%m%d")
-        end_date = "" if not task.timerange.end_ts_ms else datetime.datetime.fromtimestamp(
+        end_date = "" if not task.timerange.end_ts_ms else datetime.fromtimestamp(
             task.timerange.end_ts_ms / 1000).strftime("%Y%m%d")
         timerange_str = f"{start_date}-{end_date}" if end_date else f"{start_date}-"
 
@@ -916,7 +926,6 @@ class Scheduler:
             tasks_dict: 任务字典
             task_name: 单个任务名称（可选），用于日志记录
         """
-        import json
         try:
             with open(self.tasks_file_path, 'w') as f:
                 json.dump(tasks_dict, f, indent=2)
@@ -952,7 +961,6 @@ class Scheduler:
             return
 
         # 读取现有任务
-        import json
         tasks_dict = {}
 
         try:
@@ -996,8 +1004,6 @@ class Scheduler:
     def load_tasks_from_file(self) -> None:
         """从本地文件加载任务
         """
-        import json
-
         try:
             with open(self.tasks_file_path, 'r') as f:
                 tasks_dict = json.load(f)
@@ -1552,7 +1558,6 @@ class Scheduler:
         Returns:
             pd.DataFrame: 标准化的tickers DataFrame
         """
-        import pandas as pd
         # 将每个交易对转换为一行，创建合理的DataFrame
         tickers_df = pd.DataFrame.from_dict(tickers_dict, orient='index')
 
@@ -1671,78 +1676,117 @@ class Scheduler:
             # 3. 将结果转换为适合存储的格式
             # 4. 保存结果到存储
             # -------------------------------
-            # 检查是否配置了存储
-            if task.storage_name and hasattr(task, 'method_name'):
-                storage = self.storage_instances.get(task.name)
-                if storage:
-                    # 生成存储ID
-                    storage_id = f"{task.data_source_name}_{task.method_name}"
+            
+            # 检查是否启用了内部存储
+            enable_internal_storage = task.config.get('enable_storage', False)
+            
+            # 检查是否配置了传统存储
+            has_traditional_storage = task.storage_name and hasattr(task, 'method_name')
+            
+            if enable_internal_storage or has_traditional_storage:
+                # -------------------------------
+                # 处理内部存储
+                # -------------------------------
+                if enable_internal_storage:
+                    from chronoforge.internal_task_storage import internal_storage_manager, DataType
+                    try:
+                        # 确定数据类型
+                        data_type = DataType['CUSTOM']
+                        if task.method_name in ['tickers_binance', 'tickers_okx']:
+                            data_type = DataType['TICKERS']
+                        elif task.method_name in ['update'] and task.data_source_name == 'CoinGeckoDataSource':
+                            data_type = DataType['COIN_MARKETS']
+                        
+                        # 保存到统一存储
+                        await internal_storage_manager.save_data(
+                            task_id=f"{task.data_source_name}_{task.method_name}",
+                            data=result,
+                            data_type=data_type,
+                            metadata={
+                                'task_name': task.name,
+                                'data_source': task.data_source_name,
+                                'method_name': task.method_name,
+                                'timestamp': time.time(),
+                                'task_config': task.config
+                            }
+                        )
+                        logger.info(f"Successfully saved task {task.name} result to internal storage")
+                    except Exception as e:
+                        logger.error(f"Error saving task {task.name} result to internal storage: {e}")
+                
+                # -------------------------------
+                # 处理传统存储
+                # -------------------------------
+                if has_traditional_storage:
+                    storage = self.storage_instances.get(task.name)
+                    if storage:
+                        # 生成存储ID
+                        storage_id = f"{task.data_source_name}_{task.method_name}"
 
-                    # 保存结果
-                    # 检查结果类型，如果是字典，需要转换为DataFrame
-                    import pandas as pd
-                    data_to_save = result
+                        # 保存结果
+                        # 检查结果类型，如果是字典，需要转换为DataFrame
+                        data_to_save = result
 
-                    # -------------------------------
-                    # 特殊处理tickers任务结果
-                    # 目的：避免创建超宽DataFrame，优化存储格式
-                    # -------------------------------
-                    if isinstance(result, dict) and task.method_name in ['tickers_binance',
-                                                                         'tickers_okx']:
-                        # 获取方法参数中的quote值
-                        quote = None
-                        if hasattr(task, 'method_params') and 'params' in task.method_params:
-                            quote = task.method_params['params'].get('quote')
+                        # -------------------------------
+                        # 特殊处理tickers任务结果
+                        # 目的：避免创建超宽DataFrame，优化存储格式
+                        # -------------------------------
+                        if isinstance(result, dict) and task.method_name in ['tickers_binance',
+                                                                             'tickers_okx']:
+                            # 获取方法参数中的quote值
+                            quote = None
+                            if hasattr(task, 'method_params') and 'params' in task.method_params:
+                                quote = task.method_params['params'].get('quote')
 
-                        # 处理tickers结果
-                        await self._process_tickers_result(storage, storage_id, task, result, quote)
-                        return
-
-                    # -------------------------------
-                    # 处理一般字典类型结果
-                    # -------------------------------
-                    elif isinstance(result, dict):
-                        # 将字典转换为适合存储的格式
-                        # 如果字典值是DataFrame，直接使用
-                        if all(isinstance(v, pd.DataFrame) for v in result.values()):
-                            # 对于嵌套的DataFrame字典，我们需要为每个值单独存储
-                            for key, df in result.items():
-                                nested_storage_id = f"{storage_id}_{key}"
-                                success = await storage.save(
-                                    id=nested_storage_id,
-                                    data=df,
-                                    sub=task.sub
-                                )
-                                if not success:
-                                    logger.error(f"Failed to save task {task.name} result {key} to "
-                                                 f"storage {task.storage_name}")
+                            # 处理tickers结果
+                            await self._process_tickers_result(storage, storage_id, task, result, quote)
                             return
-                        else:
-                            # 将字典转换为简单的DataFrame
-                            data_to_save = pd.DataFrame([result])
 
-                    # -------------------------------
-                    # 处理其他类型结果
-                    # -------------------------------
-                    # 如果不是DataFrame且不是空值，尝试转换
-                    elif not isinstance(result, pd.DataFrame) and result is not None:
-                        try:
-                            data_to_save = pd.DataFrame([result])
-                        except Exception:
-                            logger.warning("Unable to convert result to DataFrame "
-                                           f"for task {task.name}")
-                            return
+                        # -------------------------------
+                        # 处理一般字典类型结果
+                        # -------------------------------
+                        elif isinstance(result, dict):
+                            # 将字典转换为适合存储的格式
+                            # 如果字典值是DataFrame，直接使用
+                            if all(isinstance(v, pd.DataFrame) for v in result.values()):
+                                # 对于嵌套的DataFrame字典，我们需要为每个值单独存储
+                                for key, df in result.items():
+                                    nested_storage_id = f"{storage_id}_{key}"
+                                    success = await storage.save(
+                                        id=nested_storage_id,
+                                        data=df,
+                                        sub=task.sub
+                                    )
+                                    if not success:
+                                        logger.error(f"Failed to save task {task.name} result {key} to "
+                                                     f"storage {task.storage_name}")
+                                return
+                            else:
+                                # 将字典转换为简单的DataFrame
+                                data_to_save = pd.DataFrame([result])
 
-                    # -------------------------------
-                    # 保存数据到存储
-                    # -------------------------------
-                    success = await storage.save(
-                        id=storage_id,
-                        data=data_to_save,
-                        sub=task.sub
-                    )
-                    if not success:
-                        logger.error(f"Failed to save task {task.name} result to storage")
+                        # -------------------------------
+                        # 处理其他类型结果
+                        # -------------------------------
+                        # 如果不是DataFrame且不是空值，尝试转换
+                        elif not isinstance(result, pd.DataFrame) and result is not None:
+                            try:
+                                data_to_save = pd.DataFrame([result])
+                            except Exception:
+                                logger.warning("Unable to convert result to DataFrame "
+                                               f"for task {task.name}")
+                                return
+
+                        # -------------------------------
+                        # 保存数据到传统存储
+                        # -------------------------------
+                        success = await storage.save(
+                            id=storage_id,
+                            data=data_to_save,
+                            sub=task.sub
+                        )
+                        if not success:
+                            logger.error(f"Failed to save task {task.name} result to traditional storage")
         except Exception as e:
             logger.error(f"Error handling task {task.name} result: {e}")
 

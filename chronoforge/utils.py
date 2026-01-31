@@ -748,3 +748,19 @@ class ParsedCCXTSymbol:
         else:
             self.settlement, self.identifier, self.strike, self.type_ = \
                 ['', '', '', '']
+
+
+def to_human_readable_format(number, unit: str = 'Byte') -> str:
+    """
+    Format memory usage in bytes to human readable format
+    """
+    if number < 1000:
+        return f'{number} {unit}'
+    elif number < 1000 ** 2:
+        return f'{number / 1024:.2f} Ki{unit}'
+    elif number < 1000 ** 3:
+        return f'{number / 1024 ** 2:.2f} Mi{unit}'
+    elif number < 1000 ** 4:
+        return f'{number / 1024 ** 3:.2f} Gi{unit}'
+    else:
+        return f'{number / 1024 ** 4:.2f} Ti{unit}'

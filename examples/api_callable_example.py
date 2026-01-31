@@ -65,19 +65,19 @@ class ExampleStorage(StorageBase):
     def name(self):
         return "ExampleStorage"
     
-    async def save(self, id, data, sub=None):
+    async def save(self, id, data, sub=None, metadata=None):
         """实现save方法"""
         return True
     
-    async def load(self, id, sub=None):
+    async def load(self, id, sub=None, metadata=None):
         """实现load方法"""
         return None
     
-    async def delete(self, id, sub=None):
+    async def delete(self, id, sub=None, metadata=None):
         """实现delete方法"""
         return True
     
-    async def exists(self, id, sub=None):
+    async def exists(self, id, sub=None, metadata=None):
         """实现exists方法"""
         return False
     
@@ -88,6 +88,14 @@ class ExampleStorage(StorageBase):
     async def get_time_range(self, id, sub=None):
         """实现get_time_range方法"""
         return None
+    
+    async def get_metadata(self, id, sub=None):
+        """实现get_metadata方法"""
+        return {}
+    
+    async def update_metadata(self, id, metadata, sub=None):
+        """实现update_metadata方法"""
+        return True
     
     @api_callable
     def get_storage_stats(self):

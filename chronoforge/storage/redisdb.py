@@ -104,7 +104,8 @@ class RedisStorage(StorageBase):
         self,
         id: str,
         data: pd.DataFrame,
-        sub: str = None
+        sub: str = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         保存DataFrame到Redis
@@ -113,6 +114,7 @@ class RedisStorage(StorageBase):
             id: 数据ID，用作键的一部分
             data: 要保存的数据
             sub: 子目录或子数据库，用作键前缀
+            metadata: 数据元信息
 
         Returns:
             bool: 是否成功保存数据
@@ -194,7 +196,8 @@ class RedisStorage(StorageBase):
     async def load(
         self,
         id: str,
-        sub: str = None
+        sub: str = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> Optional[pd.DataFrame]:
         """
         从Redis加载DataFrame
@@ -202,6 +205,7 @@ class RedisStorage(StorageBase):
         Args:
             id: 数据ID，用作键的一部分
             sub: 子目录或子数据库，用作键前缀
+            metadata: 数据元信息
 
         Returns:
             Optional[pd.DataFrame]: 加载的数据，如果不存在返回None
@@ -264,7 +268,8 @@ class RedisStorage(StorageBase):
     async def delete(
         self,
         id: str,
-        sub: str = None
+        sub: str = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         从Redis删除数据
@@ -302,7 +307,8 @@ class RedisStorage(StorageBase):
     async def exists(
         self,
         id: str,
-        sub: str = None
+        sub: str = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         检查Redis中的数据是否存在
@@ -576,3 +582,45 @@ class RedisStorage(StorageBase):
         except Exception as e:
             logger.error("获取数据时间范围失败: %s", str(e))
             return None
+
+    async def get_metadata(
+        self,
+        id: str,
+        sub: str = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        获取数据元信息
+
+        Args:
+            id: 数据ID
+            sub: 子目录或子数据库，用于区分不同的数据集合
+
+        Returns:
+            Optional[Dict[str, Any]]: 数据元信息
+        """
+        # 对于Redis存储，暂时返回空字典
+        # 后续可以扩展为从单独的元数据键中加载
+        logger.debug("获取数据元信息: %s/%s", sub or 'root', id)
+        return {}
+
+    async def update_metadata(
+        self,
+        id: str,
+        metadata: Dict[str, Any],
+        sub: str = None
+    ) -> bool:
+        """
+        更新数据元信息
+
+        Args:
+            id: 数据ID
+            metadata: 要更新的元信息
+            sub: 子目录或子数据库，用于区分不同的数据集合
+
+        Returns:
+            bool: 是否成功更新元信息
+        """
+        # 对于Redis存储，暂时返回True
+        # 后续可以扩展为将元数据保存到单独的键中
+        logger.debug("更新数据元信息: %s/%s", sub or 'root', id)
+        return True

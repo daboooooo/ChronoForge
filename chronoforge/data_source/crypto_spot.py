@@ -1,5 +1,6 @@
 import logging
 import inspect
+import asyncio
 from typing import Any, Dict, Optional, List, Deque
 from collections import deque
 
@@ -749,7 +750,6 @@ class CryptoSpotDataSource(DataSourceBase):
                         limit = 1000 if limit_max > 1000 else limit_max
 
                     # 检查事件循环是否已关闭
-                    import asyncio
                     try:
                         loop = asyncio.get_event_loop()
                         if loop.is_closed():
@@ -837,7 +837,7 @@ class CryptoSpotDataSource(DataSourceBase):
         return tickers.get(quote, {})
 
     @create_task(interval=60, symbols=[], timeframe=None, timerange_str=None,
-                 params={'exchange_name': 'binance', 'quote': 'USDT'})
+                 params={'exchange_name': 'binance', 'quote': 'USDT'}, enable_storage=True)
     async def tickers_binance(self, exchange_name: str, quote: Optional[str] = None) -> Any:
         """获取Binance交易所的Spot交易对tickers
 
@@ -851,7 +851,7 @@ class CryptoSpotDataSource(DataSourceBase):
         return await self.tickers(exchange_name, quote)
 
     @create_task(interval=60, symbols=[], timeframe=None, timerange_str=None,
-                 params={'exchange_name': 'okx', 'quote': 'USDT'})
+                 params={'exchange_name': 'okx', 'quote': 'USDT'}, enable_storage=True)
     async def tickers_okx(self, exchange_name: str, quote: Optional[str] = None) -> Any:
         """获取OKX交易所的Spot交易对tickers
 

@@ -137,7 +137,8 @@ class LocalFileStorage(StorageBase):
         self,
         id: str,
         data: pd.DataFrame,
-        sub: str = None
+        sub: str = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> bool:  # noqa: R0917
         """
         保存数据（同步方法，向后兼容并符合StorageBase接口）
@@ -146,6 +147,7 @@ class LocalFileStorage(StorageBase):
             id: 数据ID
             data: 要保存的数据
             sub: 子目录或子数据库，用于区分不同的数据集合
+            metadata: 数据元信息
 
         Returns:
             bool: 是否成功保存数据
@@ -214,7 +216,8 @@ class LocalFileStorage(StorageBase):
     async def load(
         self,
         id: str,
-        sub: str = None
+        sub: str = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> Optional[pd.DataFrame]:  # noqa: R0917
         """
         加载数据
@@ -222,6 +225,7 @@ class LocalFileStorage(StorageBase):
         Args:
             id: 数据ID
             sub: 子目录或子数据库，用于区分不同的数据集合
+            metadata: 数据元信息
 
         Returns:
             Optional[pd.DataFrame]: 加载的数据，如果不存在则返回空DataFrame
@@ -287,7 +291,7 @@ class LocalFileStorage(StorageBase):
             logger.error("加载数据失败: %s", str(e))
             return pd.DataFrame()
 
-    async def delete(self, id: str, sub: str = None) -> Optional[bool]:
+    async def delete(self, id: str, sub: str = None, metadata: Optional[Dict[str, Any]] = None) -> Optional[bool]:
         """
         删除数据（同步方法，向后兼容并符合StorageBase接口）
 
@@ -315,7 +319,8 @@ class LocalFileStorage(StorageBase):
     async def exists(
         self,
         id: str,
-        sub: str = None
+        sub: str = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         检查数据是否存在（同步方法，向后兼容并符合StorageBase接口）
@@ -423,3 +428,45 @@ class LocalFileStorage(StorageBase):
         except Exception as e:
             logger.error("获取数据时间范围失败: %s", str(e))
             return None
+
+    async def get_metadata(
+        self,
+        id: str,
+        sub: str = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        获取数据元信息
+
+        Args:
+            id: 数据ID
+            sub: 子目录或子数据库，用于区分不同的数据集合
+
+        Returns:
+            Optional[Dict[str, Any]]: 数据元信息
+        """
+        # 对于本地文件存储，暂时返回空字典
+        # 后续可以扩展为从单独的元数据文件中加载
+        logger.debug("获取数据元信息: %s/%s", sub or 'root', id)
+        return {}
+
+    async def update_metadata(
+        self,
+        id: str,
+        metadata: Dict[str, Any],
+        sub: str = None
+    ) -> bool:
+        """
+        更新数据元信息
+
+        Args:
+            id: 数据ID
+            metadata: 要更新的元信息
+            sub: 子目录或子数据库，用于区分不同的数据集合
+
+        Returns:
+            bool: 是否成功更新元信息
+        """
+        # 对于本地文件存储，暂时返回True
+        # 后续可以扩展为将元数据保存到单独的文件中
+        logger.debug("更新数据元信息: %s/%s", sub or 'root', id)
+        return True

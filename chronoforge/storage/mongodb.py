@@ -69,7 +69,8 @@ class MongoDBStorage(StorageBase):
         self,
         id: str,
         data: pd.DataFrame,
-        sub: str = None
+        sub: str = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> bool:
         """保存数据到MongoDB
 
@@ -77,6 +78,7 @@ class MongoDBStorage(StorageBase):
             id: 数据ID
             data: 要保存的数据
             sub: 子目录或子数据库，用于区分不同的数据集合
+            metadata: 数据元信息
 
         Returns:
             bool: 是否成功保存数据
@@ -116,13 +118,15 @@ class MongoDBStorage(StorageBase):
     async def load(
         self,
         id: str,
-        sub: str = None
+        sub: str = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> Optional[pd.DataFrame]:
         """从MongoDB加载数据
 
         Args:
             id: 数据ID
             sub: 子目录或子数据库，用于区分不同的数据集合
+            metadata: 数据元信息
 
         Returns:
             Optional[pandas.DataFrame]: 从MongoDB加载的数据
@@ -171,7 +175,8 @@ class MongoDBStorage(StorageBase):
     async def delete(
         self,
         id: str,
-        sub: str = None
+        sub: str = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> bool:
         """从MongoDB删除数据
 
@@ -200,7 +205,8 @@ class MongoDBStorage(StorageBase):
     async def exists(
         self,
         id: str,
-        sub: str = None
+        sub: str = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> bool:
         """检查MongoDB中是否存在数据
 
@@ -309,6 +315,48 @@ class MongoDBStorage(StorageBase):
         except Exception as e:
             logger.error(f"从MongoDB获取时间范围失败: {id} - {str(e)}")
             return None
+
+    async def get_metadata(
+        self,
+        id: str,
+        sub: str = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        获取数据元信息
+
+        Args:
+            id: 数据ID
+            sub: 子目录或子数据库，用于区分不同的数据集合
+
+        Returns:
+            Optional[Dict[str, Any]]: 数据元信息
+        """
+        # 对于MongoDB存储，暂时返回空字典
+        # 后续可以扩展为从单独的元数据集合中加载
+        logger.debug("获取数据元信息: %s/%s", sub or 'root', id)
+        return {}
+
+    async def update_metadata(
+        self,
+        id: str,
+        metadata: Dict[str, Any],
+        sub: str = None
+    ) -> bool:
+        """
+        更新数据元信息
+
+        Args:
+            id: 数据ID
+            metadata: 要更新的元信息
+            sub: 子目录或子数据库，用于区分不同的数据集合
+
+        Returns:
+            bool: 是否成功更新元信息
+        """
+        # 对于MongoDB存储，暂时返回True
+        # 后续可以扩展为将元数据保存到单独的集合中
+        logger.debug("更新数据元信息: %s/%s", sub or 'root', id)
+        return True
 
     async def close(self):
         """关闭MongoDB连接"""

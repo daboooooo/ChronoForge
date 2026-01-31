@@ -1,11 +1,13 @@
 import abc
 import inspect
-from typing import Any, Dict, Optional, List, Tuple, get_type_hints
+from typing import Any, Dict, Optional, List, Tuple, get_type_hints, Generic, TypeVar
 
 import pandas as pd
 
+T = TypeVar('T')
 
-class StorageBase(abc.ABC):
+
+class StorageBase(abc.ABC, Generic[T]):
     """存储插件基类
 
     存储插件负责将数据保存到指定的存储介质中。
@@ -29,8 +31,9 @@ class StorageBase(abc.ABC):
     async def save(
         self,
         id: str,
-        data: pd.DataFrame,
-        sub: str = None
+        data: T,
+        sub: str = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> bool:
         """保存数据到存储介质
 
@@ -38,6 +41,7 @@ class StorageBase(abc.ABC):
             id: 数据ID
             data: 要保存的数据
             sub: 子目录或子数据库，用于区分不同的数据集合
+            metadata: 数据元信息
 
         Returns:
             bool: 是否成功保存数据
@@ -49,16 +53,18 @@ class StorageBase(abc.ABC):
     async def load(
         self,
         id: str,
-        sub: str = None
-    ) -> Optional[pd.DataFrame]:
+        sub: str = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> Optional[T]:
         """从存储介质加载数据
 
         Args:
             id: 数据ID
             sub: 子目录或子数据库，用于区分不同的数据集合
+            metadata: 数据元信息
 
         Returns:
-            Optional[pandas.DataFrame]: 从存储介质加载的数据
+            Optional[T]: 从存储介质加载的数据
         """
         # 从存储介质加载数据
         pass
@@ -67,13 +73,15 @@ class StorageBase(abc.ABC):
     async def delete(
         self,
         id: str,
-        sub: str = None
+        sub: str = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> bool:
         """从存储介质删除数据
 
         Args:
             id: 数据ID
             sub: 子目录或子数据库，用于区分不同的数据集合
+            metadata: 数据元信息
 
         Returns:
             bool: 是否成功删除数据
@@ -85,13 +93,15 @@ class StorageBase(abc.ABC):
     async def exists(
         self,
         id: str,
-        sub: str = None
+        sub: str = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> bool:
         """检查存储介质是否存在数据
 
         Args:
             id: 数据ID
             sub: 子目录或子数据库，用于区分不同的数据集合
+            metadata: 数据元信息
 
         Returns:
             bool: 存储介质是否存在数据
@@ -133,6 +143,50 @@ class StorageBase(abc.ABC):
         # 获取数据的时间范围
         pass
 
+    @abc.abstractmethod
+    async def get_metadata(
+        self,
+        id: str,
+        sub: str = None
+    ) -> Optional[Dict[str, Any]]:
+        """获取数据元信息
+
+        Args:
+            id: 数据ID
+            sub: 子目录或子数据库，用于区分不同的数据集合
+
+        Returns:
+            Optional[Dict[str, Any]]: 数据元信息
+        """
+        # 获取数据元信息
+        pass
+
+    @abc.abstractmethod
+    async def update_metadata(
+        self,
+        id: str,
+        metadata: Dict[str, Any],
+        sub: str = None
+    ) -> bool:
+        """更新数据元信息
+
+        Args:
+            id: 数据ID
+            metadata: 要更新的元信息
+            sub: 子目录或子数据库，用于区分不同的数据集合
+
+        Returns:
+            bool: 是否成功更新元信息
+        """
+        # 更新数据元信息
+        pass
+
+
+# 为了向后兼容，提供默认的 DataFrame 存储基类
+class DataFrameStorageBase(StorageBase[pd.DataFrame]):
+    """DataFrame 存储基类，保持向后兼容"""
+    pass
+
 
 def verify_storage_instance(storage) -> Tuple[bool, str]:
     """严格验证一个类或实例是否符合 StorageBase 的要求"""
@@ -160,7 +214,7 @@ def verify_storage_instance(storage) -> Tuple[bool, str]:
     else:
         sig = inspect.signature(save)
         # inspect.signature不包括self，所以不应该检查它
-        expected = ["id", "data", "sub"]
+        expected = ["id", "data", "sub", "metadata"]
         actual = list(sig.parameters.keys())
         if actual != expected:
             errors.append(f"'save' must have parameters {expected}, "
@@ -171,8 +225,7 @@ def verify_storage_instance(storage) -> Tuple[bool, str]:
             hints = get_type_hints(save)
             if hints.get("id") is not str:
                 errors.append("'save' 'id' parameter must be annotated as str")
-            if hints.get("data") is not pd.DataFrame:
-                errors.append("'save' 'data' parameter must be annotated as pd.DataFrame")
+            # 不再强制要求 data 为 pd.DataFrame，因为现在支持泛型
         except (TypeError, ValueError):
             # 如果获取类型注解失败，不报错，允许没有类型注解
             pass
@@ -183,7 +236,7 @@ def verify_storage_instance(storage) -> Tuple[bool, str]:
         errors.append("'load' method is missing.")
     else:
         sig = inspect.signature(load)
-        expected = ["id", "sub"]
+        expected = ["id", "sub", "metadata"]
         actual = list(sig.parameters.keys())
         if actual != expected:
             errors.append(f"'load' must have parameters {expected}, "
@@ -194,7 +247,7 @@ def verify_storage_instance(storage) -> Tuple[bool, str]:
             hints = get_type_hints(load)
             if hints.get("id") is not str:
                 errors.append("'load' 'id' parameter must be annotated as str")
-            # 不严格检查返回类型，因为可能是 Optional[pd.DataFrame]
+            # 不严格检查返回类型，因为现在支持泛型
         except (TypeError, ValueError):
             pass
 
@@ -204,7 +257,7 @@ def verify_storage_instance(storage) -> Tuple[bool, str]:
         errors.append("'delete' method is missing.")
     else:
         sig = inspect.signature(delete)
-        expected = ["id", "sub"]
+        expected = ["id", "sub", "metadata"]
         actual = list(sig.parameters.keys())
         if actual != expected:
             errors.append(f"'delete' must have parameters {expected}, "
@@ -216,7 +269,7 @@ def verify_storage_instance(storage) -> Tuple[bool, str]:
         errors.append("'exists' method is missing.")
     else:
         sig = inspect.signature(exists)
-        expected = ["id", "sub"]
+        expected = ["id", "sub", "metadata"]
         actual = list(sig.parameters.keys())
         if actual != expected:
             errors.append(f"'exists' must have parameters {expected}, "
@@ -246,12 +299,36 @@ def verify_storage_instance(storage) -> Tuple[bool, str]:
             errors.append(f"'get_time_range' must have parameters {expected}, "
                           f"got {actual}")
 
-    # ---- 8. 异步方法要求 ----
+    # ---- 8. 检查 get_metadata 方法 ----
+    get_metadata = getattr(temp_instance, "get_metadata", None)
+    if not get_metadata or not callable(get_metadata):
+        errors.append("'get_metadata' method is missing.")
+    else:
+        sig = inspect.signature(get_metadata)
+        expected = ["id", "sub"]
+        actual = list(sig.parameters.keys())
+        if actual != expected:
+            errors.append(f"'get_metadata' must have parameters {expected}, "
+                          f"got {actual}")
+
+    # ---- 9. 检查 update_metadata 方法 ----
+    update_metadata = getattr(temp_instance, "update_metadata", None)
+    if not update_metadata or not callable(update_metadata):
+        errors.append("'update_metadata' method is missing.")
+    else:
+        sig = inspect.signature(update_metadata)
+        expected = ["id", "metadata", "sub"]
+        actual = list(sig.parameters.keys())
+        if actual != expected:
+            errors.append(f"'update_metadata' must have parameters {expected}, "
+                          f"got {actual}")
+
+    # ---- 10. 异步方法要求 ----
     # 当前设计允许同步和异步方法，不强制要求异步函数
     # 这是为了提高测试兼容性和灵活性
     # 存储插件可以根据需要选择实现同步或异步方法
 
-    # ---- 8. 检查构造函数 config 参数是否存在 ----
+    # ---- 11. 检查构造函数 config 参数是否存在 ----
     init_sig = inspect.signature(cls.__init__)
     if "config" not in init_sig.parameters:
         errors.append("__init__ must accept 'config' parameter.")

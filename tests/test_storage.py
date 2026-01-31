@@ -86,15 +86,15 @@ class TestLocalFileStorage:
     async def test_save_and_load(self, local_storage, test_dataframe):
         """测试保存和加载数据"""
         # 保存数据
-        save_result = await local_storage.save("test_symbol_1d", test_dataframe, sub="test_sub")
+        save_result = await local_storage.save("test_symbol_1d", test_dataframe, sub="test_sub", metadata=None)
         assert save_result is True
 
         # 检查数据是否存在
-        exists_result = await local_storage.exists("test_symbol_1d", sub="test_sub")
+        exists_result = await local_storage.exists("test_symbol_1d", sub="test_sub", metadata=None)
         assert exists_result is True
 
         # 加载数据
-        loaded_data = await local_storage.load("test_symbol_1d", sub="test_sub")
+        loaded_data = await local_storage.load("test_symbol_1d", sub="test_sub", metadata=None)
         assert loaded_data is not None
         assert not loaded_data.empty
         assert len(loaded_data) == len(test_dataframe)
@@ -102,13 +102,13 @@ class TestLocalFileStorage:
     @pytest.mark.asyncio
     async def test_exists_nonexistent(self, local_storage):
         """测试检查不存在的数据"""
-        exists_result = await local_storage.exists("nonexistent_id", sub="nonexistent_sub")
+        exists_result = await local_storage.exists("nonexistent_symbol", sub="test_sub", metadata=None)
         assert exists_result is False
 
     @pytest.mark.asyncio
     async def test_load_nonexistent(self, local_storage):
         """测试加载不存在的数据"""
-        loaded_data = await local_storage.load("nonexistent_id", sub="nonexistent_sub")
+        loaded_data = await local_storage.load("nonexistent_id", sub="nonexistent_sub", metadata=None)
         assert loaded_data is not None
         assert loaded_data.empty
 
@@ -116,15 +116,15 @@ class TestLocalFileStorage:
     async def test_save_without_sub(self, local_storage, test_dataframe):
         """测试不使用sub参数保存数据"""
         # 保存数据
-        save_result = await local_storage.save("test_symbol_1d", test_dataframe)
+        save_result = await local_storage.save("test_symbol_1d", test_dataframe, metadata=None)
         assert save_result is True
 
         # 检查数据是否存在
-        exists_result = await local_storage.exists("test_symbol_1d")
+        exists_result = await local_storage.exists("test_symbol_1d", metadata=None)
         assert exists_result is True
 
         # 加载数据
-        loaded_data = await local_storage.load("test_symbol_1d")
+        loaded_data = await local_storage.load("test_symbol_1d", metadata=None)
         assert loaded_data is not None
         assert not loaded_data.empty
 
@@ -132,9 +132,9 @@ class TestLocalFileStorage:
     async def test_lists_method(self, local_storage, test_dataframe):
         """测试lists方法"""
         # 先保存一些数据
-        await local_storage.save("symbol1_1d", test_dataframe, sub="sub1")
-        await local_storage.save("symbol2_1d", test_dataframe, sub="sub1")
-        await local_storage.save("symbol1_1h", test_dataframe, sub="sub2")
+        await local_storage.save("symbol1_1d", test_dataframe, sub="sub1", metadata=None)
+        await local_storage.save("symbol2_1d", test_dataframe, sub="sub1", metadata=None)
+        await local_storage.save("symbol1_1h", test_dataframe, sub="sub2", metadata=None)
 
         # 测试列出所有数据
         all_items = await local_storage.lists()
@@ -148,17 +148,17 @@ class TestLocalFileStorage:
     async def test_delete_method(self, local_storage, test_dataframe):
         """测试delete方法"""
         # 保存数据
-        await local_storage.save("test_symbol_1d", test_dataframe, sub="test_sub")
+        await local_storage.save("test_symbol_1d", test_dataframe, sub="test_sub", metadata=None)
 
         # 检查数据是否存在
-        assert await local_storage.exists("test_symbol_1d", sub="test_sub") is True
+        assert await local_storage.exists("test_symbol_1d", sub="test_sub", metadata=None) is True
 
         # 删除数据
-        delete_result = await local_storage.delete("test_symbol_1d", sub="test_sub")
+        delete_result = await local_storage.delete("test_symbol_1d", sub="test_sub", metadata=None)
         assert delete_result is True
 
         # 检查数据是否已删除
-        assert await local_storage.exists("test_symbol_1d", sub="test_sub") is False
+        assert await local_storage.exists("test_symbol_1d", sub="test_sub", metadata=None) is False
 
     @pytest.mark.asyncio
     async def test_different_formats(self, test_dir, test_dataframe):
@@ -166,15 +166,15 @@ class TestLocalFileStorage:
         # 只测试feather和parquet格式，避免json的递归问题
         # 测试feather格式
         storage_feather = LocalFileStorage(config={"base_path": test_dir, "data_format": "feather"})
-        await storage_feather.save("test_feather", test_dataframe)
+        await storage_feather.save("test_feather", test_dataframe, metadata=None)
 
         # 测试parquet格式
         storage_parquet = LocalFileStorage(config={"base_path": test_dir, "data_format": "parquet"})
-        await storage_parquet.save("test_parquet", test_dataframe)
+        await storage_parquet.save("test_parquet", test_dataframe, metadata=None)
 
         # 检查两种格式的数据都存在
-        assert await storage_feather.exists("test_feather") is True
-        assert await storage_parquet.exists("test_parquet") is True
+        assert await storage_feather.exists("test_feather", metadata=None) is True
+        assert await storage_parquet.exists("test_parquet", metadata=None) is True
 
     @pytest.mark.asyncio
     async def test_save_empty_data(self, test_dir):
@@ -182,7 +182,7 @@ class TestLocalFileStorage:
         storage = LocalFileStorage(config={"base_path": test_dir})
         empty_df = pd.DataFrame()
         # 保存空数据应该返回True，但会记录警告
-        result = await storage.save("empty_data", empty_df, sub="test_sub")
+        result = await storage.save("empty_data", empty_df, sub="test_sub", metadata=None)
         assert result is True
 
     def test_get_absolute_path(self, test_dir):
@@ -242,15 +242,15 @@ class TestDUCKDBStorage:
     async def test_save_and_load(self, duckdb_storage, test_dataframe):
         """测试保存和加载数据"""
         # 保存数据
-        save_result = await duckdb_storage.save("test_symbol_1d", test_dataframe, sub="test_sub")
+        save_result = await duckdb_storage.save("test_symbol_1d", test_dataframe, sub="test_sub", metadata=None)
         assert save_result is True
 
         # 检查数据是否存在
-        exists_result = await duckdb_storage.exists("test_symbol_1d", sub="test_sub")
+        exists_result = await duckdb_storage.exists("test_symbol_1d", sub="test_sub", metadata=None)
         assert exists_result is True
 
         # 加载数据
-        loaded_data = await duckdb_storage.load("test_symbol_1d", sub="test_sub")
+        loaded_data = await duckdb_storage.load("test_symbol_1d", sub="test_sub", metadata=None)
         assert loaded_data is not None
         assert not loaded_data.empty
         assert len(loaded_data) == len(test_dataframe)
@@ -258,28 +258,28 @@ class TestDUCKDBStorage:
     @pytest.mark.asyncio
     async def test_exists_nonexistent(self, duckdb_storage):
         """测试检查不存在的数据"""
-        exists_result = await duckdb_storage.exists("nonexistent_id", sub="nonexistent_sub")
+        exists_result = await duckdb_storage.exists("nonexistent_id", sub="nonexistent_sub", metadata=None)
         assert exists_result is False
 
     @pytest.mark.asyncio
     async def test_load_nonexistent(self, duckdb_storage):
         """测试加载不存在的数据"""
-        loaded_data = await duckdb_storage.load("nonexistent_id", sub="nonexistent_sub")
+        loaded_data = await duckdb_storage.load("nonexistent_id", sub="nonexistent_sub", metadata=None)
         assert loaded_data is None
 
     @pytest.mark.asyncio
     async def test_save_without_sub(self, duckdb_storage, test_dataframe):
         """测试不使用sub参数保存数据"""
         # 保存数据
-        save_result = await duckdb_storage.save("test_symbol_1d", test_dataframe)
+        save_result = await duckdb_storage.save("test_symbol_1d", test_dataframe, metadata=None)
         assert save_result is True
 
         # 检查数据是否存在
-        exists_result = await duckdb_storage.exists("test_symbol_1d")
+        exists_result = await duckdb_storage.exists("test_symbol_1d", metadata=None)
         assert exists_result is True
 
         # 加载数据
-        loaded_data = await duckdb_storage.load("test_symbol_1d")
+        loaded_data = await duckdb_storage.load("test_symbol_1d", metadata=None)
         assert loaded_data is not None
         assert not loaded_data.empty
 
@@ -287,9 +287,9 @@ class TestDUCKDBStorage:
     async def test_lists_method(self, duckdb_storage, test_dataframe):
         """测试lists方法"""
         # 先保存一些数据
-        await duckdb_storage.save("symbol1_1d", test_dataframe, sub="sub1")
-        await duckdb_storage.save("symbol2_1d", test_dataframe, sub="sub1")
-        await duckdb_storage.save("symbol1_1h", test_dataframe, sub="sub2")
+        await duckdb_storage.save("symbol1_1d", test_dataframe, sub="sub1", metadata=None)
+        await duckdb_storage.save("symbol2_1d", test_dataframe, sub="sub1", metadata=None)
+        await duckdb_storage.save("symbol1_1h", test_dataframe, sub="sub2", metadata=None)
 
         # 测试列出所有数据
         all_items = await duckdb_storage.lists()
@@ -303,17 +303,17 @@ class TestDUCKDBStorage:
     async def test_delete_method(self, duckdb_storage, test_dataframe):
         """测试delete方法"""
         # 保存数据
-        await duckdb_storage.save("test_symbol_1d", test_dataframe, sub="test_sub")
+        await duckdb_storage.save("test_symbol_1d", test_dataframe, sub="test_sub", metadata=None)
 
         # 检查数据是否存在
-        assert await duckdb_storage.exists("test_symbol_1d", sub="test_sub") is True
+        assert await duckdb_storage.exists("test_symbol_1d", sub="test_sub", metadata=None) is True
 
         # 删除数据
-        delete_result = await duckdb_storage.delete("test_symbol_1d", sub="test_sub")
+        delete_result = await duckdb_storage.delete("test_symbol_1d", sub="test_sub", metadata=None)
         assert delete_result is True
 
         # 检查数据是否已删除
-        assert await duckdb_storage.exists("test_symbol_1d", sub="test_sub") is False
+        assert await duckdb_storage.exists("test_symbol_1d", sub="test_sub", metadata=None) is False
 
     @pytest.mark.asyncio
     async def test_context_manager(self, test_dir, test_dataframe):
@@ -321,9 +321,9 @@ class TestDUCKDBStorage:
         db_path = os.path.join(test_dir, "context_test.db")
         async with DUCKDBStorage(config={"db_path": db_path}) as storage:
             # 保存数据
-            await storage.save("context_symbol_1d", test_dataframe)
+            await storage.save("context_symbol_1d", test_dataframe, metadata=None)
             # 检查数据是否存在
-            assert await storage.exists("context_symbol_1d") is True
+            assert await storage.exists("context_symbol_1d", metadata=None) is True
 
     @pytest.mark.asyncio
     async def test_close_method(self, duckdb_storage):
@@ -497,7 +497,7 @@ class TestRedisStorage:
         mock_conn.exists.return_value = 0
 
         # 检查数据是否存在
-        exists_result = await redis_storage.exists("nonexistent_id", sub="nonexistent_sub")
+        exists_result = await redis_storage.exists("nonexistent_id", sub="nonexistent_sub", metadata=None)
         assert exists_result is False
 
     @pytest.mark.asyncio
@@ -510,7 +510,7 @@ class TestRedisStorage:
         mock_conn.get.return_value = None
 
         # 加载不存在的数据
-        loaded_data = await redis_storage.load("nonexistent_id", sub="nonexistent_sub")
+        loaded_data = await redis_storage.load("nonexistent_id", sub="nonexistent_sub", metadata=None)
         assert loaded_data is None
 
     @pytest.mark.asyncio
@@ -524,7 +524,7 @@ class TestRedisStorage:
         mock_conn.delete.return_value = 1
 
         # 删除数据
-        delete_result = await redis_storage.delete("test_symbol_1d", sub="test_sub")
+        delete_result = await redis_storage.delete("test_symbol_1d", sub="test_sub", metadata=None)
         assert delete_result is True
 
         # 验证delete方法被调用
@@ -819,7 +819,7 @@ class TestMongoDBStorage:
         storage = MongoDBStorage()
 
         # 测试保存数据
-        save_result = await storage.save("test_id", test_dataframe, "test_sub")
+        save_result = await storage.save("test_id", test_dataframe, "test_sub", metadata=None)
         assert save_result is True
         mock_collection.delete_many.assert_called_once_with({"data_id": "test_id"})
         mock_collection.insert_many.assert_called_once()
@@ -845,7 +845,7 @@ class TestMongoDBStorage:
         storage = MongoDBStorage()
 
         # 测试加载数据
-        loaded_data = await storage.load("test_id", "test_sub")
+        loaded_data = await storage.load("test_id", "test_sub", metadata=None)
         assert loaded_data is not None
         assert not loaded_data.empty
         assert len(loaded_data) == len(test_dataframe)
@@ -863,7 +863,7 @@ class TestMongoDBStorage:
         empty_data = pd.DataFrame()
 
         # 测试保存空数据
-        save_result = await storage.save("empty_id", empty_data, "test_sub")
+        save_result = await storage.save("empty_id", empty_data, "test_sub", metadata=None)
         assert save_result is True
 
     @pytest.mark.asyncio
@@ -878,7 +878,7 @@ class TestMongoDBStorage:
 
         # 测试上下文管理器
         async with MongoDBStorage() as storage:
-            save_result = await storage.save("test_id", test_dataframe, "test_sub")
+            save_result = await storage.save("test_id", test_dataframe, "test_sub", metadata=None)
             assert save_result is True
 
     @pytest.mark.asyncio

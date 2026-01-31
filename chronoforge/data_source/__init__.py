@@ -7,6 +7,7 @@ from .fred import FREDDataSource
 from .global_market import GlobalMarketDataSource
 from .crypto_umfuture import CryptoUMFutureDataSource
 from .bitcoin_fgi import BitcoinFGIDataSource
+from .coingecko import CoinGeckoDataSource
 
 __all__ = [
     "DataSourceBase",
@@ -16,4 +17,5 @@ __all__ = [
     "GlobalMarketDataSource",
     "CryptoUMFutureDataSource",
     "BitcoinFGIDataSource",
+    "CoinGeckoDataSource",
 ]
