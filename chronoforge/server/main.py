@@ -1,4 +1,3 @@
-import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -20,7 +19,7 @@ async def lifespan(app: FastAPI):
     scheduler = Scheduler()
     set_scheduler(scheduler)
 
-    scheduler.start()
+    await scheduler.start()
     yield  # 应用运行期间
 
     # 关闭事件逻辑

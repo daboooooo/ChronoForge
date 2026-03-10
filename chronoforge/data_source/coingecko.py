@@ -1,11 +1,12 @@
 import logging
 import asyncio
+import time
 from typing import Any, Optional, Dict
 from pycoingecko import CoinGeckoAPI
 import pandas as pd
 from .base import DataSourceBase
 from chronoforge.utils import to_human_readable_format
-from chronoforge.decorators import create_task, api_callable
+from chronoforge.decorators import with_retry, api_callable
 
 logger = logging.getLogger(__name__)
 
@@ -170,42 +171,119 @@ class CoinGeckoDataSource(DataSourceBase):
         """
         super().__init__(config)
         self.coin_markets = None
-        self.coin_categories = None
-        self.tops = None
+        self.last_coin_markets_update = 0
+        self.coin_markets_cache_duration = 30 * 60  # 30分钟，单位：秒
 
-    @property
-    def name(self):
-        """返回数据源名称"""
-        return self.__class__.__name__.replace("DataSource", "")
+        self.coin_categories = None
+        self.last_coin_categories_update = 0
+        self.coin_categories_cache_duration = 30 * 60  # 30分钟，单位：秒
+
+        self.tops = None
+        self.last_tops_update = 0
+        self.tops_cache_duration = 30 * 60  # 30分钟，单位：秒
 
     async def fetch(self, symbol: str, timeframe: str, start_ts_ms: int,
                     end_ts_ms: Optional[int] = None) -> pd.DataFrame:
-        pass
-
-    @create_task(interval=30 * 60, symbols=[], timeframe=None, timerange_str=None, params={}, enable_storage=True)
-    async def update(self):
-        logger.info("Getting CoinGecko Coin Markets...")
-        self.coin_markets = await get_coingecko_coin_markets_tops()
-        logger.info("Getting CoinGecko Coin Categories...")
-        self.coin_categories = await get_coingecko_coin_categories()
-        logger.info("Getting CoinGecko Tops...")
-        self.tops = await get_coingecko_tops()
-        logger.info("CoinGecko update done.")
-        
-        return {
-            'coin_markets': self.coin_markets,
-            'coin_categories': self.coin_categories,
-            'tops': self.tops
-        }
+        if symbol == 'coin_markets' or symbol == 'markets':
+            return await self.get_coin_markets()
+        elif symbol == 'coin_categories' or symbol == 'categories':
+            return await self.get_coin_categories()
+        elif symbol == 'tops' or symbol == 'trending':
+            return await self.get_tops()
+        else:
+            return await self.get_coin_markets()
 
     @api_callable
-    def get_coin_markets(self):
+    @with_retry
+    async def get_coin_markets(self) -> pd.DataFrame:
+        """获取CoinGecko加密货币市场数据
+
+        Returns:
+            pd.DataFrame: 包含加密货币市场数据的DataFrame，
+                列名包括'id', 'symbol', 'name', 'image', 'current_price',
+                'market_cap', 'market_cap_rank', 'fully_diluted_valuation',
+                'total_volume', 'high_24h', 'low_24h', 'price_change_24h',
+                'price_change_percentage_24h', 'market_cap_change_24h',
+                'market_cap_change_percentage_24h', 'circulating_supply',
+                'total_supply', 'max_supply', 'ath', 'ath_change_percentage',
+                'ath_date', 'atl', 'atl_change_percentage', 'atl_date',
+                'last_updated', 'image_id'
+        """
+        current_time = time.time()
+        if self.coin_markets is not None and not self.coin_markets.empty and (
+            (current_time - self.last_coin_markets_update) < self.coin_markets_cache_duration
+        ):
+            logger.debug(
+                f"使用缓存的coin_markets数据，距上次更新: "
+                f"{int(current_time - self.last_coin_markets_update)}秒"
+            )
+            return self.coin_markets
+
+        coin_markets_data = await get_coingecko_coin_markets_tops()
+        df = pd.DataFrame(coin_markets_data)
+        if not df.empty:
+            df.set_index('symbol', inplace=True)
+
+        self.coin_markets = df
+        self.last_coin_markets_update = current_time
+        logger.info(f"成功获取并转换{len(df)}条coin_markets数据")
+
         return self.coin_markets
 
     @api_callable
-    def get_coin_categories(self):
+    @with_retry
+    async def get_coin_categories(self) -> pd.DataFrame:
+        """获取CoinGecko加密货币分类数据
+
+        Returns:
+            pd.DataFrame: 包含加密货币分类数据的DataFrame，
+                列名包括'id', 'name', 'market_cap', 'market_cap_change_24h',
+                'content', 'volume_24h', 'updated_at', 'top_3_coins_symbol',
+                'top_3_coins_name'
+        """
+        current_time = time.time()
+        if self.coin_categories is not None and not self.coin_categories.empty and (
+            (current_time - self.last_coin_categories_update) < self.coin_categories_cache_duration
+        ):
+            logger.debug(
+                f"使用缓存的coin_categories数据，距上次更新: "
+                f"{int(current_time - self.last_coin_categories_update)}秒"
+            )
+            return self.coin_categories
+
+        coin_categories_data = await get_coingecko_coin_categories(
+            coin_markets=self.coin_markets.to_dict('records')
+            if self.coin_markets is not None else None
+        )
+        df = pd.DataFrame(coin_categories_data)
+
+        self.coin_categories = df
+        self.last_coin_categories_update = current_time
+        logger.info(f"成功获取并转换{len(df)}条coin_categories数据")
+
         return self.coin_categories
 
     @api_callable
-    def get_tops(self):
+    @with_retry
+    async def get_tops(self) -> pd.DataFrame:
+        """获取CoinGecko热门搜索数据
+
+        Returns:
+            pd.DataFrame: 包含热门加密货币数据的DataFrame，
+                列名包括'symbol', 'name', 'market_cap_rank'
+        """
+        current_time = time.time()
+        if self.tops is not None and not self.tops.empty and (
+            (current_time - self.last_tops_update) < self.tops_cache_duration
+        ):
+            logger.debug(f"使用缓存的tops数据，距离上次更新: {int(current_time - self.last_tops_update)}秒")
+            return self.tops
+
+        tops_data = await get_coingecko_tops()
+        df = pd.DataFrame(tops_data)
+
+        self.tops = df
+        self.last_tops_update = current_time
+        logger.info(f"成功获取并转换{len(df)}条tops数据")
+
         return self.tops

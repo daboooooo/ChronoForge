@@ -2,29 +2,157 @@
 
 import abc
 import inspect
-from typing import get_type_hints, Optional, Any, Dict
+from enum import Enum
+from typing import get_type_hints, Optional, Any, Dict, List
+from dataclasses import dataclass
 import pandas as pd
+
+
+class DataSourceError(Exception):
+    """数据源基础异常类"""
+
+    def __init__(self, message: str, data_source: Optional[str] = None,
+                 symbol: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
+        super().__init__(message)
+        self.message = message
+        self.data_source = data_source
+        self.symbol = symbol
+        self.details = details or {}
+
+    def __str__(self) -> str:
+        parts = [self.message]
+        if self.data_source:
+            parts.append(f"data_source={self.data_source}")
+        if self.symbol:
+            parts.append(f"symbol={self.symbol}")
+        if self.details:
+            parts.append(f"details={self.details}")
+        return ", ".join(parts)
+
+
+class DataSourceConnectionError(DataSourceError):
+    """数据源连接异常"""
+    pass
+
+
+class DataSourceRateLimitError(DataSourceError):
+    """数据源速率限制异常"""
+
+    def __init__(self, message: str, retry_after: Optional[int] = None, **kwargs):
+        super().__init__(message, **kwargs)
+        self.retry_after = retry_after
+
+
+class DataSourceAuthenticationError(DataSourceError):
+    """数据源认证异常"""
+    pass
+
+
+class DataSourceNotFoundError(DataSourceError):
+    """数据源未找到异常（如交易对不存在）"""
+    pass
+
+
+class DataSourceDataError(DataSourceError):
+    """数据源数据异常（如返回数据格式错误）"""
+    pass
+
+
+class DataSourceTimeoutError(DataSourceError):
+    """数据源超时异常"""
+    pass
+
+
+class DataSchemaType(Enum):
+    """数据源返回数据的Schema类型枚举"""
+    OHLCV = "ohlcv"
+    TIME_SERIES = "time_series"
+    TICKER = "ticker"
+    MULTI_FIELD = "multi_field"
+
+
+@dataclass(frozen=True)
+class DataField:
+    """数据字段定义"""
+    name: str
+    dtype: str
+    description: str
+    nullable: bool = True
+
+
+@dataclass(frozen=True)
+class DataSchema:
+    """数据Schema定义，描述DataFrame的列结构和类型"""
+    schema_type: DataSchemaType
+    fields: List[DataField]
+    required_fields: Optional[List[str]] = None
+
+
+class StandardSchemas:
+    """标准数据Schema定义"""
+
+    OHLCV = DataSchema(
+        schema_type=DataSchemaType.OHLCV,
+        fields=[
+            DataField("time", "datetime64[ns, UTC]", "时间戳，UTC时区", False),
+            DataField("open", "float64", "开盘价", False),
+            DataField("high", "float64", "最高价", False),
+            DataField("low", "float64", "最低价", False),
+            DataField("close", "float64", "收盘价", False),
+            DataField("volume", "float64", "成交量", False),
+        ],
+        required_fields=["time", "open", "high", "low", "close", "volume"]
+    )
+
+    TIME_SERIES = DataSchema(
+        schema_type=DataSchemaType.TIME_SERIES,
+        fields=[
+            DataField("time", "datetime64[ns, UTC]", "时间戳，UTC时区", False),
+            DataField("value", "float64", "数值", True),
+        ],
+        required_fields=["time", "value"]
+    )
+
+    TICKER = DataSchema(
+        schema_type=DataSchemaType.TICKER,
+        fields=[
+            DataField("symbol", "object", "交易对/资产符号", False),
+            DataField("price", "float64", "当前价格", True),
+            DataField("volume", "float64", "24小时成交量", True),
+            DataField("time", "datetime64[ns, UTC]", "时间戳，UTC时区", True),
+        ],
+        required_fields=["symbol"]
+    )
 
 
 class DataSourceBase(abc.ABC):
     """数据源插件基类
 
     每个数据源插件负责从特定来源获取数据，无需关心底层存储实现。
+
+    返回数据格式规范:
+        - OHLCV数据: 必须包含 time, open, high, low, close, volume 列
+        - 时间序列数据: 必须包含 time, value 列
+        - 时间戳统一使用 UTC 时区，datetime64[ns, UTC] 类型
     """
 
     def __init__(self, config: Dict[str, Any] = None):
         self.config = config or {}
 
     @property
-    @abc.abstractmethod
     def name(self):
-        """子类必须实现 name 属性"""
-        pass
+        """返回数据源名称"""
+        return self.__class__.__name__.replace("DataSource", "")
 
     @property
     def plugin_type(self):
         """返回数据源插件类型"""
         return "datasource"
+
+    @property
+    def supported_schema(self) -> DataSchema:
+        """返回该数据源支持的数据Schema，子类应重写此方法"""
+        return StandardSchemas.OHLCV
 
     @abc.abstractmethod
     async def fetch(
@@ -43,7 +171,10 @@ class DataSourceBase(abc.ABC):
             end_ts_ms: 结束时间戳（Unix时间，毫秒），默认为当前时间
 
         Returns:
-            pandas.DataFrame: 包含时间序列数据的DataFrame，至少包含'time'和'value'列
+            pandas.DataFrame: 包含时间序列数据的DataFrame
+                - OHLCV数据: 必须包含 'time', 'open', 'high', 'low', 'close', 'volume' 列
+                - 时间序列数据: 必须包含 'time', 'value' 列
+                - 时间戳列 'time' 必须是 datetime64[ns, UTC] 类型
         """
         pass
 
@@ -64,8 +195,14 @@ def verify_datasource_instance(obj) -> tuple[bool, str]:
         temp_instance = obj
 
     # ---- 1. 检查 name 是否为 property ----
-    if not isinstance(getattr(cls, "name", None), property):
+    # name属性可能在基类中定义，需要使用hasattr检查
+    if not hasattr(temp_instance, 'name'):
         errors.append("Missing required @property 'name'.")
+    else:
+        # 验证name是property类型
+        name_in_dict = cls.__dict__.get('name')
+        if name_in_dict is not None and not isinstance(name_in_dict, property):
+            errors.append("'name' must be a @property.")
 
     # ---- 2. 检查 fetch 是否存在且为 async ----
     fetch = getattr(temp_instance, "fetch", None)

@@ -50,11 +50,18 @@ def list_plugins_by_type(plugin_type: str, scheduler: Scheduler = Depends(get_sc
 
 
 @router.get("/{plugin_type}/{plugin_name}/functions", response_model=DataSourceFunctionsResponse)
-def get_plugin_functions(plugin_type: str, plugin_name: str, scheduler: Scheduler = Depends(get_scheduler)):
+def get_plugin_functions(
+    plugin_type: str,
+    plugin_name: str,
+    scheduler: Scheduler = Depends(get_scheduler)
+):
     """获取插件的函数列表"""
     try:
         if plugin_type not in ["data_source", "storage"]:
-            raise HTTPException(status_code=400, detail="Invalid plugin type. Must be 'data_source' or 'storage'")
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid plugin type. Must be 'data_source' or 'storage'"
+            )
 
         functions_info = scheduler.api_callable_function(plugin_name, plugin_type)
 
@@ -90,11 +97,14 @@ def get_plugin_functions(plugin_type: str, plugin_name: str, scheduler: Schedule
 
 
 @router.post("/delegate-call", response_model=DelegateCallResponse)
-def delegate_call(request: DelegateCallRequest, scheduler: Scheduler = Depends(get_scheduler)):
+async def delegate_call(
+    request: DelegateCallRequest,
+    scheduler: Scheduler = Depends(get_scheduler)
+):
     """代理调用插件的函数"""
     try:
         # 调用scheduler的delegate_call方法
-        result = scheduler.delegate_call(
+        result = await scheduler.delegate_call(
             plugin_name=request.plugin_name,
             plugin_type=request.plugin_type,
             function_name=request.function_name,

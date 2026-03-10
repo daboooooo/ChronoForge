@@ -71,3 +71,6 @@ coverage.xml
 *.rst
 *.md~
 TODO.md
+
+# trae
+.trae/

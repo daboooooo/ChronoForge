@@ -4,9 +4,76 @@ import yfinance as yf
 from typing import Any, Dict, Optional
 
 from .base import DataSourceBase
-from chronoforge.utils import with_retry
+from chronoforge.decorators import with_retry
 
 logger = logging.getLogger(__name__)
+
+GLOBAL_MARKET_CATEGORY = {
+    'Commodity': [
+        'GC=F',  # Gold
+        'SI=F',  # Silver
+        'HG=F',  # Copper
+        'CL=F',  # Crude Oil
+    ],
+    'Crypto': [
+        'BTC-USD',  # Bitcoin
+        'ETH-USD',  # Ethereum
+        'SOL-USD',  # Solana
+    ],
+    'US Stock': [
+        "AAPL",  # Apple
+        "MSFT",  # Microsoft
+        "GOOGL",  # Google
+        "AMZN",  # Amazon
+        "NVDA",  # NVIDIA
+        "META",  # Meta
+        "TSLA",  # Tesla
+    ],
+    'US Indices': [
+        '^GSPC',  # S&P 500
+        '^RUT',  # Russell 2000
+        '^IXIC',  # NASDAQ 100
+    ],
+    'CN Stock': [
+        "000001.SS",  # 上证指数
+        "399001.SZ",  # 深证成指
+        "399300.SZ",  # 创业板指
+        "399006.SZ",  # 科创50
+    ],
+    'Financial Market': [
+        'US02Y',  # 2年国债
+        'VIX',  # VIX 指数
+        'DXY',  # 美元指数
+        'US10Y',  # 10年国债
+        '13 Week Treasury Bill',  # 13周国债
+    ],
+    'Currency': [
+        'JPYUSD',  # 日元兑美元
+        'CNYUSD',  # 人民币兑美元
+        'ERUUSD',  # 欧元兑美元
+    ]}
+
+
+def get_global_market_symbols(category: str) -> list:
+    """获取全球市场指定分类的所有symbol
+
+    Args:
+        category: 分类名称，如'Commodity', 'Crypto', 'US Stock', 'US Indices',
+            'CN Stock', 'Financial Market', 'Currency'
+
+    Returns:
+        list: 包含该分类所有symbol的列表
+    """
+    return GLOBAL_MARKET_CATEGORY.get(category, [])
+
+
+def get_global_market_all_symbols() -> list:
+    """获取全球市场所有symbol
+
+    Returns:
+        list: 包含所有分类所有symbol的列表
+    """
+    return [symbol for category in GLOBAL_MARKET_CATEGORY.values() for symbol in category]
 
 
 class GlobalMarketDataSource(DataSourceBase):
@@ -16,20 +83,11 @@ class GlobalMarketDataSource(DataSourceBase):
         """初始化全球市场插件
 
         Args:
-            config: None
+            config: 配置，可选包含 symbols 列表
         """
         super().__init__(config)
-        self.yfinance_instance = None
 
-    @property
-    def name(self):
-        """返回数据源名称"""
-        return self.__class__.__name__.replace("DataSource", "")
-
-    @property
-    def exchange_name(self):
-        """返回交易所名称"""
-        return "global"
+        self.default_symbols = get_global_market_all_symbols()
 
     async def __aenter__(self):
         """异步上下文管理器的进入方法"""
@@ -92,7 +150,7 @@ class GlobalMarketDataSource(DataSourceBase):
 
                 # proxy URL scheme use use when downloading?
                 # (optional, default is None)
-                proxy=None,
+                # proxy=None,
 
                 # disable progress bar
                 progress=False

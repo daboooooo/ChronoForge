@@ -209,8 +209,8 @@ curl http://localhost:8000/api/plugins
 
 ```json
 {
-  "data_source": ["CryptoSpotDataSource", "FREDDataSource", "BitcoinFGIDataSource", "CryptoUMFutureDataSource", "GlobalMarketDataSource"],
-  "storage": ["LocalFileStorage", "DUCKDBStorage", "RedisStorage"]
+  "data_source": ["CryptoSpotDataSource", "FREDDataSource", "BitcoinFGIDataSource", "CryptoUMFutureDataSource", "GlobalMarketDataSource", "CoinGeckoDataSource", "AlthernativeDataSource"],
+  "storage": ["LocalFileStorage", "DUCKDBStorage"]
 }
 ```
 
@@ -234,8 +234,8 @@ curl http://localhost:8000/api/plugins/data_source
 
 ```json
 {
-  "plugins": ["CryptoSpotDataSource", "FREDDataSource", "BitcoinFGIDataSource", "CryptoUMFutureDataSource", "GlobalMarketDataSource"],
-  "total": 5
+  "plugins": ["CryptoSpotDataSource", "FREDDataSource", "BitcoinFGIDataSource", "CryptoUMFutureDataSource", "GlobalMarketDataSource", "CoinGeckoDataSource", "AlthernativeDataSource"],
+  "total": 7
 }
 ```
 

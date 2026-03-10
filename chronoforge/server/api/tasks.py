@@ -2,7 +2,11 @@ from fastapi import APIRouter, HTTPException, Depends
 from chronoforge.server.models.task import TaskCreate
 from chronoforge.scheduler import Scheduler
 from chronoforge.utils import TimeSlot
+from chronoforge.logging_config import get_logger
 from ..dependencies import get_scheduler
+import time
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -13,6 +17,14 @@ def list_tasks(scheduler: Scheduler = Depends(get_scheduler)):
     tasks = []
     for task_name, task in scheduler.tasks.items():
         task_status = scheduler.task_states.get(task_name, {})
+        # 处理timerange为None的情况
+        timerange_str = "20240101-"  # 默认时间范围
+        if hasattr(task, 'timerange') and task.timerange:
+            if task.timerange.end_ts_ms:
+                timerange_str = f"{task.timerange.start_ts_ms}-{task.timerange.end_ts_ms}"
+            else:
+                timerange_str = f"{task.timerange.start_ts_ms}-"
+        
         task_dict = {
             "name": task.name,
             "data_source_name": task.data_source_name,
@@ -23,8 +35,7 @@ def list_tasks(scheduler: Scheduler = Depends(get_scheduler)):
             },
             "symbols": task.symbols,
             "timeframe": task.timeframe,
-            "timerange_str": f"{task.timerange.start_ts_ms}-{task.timerange.end_ts_ms}" if (
-                task.timerange.end_ts_ms) else f"{task.timerange.start_ts_ms}-",
+            "timerange_str": timerange_str,
             "status": task_status.get("status", "idle"),
             "is_auto_created": getattr(task, "is_auto_created", False)
         }
@@ -46,6 +57,12 @@ def create_task(task_create: TaskCreate, scheduler: Scheduler = Depends(get_sche
         )
 
         # 添加任务到调度器
+        # 解析 timerange_str
+        timerange_obj = None
+        if task_create.timerange_str:
+            from chronoforge.utils import TimeRange
+            timerange_obj = TimeRange.parse_timerange(task_create.timerange_str)
+        
         scheduler.add_task(
             name=task_create.name,
             data_source_name=task_create.data_source_name,
@@ -55,7 +72,8 @@ def create_task(task_create: TaskCreate, scheduler: Scheduler = Depends(get_sche
             time_slot=time_slot,
             symbols=task_create.symbols,
             timeframe=task_create.timeframe,
-            timerange_str=task_create.timerange_str,
+            timerange=timerange_obj,
+            interval_seconds=task_create.interval_seconds,
             inplace=task_create.inplace
         )
 
@@ -63,6 +81,14 @@ def create_task(task_create: TaskCreate, scheduler: Scheduler = Depends(get_sche
         task = scheduler.tasks[task_create.name]
 
         # 直接返回dict响应
+        # 处理timerange为None的情况
+        timerange_str = "20240101-"  # 默认时间范围
+        if task.timerange:
+            if task.timerange.end_ts_ms:
+                timerange_str = f"{task.timerange.start_ts_ms}-{task.timerange.end_ts_ms}"
+            else:
+                timerange_str = f"{task.timerange.start_ts_ms}-"
+        
         return {
             "name": task.name,
             "data_source_name": task.data_source_name,
@@ -73,8 +99,7 @@ def create_task(task_create: TaskCreate, scheduler: Scheduler = Depends(get_sche
             },
             "symbols": task.symbols,
             "timeframe": task.timeframe,
-            "timerange_str": f"{task.timerange.start_ts_ms}-{task.timerange.end_ts_ms}" if (
-                task.timerange.end_ts_ms) else f"{task.timerange.start_ts_ms}-",
+            "timerange_str": timerange_str,
             "status": "idle"
         }
     except ValueError as e:
@@ -91,6 +116,14 @@ def get_task(task_name: str, scheduler: Scheduler = Depends(get_scheduler)):
         raise HTTPException(status_code=404, detail=f"Task {task_name} not found")
 
     task_status = scheduler.task_states.get(task_name, {})
+    # 处理timerange为None的情况
+    timerange_str = "20240101-"  # 默认时间范围
+    if task.timerange:
+        if task.timerange.end_ts_ms:
+            timerange_str = f"{task.timerange.start_ts_ms}-{task.timerange.end_ts_ms}"
+        else:
+            timerange_str = f"{task.timerange.start_ts_ms}-"
+    
     return {
         "name": task.name,
         "data_source_name": task.data_source_name,
@@ -101,8 +134,7 @@ def get_task(task_name: str, scheduler: Scheduler = Depends(get_scheduler)):
         },
         "symbols": task.symbols,
         "timeframe": task.timeframe,
-        "timerange_str": f"{task.timerange.start_ts_ms}-{task.timerange.end_ts_ms}" if (
-            task.timerange.end_ts_ms) else f"{task.timerange.start_ts_ms}-",
+        "timerange_str": timerange_str,
         "status": task_status.get("status", "idle")
     }
 
@@ -122,25 +154,30 @@ def delete_task(task_name: str, scheduler: Scheduler = Depends(get_scheduler)):
 
 
 @router.post("/{task_name}/start")
-def start_task(task_name: str, scheduler: Scheduler = Depends(get_scheduler)):
+async def start_task(task_name: str, scheduler: Scheduler = Depends(get_scheduler)):
     """启动任务"""
     if task_name not in scheduler.tasks:
         raise HTTPException(status_code=404, detail=f"Task {task_name} not found")
 
     try:
-        # 直接执行任务
-        future = scheduler.thread_pool.submit(scheduler.execute_task, scheduler.tasks[task_name])
-        scheduler.task_states[task_name] = {
-            'future': future,
-            'start_time': future.__dict__.get('_start_time', None),
-            'status': 'running'
-        }
+        result = await scheduler.run_task_now(task_name)
+
+        success = result.get("success", False)
+        message = result.get("message", result.get("error", "Unknown result"))
+
+        # 更新任务状态，保留已有信息（如run_count等）
+        current_state = scheduler.task_states.get(task_name, {})
+        current_state.update({
+            'start_time': time.time(),
+            'status': 'completed' if success else 'failed'
+        })
+        scheduler.task_states[task_name] = current_state
 
         return {
             "name": task_name,
-            "status": "running",
+            "status": scheduler.task_states[task_name]['status'],
             "start_time": scheduler.task_states[task_name]['start_time'],
-            "message": "Task started successfully"
+            "message": message
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to start task: {str(e)}")
@@ -202,8 +239,26 @@ async def get_task_data_info(task_name: str, scheduler: Scheduler = Depends(get_
 
     task = scheduler.tasks[task_name]
 
-    # 获取任务对应的存储实例
     storage = scheduler.storage_instances.get(task_name)
+    if not storage:
+        try:
+            from chronoforge.storage.duckdb_storage import DUCKDBStorage
+            from chronoforge.storage.localfile_storage import LocalFileStorage
+            
+            if task.storage_name == "DUCKDBStorage":
+                storage = DUCKDBStorage(task.storage_config)
+            elif task.storage_name == "LocalFileStorage":
+                storage = LocalFileStorage(task.storage_config)
+            else:
+                from chronoforge.storage.manager import storage_manager
+                storage = storage_manager.get_storage(task.storage_name)
+                
+            if storage:
+                scheduler.storage_instances[task_name] = storage
+        except Exception as e:
+            raise HTTPException(status_code=500,
+                                detail=f"Failed to create storage instance: {str(e)}")
+    
     if not storage:
         raise HTTPException(status_code=500,
                             detail=f"Storage instance not found for task {task_name}")
@@ -217,7 +272,7 @@ async def get_task_data_info(task_name: str, scheduler: Scheduler = Depends(get_
         data_name = f"{symbol}_{task.timeframe}"
 
         # 从存储中获取实际的数据起始和结束时间
-        time_range = await storage.get_time_range(id=data_name, sub=task.sub)
+        time_range = await storage.get_time_range(id=data_name)
 
         if time_range:
             if time_range["start_time"]:
@@ -272,8 +327,26 @@ async def get_task_data(
 
     task = scheduler.tasks[task_name]
 
-    # 获取任务对应的存储实例
     storage = scheduler.storage_instances.get(task_name)
+    if not storage:
+        try:
+            from chronoforge.storage.duckdb_storage import DUCKDBStorage
+            from chronoforge.storage.localfile_storage import LocalFileStorage
+            
+            if task.storage_name == "DUCKDBStorage":
+                storage = DUCKDBStorage(task.storage_config)
+            elif task.storage_name == "LocalFileStorage":
+                storage = LocalFileStorage(task.storage_config)
+            else:
+                from chronoforge.storage.manager import storage_manager
+                storage = storage_manager.get_storage(task.storage_name)
+                
+            if storage:
+                scheduler.storage_instances[task_name] = storage
+        except Exception as e:
+            raise HTTPException(status_code=500,
+                                detail=f"Failed to create storage instance: {str(e)}")
+    
     if not storage:
         raise HTTPException(status_code=500,
                             detail=f"Storage instance not found for task {task_name}")
@@ -295,18 +368,38 @@ async def get_task_data(
     all_data = []
 
     for data_name in data_names_to_get:
-        # 从存储中加载数据
-        data = await storage.load(id=data_name, sub=task.sub)
+        data_type_map = {
+            'FREDDataSource': 'macro_fred',
+            'CryptoUMFutureDataSource': 'futures_metrics',
+            'AlthernativeDataSource': 'btc_fgi',
+            'CoinGeckoDataSource': 'coin_markets',
+        }
+        query_type = data_type_map.get(task.data_source_name, 'ohlcv')
+        
+        metadata = {'query_type': query_type}
+        if query_type == 'futures_metrics':
+            symbol_part = data_name.rsplit('_', 1)[0] if '_' in data_name else data_name
+            metadata['symbol'] = symbol_part
+        
+        data = await storage.load(id=data_name, metadata=metadata)
 
         if data is not None and not data.empty:
-            # 转换为字典列表
+            if 'ts' in data.columns and 'time' not in data.columns:
+                data = data.rename(columns={'ts': 'time'})
             data_dict = data.to_dict(orient="records")
             all_data.extend(data_dict)
 
-    # 按时间排序
-    all_data.sort(key=lambda x: x["time"])
+    if not all_data:
+        return {
+            "task_name": task_name,
+            "data": [],
+            "total": 0,
+            "limit": limit
+        }
 
-    # 应用时间范围过滤
+    time_col = "time" if "time" in all_data[0] else "ts"
+    all_data.sort(key=lambda x: x.get(time_col, x.get("ts")))
+
     import pandas as pd
 
     def normalize_timestamp(ts):
@@ -318,20 +411,32 @@ async def get_task_data(
 
     if start_time:
         start_dt = normalize_timestamp(start_time)
-        all_data = [item for item in all_data if normalize_timestamp(item["time"]) >= start_dt]
+        all_data = [
+            item for item in all_data
+            if normalize_timestamp(item.get(time_col, item.get("ts"))) >= start_dt
+        ]
 
     if end_time:
         end_dt = normalize_timestamp(end_time)
-        all_data = [item for item in all_data if normalize_timestamp(item["time"]) <= end_dt]
+        all_data = [
+            item for item in all_data
+            if normalize_timestamp(item.get(time_col, item.get("ts"))) <= end_dt
+        ]
 
-    # 限制返回条数
     if len(all_data) > limit:
         all_data = all_data[-limit:]
 
-    # 格式化时间为字符串
     for item in all_data:
-        if isinstance(item["time"], pd.Timestamp):
-            item["time"] = item["time"].strftime("%Y-%m-%d %H:%M:%S")
+        ts_val = item.get(time_col, item.get("ts"))
+        if isinstance(ts_val, pd.Timestamp):
+            item[time_col] = ts_val.strftime("%Y-%m-%d %H:%M:%S")
+        elif hasattr(ts_val, 'strftime'):
+            item[time_col] = ts_val.strftime("%Y-%m-%d %H:%M:%S")
+        for key, val in item.items():
+            if isinstance(val, float):
+                import math
+                if math.isnan(val) or math.isinf(val):
+                    item[key] = None
 
     return {
         "task_name": task_name,

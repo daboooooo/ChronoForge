@@ -1,39 +1,42 @@
+"""
+存储模块 - 提供多种存储后端支持
+
+当前主要支持DuckDB存储，提供高性能的金融数据存储解决方案。
+"""
+
+# 优先导出DuckDB存储模块
+from .duckdb_storage import (
+    FinancialDataWarehouse,
+    DUCKDBStorage,
+    SmartIncrementalManager,
+    DataValidator,
+    DataQualityMonitor
+)
+
+# 本地文件存储
+from .localfile_storage.adapter import LocalFileStorage
+
+# 向后兼容性支持
 from .base import StorageBase, verify_storage_instance
-from .localfile import LocalFileStorage
 
-# 使DUCKDBStorage成为可选依赖
-try:
-    from .duckdb import DUCKDBStorage
-    duckdb_available = True
-except ImportError:
-    duckdb_available = False
+# 数据标准化器
+from .normalizer import DataFrameNormalizer
 
-# 使RedisStorage成为可选依赖
-try:
-    from .redisdb import RedisStorage
-    redis_available = True
-except ImportError:
-    redis_available = False
-
-# 使MongoDBStorage成为可选依赖
-try:
-    from .mongodb import MongoDBStorage
-    mongodb_available = True
-except ImportError:
-    mongodb_available = False
-
-# 构建__all__列表
 __all__ = [
+    # DuckDB存储核心组件
+    "FinancialDataWarehouse",
+    "DUCKDBStorage",
+    "SmartIncrementalManager",
+    "DataValidator",
+    "DataQualityMonitor",
+
+    # 本地文件存储
+    "LocalFileStorage",
+
+    # 基础接口（向后兼容）
     "StorageBase",
     "verify_storage_instance",
-    "LocalFileStorage"
+
+    # 数据标准化器
+    "DataFrameNormalizer"
 ]
-
-if duckdb_available:
-    __all__.append("DUCKDBStorage")
-
-if redis_available:
-    __all__.append("RedisStorage")
-
-if mongodb_available:
-    __all__.append("MongoDBStorage")

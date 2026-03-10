@@ -10,7 +10,7 @@ ChronoForge 是一个异步、插件式的时间序列数据处理框架，专�
 - 🧠 **自动分页和增量更新** — 只获取缺失的数据段，避免重复下载
 - ⏱️ **统一时间戳管理** — 避免时区不一致问题，所有时间戳统一为毫秒级
 - 📊 **多种数据源支持** — 内置加密货币、FRED经济数据、全球市场数据等数据源
-- 💾 **灵活存储选项** — 支持本地文件、DuckDB、Redis等多种存储方式
+- 💾 **灵活存储选项** — 支持本地文件、DuckDB等多种存储方式
 - 🎯 **任务调度** — 支持基于时间槽的任务调度，可配置执行时间
 
 ## 🏗️ 技术架构
@@ -31,7 +31,7 @@ ChronoForge 采用分层架构设计，主要包含以下核心组件：
 | Scheduler | 中央控制器 | 管理任务、调度执行、协调插件 |
 | DataSourceBase | 数据源基类 | 定义数据源插件接口，处理数据获取 |
 | StorageBase | 存储基类 | 定义存储插件接口，处理数据持久化 |
-| TimeSlotManager | 时间槽管理 | 管理任务的执行时间窗口 |
+| TimeSlotManager | 时间槽管理 | 支持时间槽和随机槽配置，管理时间窗口规则 |
 | FastAPI服务 | HTTP接口 | 提供RESTful API，支持远程管理 |
 
 ### 技术栈
@@ -157,7 +157,8 @@ pip install -r requirements.txt
 - `CryptoUMFutureDataSource` — 加密货币永续合约数据
 - `FREDDataSource` — FRED经济数据
 - `GlobalMarketDataSource` — 全球市场数据
-- `BitcoinFGIDataSource` — 比特币恐惧与贪婪指数
+- `CoinGeckoDataSource` — CoinGecko加密货币市场数据
+- `AlthernativeDataSource` — Alternative加密货币恐惧与贪婪指数
 
 **核心方法：**
 
@@ -176,7 +177,6 @@ pip install -r requirements.txt
 
 - `LocalFileStorage` — 本地文件存储
 - `DUCKDBStorage` — DuckDB数据库存储
-- `RedisStorage` — Redis数据库存储
 
 **核心方法：**
 
@@ -200,10 +200,10 @@ from chronoforge.utils import TimeSlot
 
 async def main():
     # 创建调度器
-    scheduler = Scheduler(max_workers=5)
+    scheduler = Scheduler()
     
     # 定义时间槽（每天00:00执行）
-    time_slot = TimeSlot(hour=0, minute=0)
+    time_slot = TimeSlot("00:00", "23:59")
     
     # 添加任务：获取比特币现货数据
     scheduler.add_task(
@@ -218,12 +218,14 @@ async def main():
         timerange_str="20240101-"
     )
     
-    # 启动调度器
-    scheduler.start()
+    # 启动调度器（异步方法）
+    await scheduler.start()
     
     # 运行5秒后停止
     await asyncio.sleep(5)
-    scheduler.stop()
+    
+    # 停止调度器（异步方法）
+    await scheduler.stop()
 
 # 运行
 asyncio.run(main())
@@ -359,6 +361,30 @@ python examples/plugin_functions_example.py
 
 # 任务监控示例
 python examples/task_monitor.py
+
+# 快速开始示例
+python examples/quick_start_example.py
+
+# DuckDB存储使用示例
+python examples/duckdb_storage.py
+
+# API可调用示例
+python examples/api_callable_example.py
+
+# 自动周期任务示例
+python examples/auto_periodic_tasks_example.py
+
+# 完整工作流示例
+python examples/complete_workflow_example.py
+
+# 创建任务示例
+python examples/create_task_example.py
+
+# FRED数据展示示例
+python examples/show_fred_data.py
+
+# 存储性能对比示例
+python examples/storage_performance_comparison.py
 ```
 
 这些示例文件展示了如何：
@@ -375,36 +401,63 @@ python examples/task_monitor.py
 ChronoForge/
 ├── chronoforge/          # 主包
 │   ├── __init__.py       # 包初始化
-│   ├── scheduler.py      # 调度器实现
 │   ├── cli.py            # 命令行工具
 │   ├── utils.py          # 工具函数
+│   ├── decorators.py     # 装饰器定义
+│   ├── scheduler/        # 调度器模块
+│   │   ├── __init__.py   # 调度器包初始化
+│   │   ├── task_scheduler.py  # 任务调度器
+│   │   ├── data_update.py     # 数据更新管理器
+│   │   ├── metrics.py         # 指标收集
+│   │   └── scheduler_config.py # 调度器配置
 │   ├── data_source/      # 数据源插件
 │   │   ├── __init__.py   # 数据源包初始化
 │   │   ├── base.py       # 数据源基类
+│   │   ├── cache.py      # 数据源缓存
+│   │   ├── manager.py    # 数据源管理器
 │   │   ├── crypto_spot.py # 加密货币现货数据源
+│   │   ├── crypto_umfuture.py # 加密货币永续合约数据源
 │   │   ├── fred.py       # FRED经济数据源
-│   │   └── ...           # 其他数据源
+│   │   ├── global_market.py # 全球市场数据源
+│   │   ├── coingecko.py  # CoinGecko数据源
+│   │   └── althernative.py # Alternative数据源
 │   ├── storage/          # 存储插件
 │   │   ├── __init__.py   # 存储包初始化
 │   │   ├── base.py       # 存储基类
-│   │   ├── localfile.py  # 本地文件存储
-│   │   ├── duckdb.py     # DuckDB存储
-│   │   └── redisdb.py    # Redis存储
-│   └── server/           # HTTP服务
-│       ├── __init__.py   # 服务包初始化
-│       ├── main.py       # FastAPI应用入口
-│       ├── dependencies.py # 依赖管理
-│       ├── api/          # API路由
-│       │   ├── __init__.py
-│       │   ├── tasks.py  # 任务管理API
-│       │   ├── plugins.py # 插件管理API
-│       │   └── status.py # 状态查询API
-│       └── models/       # Pydantic模型
-│           ├── __init__.py
-│           ├── task.py   # 任务相关模型
-│           └── plugin.py # 插件相关模型
+│   │   ├── manager.py    # 存储管理器
+│   │   ├── normalizer.py # 数据标准化器
+│   │   ├── duckdb_storage/ # DuckDB存储模块
+│   │   │   ├── __init__.py
+│   │   │   ├── adapter.py    # DuckDB适配器
+│   │   │   ├── incremental.py # 增量更新
+│   │   │   ├── quality.py    # 数据质量
+│   │   │   └── warehouse.py  # 数据仓库
+│   │   └── localfile_storage/ # 本地文件存储模块
+│   │       ├── __init__.py
+│   │       ├── adapter.py    # 本地文件适配器
+│   │       ├── incremental.py # 增量更新
+│   │       ├── quality.py    # 数据质量
+│   │       └── warehouse.py  # 数据仓库
+│   ├── server/           # HTTP服务
+│   │   ├── __init__.py   # 服务包初始化
+│   │   ├── main.py       # FastAPI应用入口
+│   │   ├── dependencies.py # 依赖管理
+│   │   ├── api/          # API路由
+│   │   │   ├── __init__.py
+│   │   │   ├── tasks.py  # 任务管理API
+│   │   │   ├── plugins.py # 插件管理API
+│   │   │   └── status.py # 状态查询API
+│   │   └── models/       # Pydantic模型
+│   │       ├── __init__.py
+│   │       ├── task.py   # 任务相关模型
+│   │       └── plugin.py # 插件相关模型
+│   └── services/         # 服务模块
+│       ├── __init__.py
+│       └── data_service.py # 数据服务
 ├── examples/             # 示例代码
 ├── tests/                # 测试代码
+├── docs/                 # 文档目录
+├── scripts/              # 脚本目录
 ├── data/                 # 数据目录
 ├── requirements.txt      # 项目依赖
 ├── pyproject.toml        # 项目配置
@@ -474,69 +527,89 @@ class CustomStorage(StorageBase):
 
 ChronoForge 支持以下时间框架：
 
-- `1w` — 周线
-- `1d` — 日线
-- `4h` — 4小时线
 - `1h` — 1小时线
+- `4h` — 4小时线
+- `1d` — 日线
+- `1w` — 周线
 
 ## 📊 示例用法
 
 ### 获取加密货币数据
 
 ```python
+import asyncio
 from chronoforge import Scheduler
 from chronoforge.utils import TimeSlot
 
-# 创建调度器
-scheduler = Scheduler()
+async def main():
+    # 创建调度器
+    scheduler = Scheduler()
 
-# 定义时间槽（每天执行一次）
-time_slot = TimeSlot(hour=0, minute=0)
+    # 定义时间槽（每天执行一次）
+    time_slot = TimeSlot("00:00", "23:59")
 
-# 添加加密货币数据获取任务
-scheduler.add_task(
-    name="crypto_data",
-    data_source_name="CryptoSpotDataSource",
-    data_source_config={"api_key": "your_key", "api_secret": "your_secret"},
-    storage_name="DUCKDBStorage",
-    storage_config={"db_path": "./crypto_data.db"},
-    time_slot=time_slot,
-    symbols=["binance:BTC/USDT", "binance:ETH/USDT"],
-    timeframe="1d",
-    timerange_str="20240101-"
-)
+    # 添加加密货币数据获取任务
+    scheduler.add_task(
+        name="crypto_data",
+        data_source_name="CryptoSpotDataSource",
+        data_source_config={"api_key": "your_key", "api_secret": "your_secret"},
+        storage_name="DUCKDBStorage",
+        storage_config={"db_path": "./crypto_data.db"},
+        time_slot=time_slot,
+        symbols=["binance:BTC/USDT", "binance:ETH/USDT"],
+        timeframe="1d",
+        timerange_str="20240101-"
+    )
 
-# 启动调度器
-scheduler.start()
+    # 启动调度器（异步方法）
+    await scheduler.start()
+    
+    # 保持运行
+    await asyncio.sleep(60)
+    
+    # 停止调度器（异步方法）
+    await scheduler.stop()
+
+asyncio.run(main())
 ```
 
 ### 获取FRED经济数据
 
 ```python
+import asyncio
 from chronoforge import Scheduler
 from chronoforge.utils import TimeSlot
 
-# 创建调度器
-scheduler = Scheduler()
+async def main():
+    # 创建调度器
+    scheduler = Scheduler()
 
-# 定义时间槽（每周一执行）
-time_slot = TimeSlot(weekday=0, hour=8, minute=0)
+    # 定义时间槽（每周一执行）
+    time_slot = TimeSlot("08:00", "08:59")
 
-# 添加FRED数据获取任务
-scheduler.add_task(
-    name="fred_data",
-    data_source_name="FREDDataSource",
-    data_source_config={"api_key": "your_fred_api_key"},
-    storage_name="LocalFileStorage",
-    storage_config={"base_path": "./fred_data"},
-    time_slot=time_slot,
-    symbols=["GDP", "UNRATE", "CPIAUCSL"],
-    timeframe="1d",
-    timerange_str="20200101-"
-)
+    # 添加FRED数据获取任务
+    scheduler.add_task(
+        name="fred_data",
+        data_source_name="FREDDataSource",
+        data_source_config={"api_key": "your_fred_api_key"},
+        storage_name="LocalFileStorage",
+        storage_config={"base_path": "./fred_data"},
+        time_slot=time_slot,
+        symbols=["GDP", "UNRATE", "CPIAUCSL"],
+        timeframe="1d",
+        timerange_str="20200101-"
+    )
 
-# 启动调度器
-scheduler.start()
+    # 启动调度器（异步方法）
+    await scheduler.start()
+    
+    # 保持运行
+    await asyncio.sleep(60)
+    
+    # 停止调度器（异步方法）
+    await scheduler.stop()
+
+asyncio.run(main())
 ```
 
 ## 🧩 架构图
@@ -551,15 +624,16 @@ graph TD
     DataSourceBase --> CryptoFuture[CryptoUMFutureDataSource]
     DataSourceBase --> FRED[FREDDataSource]
     DataSourceBase --> GlobalMarket[GlobalMarketDataSource]
-    DataSourceBase --> BitcoinFGI[BitcoinFGIDataSource]
+    DataSourceBase --> CoinGecko[CoinGeckoDataSource]
+    DataSourceBase --> Althernative[AlthernativeDataSource]
     StorageBase --> LocalFile[LocalFileStorage]
     StorageBase --> DuckDB[(DUCKDBStorage)]
-    StorageBase --> Redis[(RedisStorage)]
     CryptoSpot --> StorageBase
     CryptoFuture --> StorageBase
     FRED --> StorageBase
     GlobalMarket --> StorageBase
-    BitcoinFGI --> StorageBase
+    CoinGecko --> StorageBase
+    Althernative --> StorageBase
 ```
 
 ## 🤝 贡献指南

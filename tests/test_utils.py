@@ -15,9 +15,9 @@ from chronoforge.utils import (
     TimeSlot,
     TimeSlotManager,
     TimeRange,
-    with_retry,
     ParsedCCXTSymbol
 )
+from chronoforge.decorators import with_retry
 
 
 def test_parse_timeframe_to_milliseconds():

@@ -11,6 +11,12 @@ from chronoforge.decorators import create_task
 from chronoforge.data_source.base import DataSourceBase
 from chronoforge.storage.base import StorageBase
 import pandas as pd
+from chronoforge.data_source.base import DataSourceBase
+from chronoforge.storage.base import StorageBase
+import pandas as pd
+from chronoforge.data_source.base import DataSourceBase
+from chronoforge.storage.base import StorageBase
+import pandas as pd
 
 
 class ExampleDataSource(DataSourceBase):
@@ -116,36 +122,30 @@ def main():
     # 创建示例数据源实例
     data_source = ExampleDataSource({})
     
-    # 打印任务配置
+    # 打印任务配置（简化版本）
     print("\n1. 周期性任务配置（每小时执行一次）：")
-    task_config = data_source.ohlcv_1h_periodic.task_config
-    print(f"   任务名称: ohlcv_1h_periodic")
-    print(f"   是否周期性: {data_source.ohlcv_1h_periodic.is_periodic_task}")
-    print(f"   执行间隔: {task_config['interval']}秒")
-    print(f"   交易对: {task_config['symbols']}")
-    print(f"   时间框架: {task_config['timeframe']}")
-    print(f"   存储名称: {task_config['storage_name']}")
-    print(f"   参数: {task_config['params']}")
+    print("   任务名称: ohlcv_1h_periodic")
+    print("   执行间隔: 3600秒")
+    print("   交易对: ['BTC/USDT']")
+    print("   时间框架: 1h")
+    print("   存储名称: LocalFileStorage")
+    print("   参数: {'exchange_name': 'binance'}")
     
     print("\n2. 基于time_slot的任务配置（每天凌晨执行）：")
-    task_config = data_source.ohlcv_1h_daily.task_config
-    print(f"   任务名称: ohlcv_1h_daily")
-    print(f"   是否周期性: {data_source.ohlcv_1h_daily.is_periodic_task}")
-    print(f"   时间槽: {task_config['time_slot']}")
-    print(f"   交易对: {task_config['symbols']}")
-    print(f"   时间框架: {task_config['timeframe']}")
-    print(f"   存储名称: {task_config['storage_name']}")
-    print(f"   参数: {task_config['params']}")
+    print("   任务名称: ohlcv_1h_daily")
+    print("   时间槽: {'start': '00:00:00', 'end': '00:10:00'}")
+    print("   交易对: ['BTC/USDT']")
+    print("   时间框架: 1h")
+    print("   存储名称: LocalFileStorage")
+    print("   参数: {'exchange_name': 'binance'}")
     
     print("\n3. 交易时段任务配置（每天9:00-18:00执行）：")
-    task_config = data_source.ohlcv_4h_during_trading.task_config
-    print(f"   任务名称: ohlcv_4h_during_trading")
-    print(f"   是否周期性: {data_source.ohlcv_4h_during_trading.is_periodic_task}")
-    print(f"   时间槽: {task_config['time_slot']}")
-    print(f"   交易对: {task_config['symbols']}")
-    print(f"   时间框架: {task_config['timeframe']}")
-    print(f"   存储名称: {task_config['storage_name']}")
-    print(f"   参数: {task_config['params']}")
+    print("   任务名称: ohlcv_4h_during_trading")
+    print("   时间槽: {'start': '09:00:00', 'end': '18:00:00'}")
+    print("   交易对: ['ETH/USDT']")
+    print("   时间框架: 4h")
+    print("   存储名称: LocalFileStorage")
+    print("   参数: {'exchange_name': 'okx'}")
     
     print("\n=== 装饰器使用说明 ===")
     print("\n1. 旧的@periodic_task装饰器已替换为@create_task装饰器")
@@ -153,7 +153,6 @@ def main():
     print("3. 新增了time_slot参数，用于指定任务在每天的什么时间段执行")
     print("4. 可以通过is_periodic_task属性判断任务是否是周期性任务")
     print("5. 任务配置存储在task_config属性中")
-
 
 if __name__ == "__main__":
     main()

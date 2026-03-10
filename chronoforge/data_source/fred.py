@@ -4,7 +4,7 @@ from fredapi import Fred
 from typing import Any, Dict, Optional
 
 from .base import DataSourceBase
-from chronoforge.utils import with_retry
+from chronoforge.decorators import with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +14,7 @@ FRED_RATES = {
         "IORB": {
             "name": "Interest Rate Overnight Reverse Repurchase Agreements",
             "id": "IORB",
-            "comment": "银行在美联储的准备金利率，是联邦基金利率的‘天花板’，处于美联储利率区间的中间。"
+            "comment": "【美联储支付给银行】银行存到美联储的准备金的利率，是联邦基金利率的‘天花板’，处于美联储利率区间的中间。"
         },
         "ON_RRP_Award": {
             "name": "Overnight Reverse Repurchase Agreements Award Rate",
@@ -89,7 +89,7 @@ FRED_RATES = {
     }
 }
 
-fred_daily_rates = [
+FRED_DAILY_RATES = [
     "IORB",
     "RRPONTSYAWARD",
     "EFFR",
@@ -152,19 +152,6 @@ FRED_VOLUMES = {
     }
 }
 
-fred_daily_volumes = [
-    "RRPONTSYD",  # 隔夜逆回购成交量，时间戳早1天
-    "EFFRVOL",
-    "SOFRVOL",
-    "RPONTSYD",  # 回购国债的常备回购便利成交量，时间戳早1天
-    "RPMBSD",  # 以住宅或商业抵押贷款为基础打包证券的常备回购便利成交量，时间戳早1天
-    "RPAGYD",
-]
-
-fred_weekly_volumes = [
-    "WRBWFRBL",
-]
-
 
 class FREDDataSource(DataSourceBase):
     """FRED数据源插件，支持获取FRED数据"""
@@ -177,11 +164,6 @@ class FREDDataSource(DataSourceBase):
         """
         super().__init__(config)
         self.fred_instance = None
-
-    @property
-    def name(self):
-        """返回数据源名称"""
-        return self.__class__.__name__.replace("DataSource", "")
 
     async def __aenter__(self):
         """异步上下文管理器的进入方法"""

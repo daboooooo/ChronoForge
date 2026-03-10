@@ -65,36 +65,36 @@ class ExampleStorage(StorageBase):
     def name(self):
         return "ExampleStorage"
     
-    async def save(self, id, data, sub=None, metadata=None):
-        """实现save方法"""
+    async def _save(self, id, data, metadata=None):
+        """实现_save方法"""
         return True
     
-    async def load(self, id, sub=None, metadata=None):
-        """实现load方法"""
+    async def _load(self, id, metadata=None):
+        """实现_load方法"""
         return None
     
-    async def delete(self, id, sub=None, metadata=None):
-        """实现delete方法"""
+    async def _delete(self, id, metadata=None):
+        """实现_delete方法"""
         return True
     
-    async def exists(self, id, sub=None, metadata=None):
-        """实现exists方法"""
+    async def _exists(self, id, metadata=None):
+        """实现_exists方法"""
         return False
     
-    async def lists(self, sub=None):
-        """实现lists方法"""
+    async def _lists(self):
+        """实现_lists方法"""
         return []
     
-    async def get_time_range(self, id, sub=None):
-        """实现get_time_range方法"""
+    async def _get_time_range(self, id):
+        """实现_get_time_range方法"""
         return None
     
-    async def get_metadata(self, id, sub=None):
-        """实现get_metadata方法"""
+    async def _get_metadata(self, id):
+        """实现_get_metadata方法"""
         return {}
     
-    async def update_metadata(self, id, metadata, sub=None):
-        """实现update_metadata方法"""
+    async def _update_metadata(self, id, metadata):
+        """实现_update_metadata方法"""
         return True
     
     @api_callable

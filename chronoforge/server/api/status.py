@@ -43,8 +43,8 @@ async def get_status(scheduler: Scheduler = Depends(get_scheduler)):
     """获取服务状态"""
     # 检查调度器是否在运行
     is_running = False
-    if hasattr(scheduler, '_runner_thread') and scheduler._runner_thread is not None:
-        is_running = scheduler._runner_thread.is_alive()
+    if hasattr(scheduler, '_scheduler_thread') and scheduler._scheduler_thread is not None:
+        is_running = scheduler._scheduler_thread.is_alive()
 
     # 获取任务状态列表
     task_statuses = []

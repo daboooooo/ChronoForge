@@ -26,7 +26,8 @@ def check_service_running():
     检查ChronoForge服务是否正在运行
     """
     try:
-        response = requests.get(f"{API_BASE_URL}/status", timeout=3)
+        # 尝试连接服务
+        response = requests.get(f"{API_BASE_URL}/status", timeout=5)
         if response.status_code == 200:
             console.print("[green]✅ ChronoForge服务已经在运行[/green]")
             return True
@@ -35,6 +36,10 @@ def check_service_running():
             return False
     except requests.exceptions.ConnectionError:
         console.print("[yellow]⚠️  ChronoForge服务未在运行[/yellow]")
+        console.print("[blue]💡 提示: 请先运行 'python -m chronoforge.cli serve' 启动服务[/blue]")
+        return False
+    except requests.exceptions.Timeout:
+        console.print("[yellow]⚠️  连接服务超时[/yellow]")
         return False
     except Exception as e:
         console.print(f"[red]❌ 检查服务状态时出错: {e}[/red]")

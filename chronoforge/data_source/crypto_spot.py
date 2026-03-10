@@ -10,8 +10,8 @@ import time
 import requests
 from datetime import datetime, timezone
 from .base import DataSourceBase, ParsedSymbol
-from chronoforge.utils import parse_timeframe_to_milliseconds, with_retry
-from chronoforge.decorators import create_task, api_callable
+from chronoforge.utils import parse_timeframe_to_milliseconds
+from chronoforge.decorators import api_callable, with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -96,9 +96,8 @@ class ExchangeConnectionPool:
             if current_time - connection_info['create_time'] > self.connection_validity:
                 is_expired = True
             # 使用频率标准：长期未使用（超过有效期的一半）
-            elif conn_id in self._connection_usage_counts and (
-                    current_time - connection_info['last_used_time'] >
-                    self.connection_validity / 2):
+            # 移除 conn_id in self._connection_usage_counts 检查，确保新连接也能被正确评估
+            elif current_time - connection_info['last_used_time'] > self.connection_validity / 2:
                 is_expired = True
 
             if not is_expired:
@@ -140,6 +139,8 @@ class ExchangeConnectionPool:
                 self._connection_usage_counts.get(conn_id, 0) + 1
             # 更新最后使用时间
             connection_info['last_used_time'] = current_time
+            logger.debug(f"复用连接: {self.exchange_name}, 连接ID: {conn_id}, "
+                         f"已使用次数: {self._connection_usage_counts[conn_id]}")
             return connection_info['instance']
 
         # -------------------------------
@@ -292,6 +293,9 @@ class ExchangeConnectionPool:
                 'last_used_time': time.time()
             }
             self.all_connections.append(connection_info)
+            conn_id = id(exchange_instance)
+            logger.debug(f"创建新连接: {self.exchange_name}, 连接ID: {conn_id}, "
+                         f"当前连接数: {len(self.all_connections)}/{self._max_connections}")
             return exchange_instance
         except Exception as e:
             logger.error(f"交易所连接失败: {str(e)}")
@@ -306,6 +310,8 @@ class ExchangeConnectionPool:
         """
         try:
             exchange_instance = connection_info['instance']
+            if exchange_instance is None:
+                return
 
             # 关闭连接的所有尝试都使用try-except包裹，确保即使部分关闭失败，也能继续尝试其他关闭操作
             closed = False
@@ -313,82 +319,98 @@ class ExchangeConnectionPool:
             # 1. 尝试调用ccxt的close方法（这应该是最主要的关闭方式）
             if hasattr(exchange_instance, 'close'):
                 try:
-                    await exchange_instance.close()
+                    close_result = exchange_instance.close()
+                    is_coroutine = (
+                        asyncio.iscoroutine(close_result) or
+                        inspect.iscoroutinefunction(exchange_instance.close)
+                    )
+                    if is_coroutine:
+                        await close_result
                     logger.debug(f"成功关闭交易所连接: {self.exchange_name}")
                     closed = True
                 except Exception as e:
                     logger.warning(f"调用ccxt.close关闭交易所连接 {self.exchange_name} 时出错: {str(e)}")
 
-            # 2. 尝试关闭ccxt内部的aiohttp客户端（如果存在）
-            if hasattr(exchange_instance, 'aiohttp_client') and exchange_instance.aiohttp_client:
+            # 2. 尝试关闭ccxt内部的session（如果存在）
+            # 注意：session可能包含connector，需要先关闭session
+            session = getattr(exchange_instance, 'session', None)
+            if session:
                 try:
-                    await exchange_instance.aiohttp_client.close()
-                    logger.debug(f"成功关闭交易所aiohttp客户端: {self.exchange_name}")
-                    closed = True
-                except Exception as e:
-                    logger.warning(f"关闭交易所aiohttp客户端 {self.exchange_name} 时出错: {str(e)}")
-
-            # 3. 尝试关闭ccxt内部的session（如果存在）
-            if hasattr(exchange_instance, 'session') and exchange_instance.session:
-                try:
-                    if hasattr(exchange_instance.session, 'close'):
-                        if inspect.iscoroutinefunction(exchange_instance.session.close):
-                            await exchange_instance.session.close()
-                        else:
-                            exchange_instance.session.close()
+                    if hasattr(session, 'close'):
+                        close_result = session.close()
+                        if asyncio.iscoroutine(close_result):
+                            await close_result
                     logger.debug(f"成功关闭交易所会话: {self.exchange_name}")
                     closed = True
                 except Exception as e:
                     logger.warning(f"关闭交易所会话 {self.exchange_name} 时出错: {str(e)}")
 
-            # 4. 尝试清理ccxt内部的connector（如果存在）
-            if hasattr(exchange_instance, '_connector') and exchange_instance._connector:
+            # 3. 尝试关闭ccxt内部的aiohttp客户端（如果存在）
+            aiohttp_client = getattr(exchange_instance, 'aiohttp_client', None)
+            if aiohttp_client:
                 try:
-                    if hasattr(exchange_instance._connector, 'close'):
-                        if inspect.iscoroutinefunction(exchange_instance._connector.close):
-                            await exchange_instance._connector.close()
-                        else:
-                            exchange_instance._connector.close()
-                    logger.debug(f"成功关闭交易所connector: {self.exchange_name}")
+                    if hasattr(aiohttp_client, 'close'):
+                        close_result = aiohttp_client.close()
+                        if asyncio.iscoroutine(close_result):
+                            await close_result
+                    logger.debug(f"成功关闭交易所aiohttp客户端: {self.exchange_name}")
                     closed = True
                 except Exception as e:
-                    logger.warning(f"关闭交易所connector {self.exchange_name} 时出错: {str(e)}")
+                    logger.warning(f"关闭交易所aiohttp客户端 {self.exchange_name} 时出错: {str(e)}")
 
-            if closed:
-                logger.info(f"成功关闭交易所连接资源: {self.exchange_name}")
-            else:
-                logger.warning(f"无法关闭交易所连接资源: {self.exchange_name}")
-
-            # 5. 尝试关闭ccxt内部的connector（如果存在，检查小写形式）
-            if hasattr(exchange_instance, 'connector') and exchange_instance.connector:
+            # 4. 尝试清理ccxt内部的connector（如果存在）
+            # 注意：connector可能已经通过session.close()关闭了，但需要确保
+            connector = (
+                getattr(exchange_instance, '_connector', None) or
+                getattr(exchange_instance, 'connector', None)
+            )
+            if connector:
                 try:
-                    if hasattr(exchange_instance.connector, 'close'):
-                        if inspect.iscoroutinefunction(exchange_instance.connector.close):
-                            await exchange_instance.connector.close()
-                        else:
-                            exchange_instance.connector.close()
+                    if hasattr(connector, 'close'):
+                        close_result = connector.close()
+                        if asyncio.iscoroutine(close_result):
+                            await close_result
                     logger.debug(f"成功关闭交易所connector: {self.exchange_name}")
                     closed = True
                 except Exception as e:
                     logger.warning(f"关闭交易所connector {self.exchange_name} 时出错: {str(e)}")
 
             # 5. 尝试直接访问和关闭底层连接（ccxt可能将连接存储在不同的属性中）
-            if hasattr(exchange_instance, '_http_client') and exchange_instance._http_client:
+            http_client = getattr(exchange_instance, '_http_client', None)
+            if http_client:
                 try:
-                    await exchange_instance._http_client.close()
+                    if hasattr(http_client, 'close'):
+                        close_result = http_client.close()
+                        if asyncio.iscoroutine(close_result):
+                            await close_result
                     logger.debug(f"成功关闭交易所HTTP客户端: {self.exchange_name}")
                 except Exception as e:
                     logger.warning(f"关闭交易所HTTP客户端 {self.exchange_name} 时出错: {str(e)}")
 
             # 6. 尝试关闭可能存在的连接池
-            if hasattr(exchange_instance, 'pool') and exchange_instance.pool:
+            pool = getattr(exchange_instance, 'pool', None)
+            if pool:
                 try:
-                    await exchange_instance.pool.close()
+                    if hasattr(pool, 'close'):
+                        close_result = pool.close()
+                        if asyncio.iscoroutine(close_result):
+                            await close_result
                     logger.debug(f"成功关闭交易所连接池: {self.exchange_name}")
                 except Exception as e:
                     logger.warning(f"关闭交易所连接池 {self.exchange_name} 时出错: {str(e)}")
 
-            # 7. 尝试设置连接实例为None，帮助垃圾回收
+            # 7. 尝试等待一小段时间，让底层的aiohttp连接完全关闭
+            try:
+                await asyncio.sleep(0.1)
+            except Exception:
+                pass
+
+            if closed:
+                logger.info(f"成功关闭交易所连接资源: {self.exchange_name}")
+            else:
+                logger.warning(f"无法关闭交易所连接资源: {self.exchange_name}")
+
+            # 8. 尝试设置连接实例为None，帮助垃圾回收
             connection_info['instance'] = None
 
         except RuntimeError as e:
@@ -416,9 +438,11 @@ class ExchangeConnectionPool:
         """
         关闭连接池中的所有连接
         """
-        for connection_info in list(self.all_connections):
+        # 复制列表，避免在迭代时修改
+        connections_to_close = list(self.all_connections)
+        for connection_info in connections_to_close:
             await self._close_connection(connection_info)
-            self._remove_connection(connection_info)
+            # _close_connection 的 finally 块已经调用了 _remove_connection
 
         # 清空队列
         self.available_connections.clear()
@@ -499,7 +523,7 @@ class CryptoSpotDataSource(DataSourceBase):
 
         # 连接池配置
         self.pool_config = {
-            'max_connections': 5,
+            'max_connections': 10,
             'connection_validity': 3600  # 1小时
         }
 
@@ -508,16 +532,38 @@ class CryptoSpotDataSource(DataSourceBase):
             self.pool_config.update(config['connection_pool'])
 
         # 存储交易所连接池，格式：{exchange_name: ExchangeConnectionPool}
-        self.exchange_pools: Dict[str, ExchangeConnectionPool] = {}
+        # 移除线程本地存储，使用全局连接池字典，确保所有线程共享同一个连接池
+        self._exchange_pools = {}
+
+        # 设置默认配置
+        self.default_config = {
+            'auto_create_periodic_tasks': True,  # 自动创建周期性任务
+            'periodic_task_config': {
+                'interval': 60,  # 60秒间隔
+                'symbols': ['BTC/USDT', 'ETH/USDT'],  # 默认交易对
+                'timeframe': '1h',  # 默认时间框架
+                'exchange_name': 'binance'  # 默认交易所
+            }
+        }
+
+        # 合并用户配置
+        if config:
+            self.default_config.update(config.get('default_config', {}))
+
+        # 获取交易所连接池字典
+        def get_exchange_pools():
+            return self._exchange_pools
+
+        self.get_exchange_pools = get_exchange_pools
 
         # 缓存tickers数据, 60秒缓存
         self.cache_tickers: Dict[str, tuple[dict, float]] = {}
         self.ticker_validity = 30  # 30秒缓存
 
     @property
-    def name(self):
-        """返回数据源名称"""
-        return self.__class__.__name__.replace("DataSource", "")
+    def exchange_pools(self):
+        """返回交易所连接池字典"""
+        return self.get_exchange_pools()
 
     async def __aenter__(self):
         """异步上下文管理器的进入方法"""
@@ -533,15 +579,16 @@ class CryptoSpotDataSource(DataSourceBase):
 
         此方法可以在异步代码中直接调用，确保所有的exchange连接池都被正确关闭。
         """
-        for exchange_name, pool in list(self.exchange_pools.items()):
+        for exchange_name, pool in list(self.get_exchange_pools().items()):
             try:
                 await pool.close_all_connections()
-                if exchange_name in self.exchange_pools:
-                    del self.exchange_pools[exchange_name]
+                if exchange_name in self.get_exchange_pools():
+                    del self.get_exchange_pools()[exchange_name]
             except Exception as e:
                 logger.error(f"关闭交易所连接池 {exchange_name} 时出错: {str(e)}")
                 # 无论如何都要从字典中移除，避免内存泄漏
-                del self.exchange_pools[exchange_name]
+                if exchange_name in self.get_exchange_pools():
+                    del self.get_exchange_pools()[exchange_name]
 
     async def _get_ccxt_exchange(self, exchange_name: str) -> ccxt.Exchange:
         """
@@ -557,9 +604,9 @@ class CryptoSpotDataSource(DataSourceBase):
         exchange_name = exchange_name.lower()
 
         # 检查是否已有连接池
-        if exchange_name not in self.exchange_pools:
+        if exchange_name not in self.get_exchange_pools():
             # 创建新的连接池
-            self.exchange_pools[exchange_name] = ExchangeConnectionPool(
+            self.get_exchange_pools()[exchange_name] = ExchangeConnectionPool(
                 exchange_name=exchange_name,
                 config=self.config,
                 max_connections=self.pool_config['max_connections'],
@@ -567,7 +614,7 @@ class CryptoSpotDataSource(DataSourceBase):
             )
 
         # 从连接池获取连接
-        pool = self.exchange_pools[exchange_name]
+        pool = self.get_exchange_pools()[exchange_name]
         return await pool.get_connection()
 
     def _is_in_blacklist(self, symbol: str) -> bool:
@@ -641,8 +688,8 @@ class CryptoSpotDataSource(DataSourceBase):
             self.cache_tickers[exchange_name] = (quote_tickers, time.time())
         finally:
             # 将连接归还到连接池
-            if exchange_name in self.exchange_pools:
-                await self.exchange_pools[exchange_name].return_connection(exchange_instance)
+            if exchange_name in self.get_exchange_pools():
+                await self.get_exchange_pools()[exchange_name].return_connection(exchange_instance)
 
         return quote_tickers
 
@@ -735,6 +782,7 @@ class CryptoSpotDataSource(DataSourceBase):
                         f"({datetime.fromtimestamp(until_ts_ms / 1000, tz=timezone.utc)})")
 
             # 连续下载数据，直到获取全部数据或达到目标时间范围
+            fetch_error = None
             while True:
                 try:
                     # 计算最大可获取数据量，向下取整
@@ -754,10 +802,12 @@ class CryptoSpotDataSource(DataSourceBase):
                         loop = asyncio.get_event_loop()
                         if loop.is_closed():
                             logger.error(f"事件循环已关闭，无法获取 {symbol} 数据")
-                            return None
+                            fetch_error = "Event loop closed"
+                            break
                     except RuntimeError:
                         logger.error(f"无法获取事件循环，无法获取 {symbol} 数据")
-                        return None
+                        fetch_error = "No event loop"
+                        break
 
                     # 从交易所获取数据
                     ohlcv = await exchange.fetch_ohlcv(
@@ -791,11 +841,16 @@ class CryptoSpotDataSource(DataSourceBase):
 
                 except Exception as e:
                     logger.warning(f"❌ 从 {exchange_name} 下载 {symbol} - {timeframe} 新数据时出错: {e}")
-                    return None
+                    fetch_error = str(e)
+                    break
         finally:
             # 将连接归还到连接池
-            if exchange_name in self.exchange_pools:
-                await self.exchange_pools[exchange_name].return_connection(exchange)
+            if exchange_name in self.get_exchange_pools():
+                await self.get_exchange_pools()[exchange_name].return_connection(exchange)
+
+        # 检查是否有错误
+        if fetch_error:
+            return None
 
         # 所有数据批次下载完成后，转换为DataFrame
         df = None
@@ -836,33 +891,29 @@ class CryptoSpotDataSource(DataSourceBase):
 
         return tickers.get(quote, {})
 
-    @create_task(interval=60, symbols=[], timeframe=None, timerange_str=None,
-                 params={'exchange_name': 'binance', 'quote': 'USDT'}, enable_storage=True)
-    async def tickers_binance(self, exchange_name: str, quote: Optional[str] = None) -> Any:
+    @api_callable
+    async def tickers_binance(self) -> pd.DataFrame:
         """获取Binance交易所的Spot交易对tickers
 
-        Args:
-            exchange_name (str): 交易所名称
-            quote (Optional[str], optional): 报价资产. Defaults to None.
-
         Returns:
-            dict: 键为交易所名称，值为该交易所的tickers数据
+            pd.DataFrame: 包含Binance交易所Spot交易对tickers数据的DataFrame
         """
-        return await self.tickers(exchange_name, quote)
+        tickers_dict = await self.tickers(exchange_name="binance", quote="USDT")
+        if not tickers_dict:
+            return pd.DataFrame()
+        return pd.DataFrame(tickers_dict).T
 
-    @create_task(interval=60, symbols=[], timeframe=None, timerange_str=None,
-                 params={'exchange_name': 'okx', 'quote': 'USDT'}, enable_storage=True)
-    async def tickers_okx(self, exchange_name: str, quote: Optional[str] = None) -> Any:
+    @api_callable
+    async def tickers_okx(self) -> pd.DataFrame:
         """获取OKX交易所的Spot交易对tickers
 
-        Args:
-            exchange_name (str): 交易所名称
-            quote (Optional[str], optional): 报价资产. Defaults to None.
-
         Returns:
-            dict: 键为交易所名称，值为该交易所的tickers数据
+            pd.DataFrame: 包含OKX交易所Spot交易对tickers数据的DataFrame
         """
-        return await self.tickers(exchange_name, quote)
+        tickers_dict = await self.tickers(exchange_name="okx", quote="USDT")
+        if not tickers_dict:
+            return pd.DataFrame()
+        return pd.DataFrame(tickers_dict).T
 
     @api_callable
     async def top_volume_symbols(self, exchange_name: str, quote: str,
@@ -890,6 +941,21 @@ class CryptoSpotDataSource(DataSourceBase):
         )
         if top_n:
             return sorted_symbols[:top_n]
+        # calculate total volume
+        total_volume = sum(
+            get_quote_volume(tickers[s], exchange_name, ParsedSymbol(s))
+            for s in tickers.keys()
+        )
+        # find symbols whose cumulative volume reaches top_percent of total
         if top_percent:
-            return sorted_symbols[:int(len(sorted_symbols) * top_percent / 100)]
+            result = []
+            target_volume = total_volume * top_percent / 100
+            cumulative_volume = 0
+            for symbol in sorted_symbols:
+                volume = get_quote_volume(tickers[symbol], exchange_name, ParsedSymbol(symbol))
+                cumulative_volume += volume
+                result.append(symbol)
+                if cumulative_volume >= target_volume:
+                    break
+            return result
         return sorted_symbols

@@ -1,0 +1,137 @@
+# ChronoForge 配置文件
+# 根据 TODO.md 中定义的数据更新任务配置
+
+# 存储配置
+storage:
+  type: "duckdb"
+  options:
+    db_path: "./data/chronoforge.duckdb"
+
+# 数据源配置
+data_sources:
+  binance:
+    type: "CryptoSpotDataSource"
+    enabled: true
+    options:
+      exchange: "binance"
+      # API密钥从环境变量读取: BINANCE_API_KEY, BINANCE_API_SECRET
+  
+  okx:
+    type: "CryptoSpotDataSource"
+    enabled: true
+    options:
+      exchange: "okx"
+      # API密钥从环境变量读取: OKX_API_KEY, OKX_API_SECRET
+  
+  futures:
+    type: "CryptoUMFutureDataSource"
+    enabled: true
+    options:
+      exchange: "binance"
+  
+  coingecko:
+    type: "CoinGeckoDataSource"
+    enabled: true
+    options: {}
+  
+  fred:
+    type: "FREDDataSource"
+    enabled: true
+    options:
+      # API密钥从环境变量读取: FRED_API_KEY
+  
+  global_market:
+    type: "GlobalMarketDataSource"
+    enabled: true
+    options: {}
+
+# 调度配置
+scheduler:
+  max_concurrent_tasks: 10
+  default_timeout: 300
+
+# 任务配置 - 对应 TODO.md 中的6个任务
+tasks:
+  # 任务1: 每30秒更新 Spot Tickers
+  spot_tickers:
+    enabled: true
+    description: "更新 Binance 和 OKX 的现货行情数据"
+    schedule:
+      type: "interval"
+      seconds: 30
+    priority: "HIGH"
+    config:
+      exchanges:
+        - "binance"
+        - "okx"
+  
+  # 任务2: 每小时+30秒更新 Spot OHLCV
+  spot_ohlcv:
+    enabled: true
+    description: "更新前80%交易量的现货K线数据"
+    schedule:
+      type: "hourly"
+      offset_seconds: 30
+    priority: "MEDIUM"
+    config:
+      exchanges:
+        - "binance"
+        - "okx"
+      top_percent: 80
+      timeframes:
+        - "1h"
+        - "4h"
+        - "1d"
+  
+  # 任务3: 每小时+30秒更新 Futures Metrics
+  futures_metrics:
+    enabled: true
+    description: "更新合约市场数据"
+    schedule:
+      type: "hourly"
+      offset_seconds: 30
+    priority: "MEDIUM"
+    config:
+      timeframes:
+        - "1h"
+        - "4h"
+  
+  # 任务4: 每小时+30秒更新 CoinGecko Markets
+  coin_markets:
+    enabled: true
+    description: "更新 CoinGecko 代币市场数据"
+    schedule:
+      type: "hourly"
+      offset_seconds: 30
+    priority: "LOW"
+    config: {}
+  
+  # 任务5: 每小时+30秒更新 FRED Macro Data
+  macro_data:
+    enabled: true
+    description: "更新宏观经济数据"
+    schedule:
+      type: "hourly"
+      offset_seconds: 30
+    priority: "LOW"
+    config: {}
+  
+  # 任务6: 每小时+30秒更新 Global Crypto Market
+  global_market:
+    enabled: true
+    description: "更新全球加密货币市场数据"
+    schedule:
+      type: "hourly"
+      offset_seconds: 30
+    priority: "MEDIUM"
+    config: {}
+
+# 日志配置
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# 状态报告配置
+status_report:
+  enabled: true
+  interval_seconds: 60

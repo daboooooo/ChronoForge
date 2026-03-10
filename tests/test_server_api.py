@@ -45,10 +45,13 @@ def mock_scheduler():
     scheduler_mock.add_task.return_value = None
     scheduler_mock.delete_task.return_value = None
 
+    # 模拟delegate_call为AsyncMock
+    scheduler_mock.delegate_call = AsyncMock(return_value={"result": "success"})
+
     # 模拟runner_thread，确保它不是None且is_alive()返回True
     mock_thread = MagicMock()
     mock_thread.is_alive.return_value = True
-    scheduler_mock._runner_thread = mock_thread
+    scheduler_mock._scheduler_thread = mock_thread
 
     # 模拟list_supported_plugins方法
     def mock_list_supported_plugins(plugin_type):
@@ -122,11 +125,19 @@ class TestServerAPI:
 
     def test_start_task(self, mock_scheduler):
         """测试启动任务的接口调用"""
+        # 设置任务存在
+        task_mock = MagicMock()
+        task_mock.name = "test_task"
+        mock_scheduler.tasks = {"test_task": task_mock}
+        
+        # 模拟 run_task_now 返回成功
+        async def mock_run_task_now(task_name):
+            return {"success": True, "message": "Task completed"}
+        mock_scheduler.run_task_now = mock_run_task_now
+        
         response = client.post("/api/tasks/test_task/start")
-        # 验证线程池被调用
-        assert mock_scheduler.thread_pool.submit.called
         assert response.status_code == 200
-        assert response.json()["status"] == "running"
+        assert response.json()["status"] == "completed"
 
     def test_stop_task(self, mock_scheduler):
         """测试停止任务的接口调用"""
@@ -209,7 +220,6 @@ class TestServerAPI:
         task_mock.name = "test_task"
         task_mock.symbols = ["BTC/USDT", "ETH/USDT"]
         task_mock.timeframe = "1d"
-        task_mock.sub = "test_sub"
         mock_scheduler.tasks = {"test_task": task_mock}
 
         # 模拟存储实例
@@ -250,7 +260,6 @@ class TestServerAPI:
         task_mock.name = "test_task"
         task_mock.symbols = ["BTC/USDT"]
         task_mock.timeframe = "1d"
-        task_mock.sub = "test_sub"
         mock_scheduler.tasks = {"test_task": task_mock}
 
         # 模拟存储实例
@@ -271,7 +280,6 @@ class TestServerAPI:
         task_mock.name = "test_task"
         task_mock.symbols = ["BTC/USDT", "ETH/USDT"]
         task_mock.timeframe = "1d"
-        task_mock.sub = "test_sub"
         mock_scheduler.tasks = {"test_task": task_mock}
 
         # 模拟存储实例
@@ -303,7 +311,7 @@ class TestServerAPI:
         task_mock.name = "test_task"
         task_mock.symbols = ["BTC/USDT", "ETH/USDT"]
         task_mock.timeframe = "1d"
-        task_mock.sub = "test_sub"
+        task_mock.data_source_name = "CryptoSpotDataSource"
         mock_scheduler.tasks = {"test_task": task_mock}
 
         # 模拟存储实例
@@ -322,7 +330,8 @@ class TestServerAPI:
         response = client.get("/api/tasks/test_task/data?data_name=BTC/USDT_1d")
         assert response.status_code == 200
         assert len(response.json()["data"]) == 1
-        mock_storage.load.assert_called_once_with(id="BTC/USDT_1d", sub="test_sub")
+        mock_storage.load.assert_called_once_with(
+            id="BTC/USDT_1d", metadata={'query_type': 'ohlcv'})
 
     def test_get_task_data_by_symbol(self, mock_scheduler):
         """测试通过symbol获取特定任务数据的接口调用"""
@@ -331,7 +340,7 @@ class TestServerAPI:
         task_mock.name = "test_task"
         task_mock.symbols = ["BTC/USDT", "ETH/USDT"]
         task_mock.timeframe = "1d"
-        task_mock.sub = "test_sub"
+        task_mock.data_source_name = "CryptoSpotDataSource"
         mock_scheduler.tasks = {"test_task": task_mock}
 
         # 模拟存储实例
@@ -350,7 +359,8 @@ class TestServerAPI:
         response = client.get("/api/tasks/test_task/data?symbol=BTC/USDT")
         assert response.status_code == 200
         assert len(response.json()["data"]) == 1
-        mock_storage.load.assert_called_once_with(id="BTC/USDT_1d", sub="test_sub")
+        mock_storage.load.assert_called_once_with(
+            id="BTC/USDT_1d", metadata={'query_type': 'ohlcv'})
 
     def test_get_task_data_with_time_filter(self, mock_scheduler):
         """测试带时间范围过滤的任务数据获取接口调用"""
@@ -359,7 +369,6 @@ class TestServerAPI:
         task_mock.name = "test_task"
         task_mock.symbols = ["BTC/USDT"]
         task_mock.timeframe = "1d"
-        task_mock.sub = "test_sub"
         mock_scheduler.tasks = {"test_task": task_mock}
 
         # 模拟存储实例

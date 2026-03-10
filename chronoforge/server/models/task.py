@@ -26,6 +26,7 @@ class TaskCreate(BaseModel):
     symbols: List[str] = Field(..., description="交易对列表")
     timeframe: Optional[str] = Field("1d", description="时间框架，默认1d")
     timerange_str: Optional[str] = Field("20220101-", description="时间范围字符串，默认20220101-")
+    interval_seconds: Optional[int] = Field(3600, description="执行间隔（秒），默认3600秒（1小时）")
     inplace: Optional[bool] = Field(False, description="是否覆盖已存在任务，默认False")
 
 

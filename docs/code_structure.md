@@ -8,41 +8,65 @@ ChronoForge 项目采用模块化设计，目录结构清晰合理，便于维�
 ChronoForge/
 ├── chronoforge/          # 主包目录
 │   ├── __init__.py       # 包初始化文件
-│   ├── scheduler.py      # 调度器实现
+│   ├── scheduler/        # 调度器模块
+│   │   ├── __init__.py   # 调度器包初始化
+│   │   ├── task_scheduler.py  # 任务调度器
+│   │   ├── data_update.py     # 数据更新管理器
+│   │   ├── metrics.py         # 指标收集
+│   │   └── scheduler_config.py # 调度器配置
 │   ├── cli.py            # 命令行工具
 │   ├── utils.py          # 工具函数
 │   ├── decorators.py     # 装饰器定义
 │   ├── data_source/      # 数据源插件目录
 │   │   ├── __init__.py   # 数据源包初始化
 │   │   ├── base.py       # 数据源基类
+│   │   ├── cache.py      # 数据源缓存
+│   │   ├── manager.py    # 数据源管理器
 │   │   ├── crypto_spot.py # 加密货币现货数据源
 │   │   ├── crypto_umfuture.py # 加密货币永续合约数据源
 │   │   ├── fred.py       # FRED经济数据源
 │   │   ├── global_market.py # 全球市场数据源
-│   │   └── bitcoin_fgi.py # 比特币恐惧与贪婪指数数据源
+│   │   ├── bitcoin_fgi.py # 比特币恐惧与贪婪指数数据源
+│   │   ├── coingecko.py  # CoinGecko数据源
+│   │   └── althernative.py # Alternative数据源
 │   ├── storage/          # 存储插件目录
 │   │   ├── __init__.py   # 存储包初始化
 │   │   ├── base.py       # 存储基类
-│   │   ├── localfile.py  # 本地文件存储
-│   │   ├── duckdb.py     # DuckDB存储
-│   │   └── redisdb.py    # Redis存储
-│   └── server/           # HTTP服务目录
-│       ├── __init__.py   # 服务包初始化
-│       ├── main.py       # FastAPI应用入口
-│       ├── dependencies.py # 依赖管理
-│       ├── api/          # API路由
-│       │   ├── __init__.py
-│       │   ├── tasks.py  # 任务管理API
-│       │   ├── plugins.py # 插件管理API
-│       │   └── status.py # 状态查询API
-│       └── models/       # Pydantic模型
-│           ├── __init__.py
-│           ├── task.py   # 任务相关模型
-│           └── plugin.py # 插件相关模型
+│   │   ├── manager.py    # 存储管理器
+│   │   ├── normalizer.py # 数据标准化器
+│   │   ├── duckdb_storage/ # DuckDB存储模块
+│   │   │   ├── __init__.py
+│   │   │   ├── adapter.py    # DuckDB适配器
+│   │   │   ├── incremental.py # 增量更新
+│   │   │   ├── quality.py    # 数据质量
+│   │   │   └── warehouse.py  # 数据仓库
+│   │   └── localfile_storage/ # 本地文件存储模块
+│   │       ├── __init__.py
+│   │       ├── adapter.py    # 本地文件适配器
+│   │       ├── incremental.py # 增量更新
+│   │       ├── quality.py    # 数据质量
+│   │       └── warehouse.py  # 数据仓库
+│   ├── server/           # HTTP服务目录
+│   │   ├── __init__.py   # 服务包初始化
+│   │   ├── main.py       # FastAPI应用入口
+│   │   ├── dependencies.py # 依赖管理
+│   │   ├── api/          # API路由
+│   │   │   ├── __init__.py
+│   │   │   ├── tasks.py  # 任务管理API
+│   │   │   ├── plugins.py # 插件管理API
+│   │   │   └── status.py # 状态查询API
+│   │   └── models/       # Pydantic模型
+│   │       ├── __init__.py
+│   │       ├── task.py   # 任务相关模型
+│   │       └── plugin.py # 插件相关模型
+│   └── services/         # 服务模块
+│       ├── __init__.py
+│       └── data_service.py # 数据服务
 ├── examples/             # 示例代码目录
 ├── tests/                # 测试代码目录
 ├── docs/                 # 文档目录
 ├── data/                 # 数据目录
+├── scripts/              # 脚本目录
 ├── requirements.txt      # 项目依赖
 ├── pyproject.toml        # 项目配置
 ├── setup.py              # 安装配置
@@ -62,7 +86,6 @@ ChronoForge/
 - `Scheduler` 类：管理所有插件实例、任务调度和执行
 - `Task` 类：封装任务相关信息
 - `_load_data_for_updating` 函数：加载缓存数据并计算需要更新的时间范围
-- `_update_data` 函数：下载单个交易对的单个时间周期的K线数据
 
 **主要方法**：
 - `add_task()`：添加新任务
