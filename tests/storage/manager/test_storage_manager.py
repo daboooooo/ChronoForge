@@ -54,7 +54,7 @@ class MockStorage(StorageBase):
             result.append({"id": key})
         return result
 
-    async def _get_time_range(self, id):
+    async def _get_time_range(self, id, data_type=None):
         if id in self.saved_data:
             return {
                 "start_time": "2023-01-01T00:00:00",

@@ -971,10 +971,10 @@ def main():
 
         # 无论服务是否是本次启动，都继续执行后续操作
         # 添加任务并获取创建的任务列表
-        add_crypto_tasks()
-        add_global_market_task()
+        # add_crypto_tasks()
+        # add_global_market_task()
         add_um_future_task()
-        add_fred_task()
+        # add_fred_task()
 
         # # 定时执行任务（每1小时执行一次，总共运行5分钟示例）
         # # 实际使用时可以调整 duration_seconds 为更长的时间，如 86400（24小时）

@@ -70,11 +70,10 @@ class CryptoUMFutureDataSource(DataSourceBase):
         # 强制限制 start_ts_ms 在最近30天内
         original_start_ts_ms = start_ts_ms
         if start_ts_ms < min_allowed_ts:
-            logger.warning(
+            raise ValueError(
                 f"start_ts_ms {start_ts_ms} 超出 UMFutures API 允许范围，"
-                f"自动调整为近30天内: {min_allowed_ts}"
+                f"仅支持近30天内的数据"
             )
-            start_ts_ms = min_allowed_ts
         # 如果 start_ts_ms 是未来时间，也调整为当前时间
         if start_ts_ms > now_ts_ms:
             logger.warning(
@@ -93,11 +92,9 @@ class CryptoUMFutureDataSource(DataSourceBase):
             end_ts_ms = now_ts_ms - 1000
         # 确保 end_ts_ms 不早于 start_ts_ms
         if end_ts_ms <= start_ts_ms:
-            logger.warning(
-                f"end_ts_ms {end_ts_ms} 早于或等于 start_ts_ms {start_ts_ms}，"
-                f"跳过获取"
+            raise ValueError(
+                f"end_ts_ms {end_ts_ms} 早于或等于 start_ts_ms {start_ts_ms}"
             )
-            return pd.DataFrame()
 
         # 强制确保 start_ts_ms 和 end_ts_ms 在有效范围内
         start_ts_ms = max(min_allowed_ts, min(start_ts_ms, now_ts_ms - 60000))
@@ -143,36 +140,37 @@ class CryptoUMFutureDataSource(DataSourceBase):
         max_iterations = 10  # 防止无限循环的保护机制
         iteration_count = 0
 
-        while True:
-            iteration_count += 1
-            if iteration_count > max_iterations:
-                logger.warning(
-                    f"Reached maximum iterations ({max_iterations}) "
-                    f"in fetch method, breaking loop"
-                )
-                break
+        try:
+            while True:
+                iteration_count += 1
+                if iteration_count > max_iterations:
+                    logger.warning(
+                        f"Reached maximum iterations ({max_iterations}) "
+                        f"in fetch method, breaking loop"
+                    )
+                    break
 
-            # Binance API 限制：最多查询 30 天的数据，limit 最大 500
-            # 计算 30 天内的最大结束时间
-            _30_days_ms = 30 * 24 * 60 * 60 * 1000
-            _max_end_ts_ms = min(_run_start_ts_ms + _30_days_ms, now_ts_ms)
-            
-            if end_ts_ms <= _max_end_ts_ms:
-                _run_end_ts_ms = end_ts_ms
-            else:
-                _run_end_ts_ms = _max_end_ts_ms
-            
-            # 计算 limit，确保不超过 500
-            limit = min(500, (_run_end_ts_ms - _run_start_ts_ms) // timeframe_ms)
-            
-            if limit <= 0:
-                break
-            if _run_start_ts_ms < min_allowed_ts:
-                logger.warning(
-                    f"_run_start_ts_ms {_run_start_ts_ms} 超出允许范围，跳过"
-                )
-                break
-            try:
+                # Binance API 限制：最多查询 30 天的数据，limit 最大 500
+                # 计算 30 天内的最大结束时间
+                _30_days_ms = 30 * 24 * 60 * 60 * 1000
+                _max_end_ts_ms = min(_run_start_ts_ms + _30_days_ms, now_ts_ms)
+                
+                if end_ts_ms <= _max_end_ts_ms:
+                    _run_end_ts_ms = end_ts_ms
+                else:
+                    _run_end_ts_ms = _max_end_ts_ms
+                
+                # 计算 limit，确保不超过 500
+                limit = min(500, (_run_end_ts_ms - _run_start_ts_ms) // timeframe_ms)
+                
+                if limit <= 0:
+                    break
+                if _run_start_ts_ms < min_allowed_ts:
+                    logger.warning(
+                        f"_run_start_ts_ms {_run_start_ts_ms} 超出允许范围，跳过"
+                    )
+                    break
+
                 # open interest history
                 # 确保时间戳与 period 对齐
                 # 向更大的值对齐（向上取整到下一个周期的开始）
@@ -378,10 +376,10 @@ class CryptoUMFutureDataSource(DataSourceBase):
                 if _run_start_ts_ms >= end_ts_ms:
                     break
 
-            except Exception as e:
-                logger.error(f"❌下载 UMFuture {symbol} - {timeframe} "
-                             f"数据时出错: {str(e)}", exc_info=True)
-                return None
+        except Exception as e:
+            logger.error(f"❌下载 UMFuture {symbol} - {timeframe} "
+                         f"数据时出错: {str(e)}", exc_info=True)
+            return None
 
         logger.info(f"Fetched {len(all_df)} bars for symbol: {symbol}")
 
@@ -390,6 +388,10 @@ class CryptoUMFutureDataSource(DataSourceBase):
                 all_df['time'] = pd.to_datetime(all_df['time'], utc=True)
                 if not pd.api.types.is_datetime64_any_dtype(all_df['time']):
                     all_df['time'] = all_df['time'].astype('datetime64[ns, UTC]')
+
+        # 如果没有获取到数据，返回None
+        if all_df is None or all_df.empty:
+            return None
 
         return all_df
 
