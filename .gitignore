@@ -33,6 +33,7 @@ tmp/
 .coverage
 coverage.xml
 htmlcov/
+.hypothesis/
 
 # OS
 .DS_Store

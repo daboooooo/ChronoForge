@@ -1,0 +1,76 @@
+# ChronoForge CI（INFRA-001）
+# 步骤顺序依据 docs/design/09-testing-plan.md §6：
+#   ① ruff check + ruff format --check
+#   ② mypy src/chronoforge
+#   ③ pytest -m "not smoke"（临时数据目录）
+#   ④ lint-imports
+#   ⑤ pip-audit（每周调度，独立 job）
+# 说明：D09 §6 末行的覆盖率门槛（models/quality 100%、整体 ≥85%、--cov-fail-under）
+# 待 src 业务代码落地后随对应任务启用——当前 src 仅为空包骨架，门槛会恒失败。
+name: CI
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # 每周一 03:00 UTC：触发含 pip-audit 的周期审计（D09 §6 步骤 5）
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+jobs:
+  lint-type-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # ① 静态检查 + 格式校验（D09 §6 步骤 1）
+      - name: Ruff lint and format check
+        run: |
+          ruff check src tests
+          ruff format --check src tests
+
+      # ② 类型检查（D09 §6 步骤 2：models/storage/pipeline strict，见 pyproject）
+      - name: Mypy
+        run: mypy src/chronoforge
+
+      # ③ 测试（D09 §6 步骤 3：unit+integration+architecture，跳过真实源 smoke）。
+      #    临时数据目录 env 为进程级兜底；tests/conftest.py 的 autouse fixture
+      #    会逐测试将 CHRONOFORGE_DATA_DIR/META_DIR 重定向到 pytest tmp_path。
+      - name: Pytest
+        env:
+          CHRONOFORGE_ENV: test
+          CHRONOFORGE_DATA_DIR: ${{ runner.temp }}/chronoforge-data
+          CHRONOFORGE_META_DIR: ${{ runner.temp }}/chronoforge-meta
+        run: python -m pytest -m "not smoke"
+
+      # ④ 架构依赖检查（D09 §6 步骤 4，契约见 .importlinter）
+      - name: Import-linter
+        run: lint-imports
+
+  # ⑤ pip-audit（D09 §6 步骤 5：每周调度 + 手动触发，与 push/PR 主流程分离）
+  pip-audit:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Pip-audit
+        run: pip-audit --skip-editable
