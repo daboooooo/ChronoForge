@@ -21,7 +21,7 @@ dependencies = [
     "structlog>=24.1",            # 结构化日志（实施基线）
 ]
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = [
     "pytest>=8",
     "pytest-cov>=5",
