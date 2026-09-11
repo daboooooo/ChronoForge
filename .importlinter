@@ -1,0 +1,23 @@
+# 依据 docs/design/09-testing-plan.md §2（冻结：D10 §0.2 不可决定项）
+[importlinter]
+root_package = chronoforge
+
+[importlinter:contract:layers]
+name = Layered dependency
+type = layers
+layers =
+    chronoforge.cli
+    chronoforge.pipeline
+    chronoforge.features | chronoforge.research
+    chronoforge.quality | chronoforge.registry | chronoforge.connectors | chronoforge.storage
+    chronoforge.config
+    chronoforge.models
+
+[importlinter:contract:forbidden_research_connectors]
+name = research must not import connectors
+type = forbidden
+source_modules =
+    chronoforge.research
+    chronoforge.features
+forbidden_modules =
+    chronoforge.connectors

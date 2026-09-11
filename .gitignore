@@ -1,76 +1,48 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
 *.so
-.Python
-*.pyc
+*.egg-info/
+.eggs/
+build/
+dist/
 
-# Virtual environments
+# 虚拟环境
 .venv/
 venv/
-.env/
-env/
-ENV/
 
-# Local data directories
-tmp/
+# 工具缓存
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.cache/
+
+# 运行时状态（D08 §1 四分类之 State，禁入 git）
 data/
+meta/
+tmp/
 *.duckdb
 *.db
+
+# 秘密（Secret 分类，仅 env）
+.env
+.env.local
+.env.*.local
+
+# 测试与覆盖率
+.coverage
+coverage.xml
+htmlcov/
+
+# OS
+.DS_Store
+._*
+Thumbs.db
 
 # IDE
 .idea/
 .vscode/
 *.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-*.rdb
-
-# Testing
-pytest_cache/
-*.pytest_cache/
-.coverage
-htmlcov/
-
-# Logs
-*.log
-logs/
-
-# Build and distribution
-build/
-dist/
-*.egg-info/
-*.eggs/
-
-# Misc
-.cache/
-*.bak
-*.tmp
-*.temp
-
-# Local configuration files
-.env
-.env.local
-.env.*.local
-
-# Coverage reports
-coverage.xml
-.coverage
-
-# Documentation
-*.rst
-*.md~
-TODO.md
 
 # trae
 .trae/

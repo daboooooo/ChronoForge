@@ -1,21 +1,60 @@
 [build-system]
-requires = ["setuptools>=42", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.black]
-line-length = 100
-target-version = ["py38"]
+[project]
+name = "chronoforge"
+version = "0.1.0"
+description = "ChronoForge — 金融多源数据系统（Canonical 数据平台）"
+requires-python = ">=3.12"
+dependencies = [
+    # 依据 docs/design/01-project-structure.md §2（架构 06 决策表）
+    "pydantic>=2.7,<3",           # D4 Canonical Schema
+    "pydantic-settings>=2.3,<3",  # D4/D8 配置
+    "duckdb>=1.0,<2",             # D2 OLAP 查询
+    "pyarrow>=17",                # Parquet 读写
+    "httpx>=0.27,<1",             # D5 HTTP client
+    "ccxt>=4,<5",                 # D6 交易所抽象层
+    "typer>=0.12,<1",             # D7 CLI
+    "pandas>=2.2",                # 研究（约束 §35，锁版本于 lock file）
+    "polars>=1.0",                # 批量
+    "structlog>=24.1",            # 结构化日志（实施基线）
+]
 
-[tool.isort]
-profile = "black"
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "hypothesis>=6.100",          # D09 TC-PROP 性质测试
+    "import-linter>=2.0",         # D09 §2 架构测试
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "pip-audit>=2.7",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/chronoforge"]
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "-m 'not smoke'"       # CI 默认跳过真实源冒烟（D09 §6）
+markers = [
+    "quality: 入库数据质量检查（D09 §1）",
+    "smoke: 真实外部源冒烟测试（CI 跳过）",
+]
 
-[tool.coverage.run]
-source = ["chronoforge"]
+[tool.mypy]
+python_version = "3.12"
+warn_unused_ignores = true
 
-[tool.coverage.report]
-show_missing = true
-fail_under = 80
+# D09 §6：models/storage/pipeline strict；其余 default
+[[tool.mypy.overrides]]
+module = ["chronoforge.models.*", "chronoforge.storage.*", "chronoforge.pipeline.*"]
+strict = true
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
