@@ -34,6 +34,8 @@ tmp/
 coverage.xml
 htmlcov/
 .hypothesis/
+default.profraw
+*.profraw
 
 # OS
 .DS_Store
