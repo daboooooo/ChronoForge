@@ -1,12 +1,18 @@
-"""SQLite 迁移注册中心（D03 §1）。
+"""迁移 0001 — 初始 DDL（D03 §1）。
 
-所有迁移在此集中注册，MetaStore 按顺序执行未应用的迁移。
+按 D03 §1 DDL 逐表创建 6 张表，支持幂等执行（IF NOT EXISTS）。
 """
 
 from __future__ import annotations
 
-# 0001_init migration SQL
-MIGRATION_0001_SQL = """
+MIGRATION_VERSION = "0001"
+MIGRATION_DESCRIPTION = (
+    "Initial DDL: source_registry, dataset_registry, checkpoints, "
+    "run_log, quality_flags, schema_versions"
+)
+
+SQL = """
+-- 1. source_registry
 CREATE TABLE IF NOT EXISTS source_registry(
   source_id TEXT PRIMARY KEY,
   display_name TEXT NOT NULL,
@@ -18,6 +24,7 @@ CREATE TABLE IF NOT EXISTS source_registry(
   enabled INT NOT NULL DEFAULT 1
 );
 
+-- 2. dataset_registry
 CREATE TABLE IF NOT EXISTS dataset_registry(
   dataset_id TEXT PRIMARY KEY,
   source_id TEXT NOT NULL REFERENCES source_registry(source_id),
@@ -35,6 +42,7 @@ CREATE TABLE IF NOT EXISTS dataset_registry(
   created_at TEXT NOT NULL
 );
 
+-- 3. checkpoints
 CREATE TABLE IF NOT EXISTS checkpoints(
   source_id TEXT NOT NULL,
   dataset_id TEXT NOT NULL,
@@ -43,6 +51,7 @@ CREATE TABLE IF NOT EXISTS checkpoints(
   PRIMARY KEY(source_id, dataset_id)
 );
 
+-- 4. run_log
 CREATE TABLE IF NOT EXISTS run_log(
   run_id TEXT PRIMARY KEY,
   source_id TEXT NOT NULL,
@@ -64,6 +73,7 @@ CREATE TABLE IF NOT EXISTS run_log(
 );
 CREATE INDEX IF NOT EXISTS idx_run_log_ds_time ON run_log(dataset_id, started_at DESC);
 
+-- 5. quality_flags
 CREATE TABLE IF NOT EXISTS quality_flags(
   record_key TEXT NOT NULL,
   dataset_id TEXT NOT NULL,
@@ -77,35 +87,10 @@ CREATE TABLE IF NOT EXISTS quality_flags(
   PRIMARY KEY(record_key, rule_id, run_id)
 );
 
+-- 6. schema_versions
 CREATE TABLE IF NOT EXISTS schema_versions(
   version TEXT PRIMARY KEY,
   applied_at TEXT NOT NULL,
   description TEXT NOT NULL
 );
 """
-
-# 0002 migration SQL — 审计 H-6：quality_flags 增加处理状态，
-# 支持 resolved 机制（derive_dataset_status 只统计未处理 ERROR flags）
-MIGRATION_0002_SQL = """
-ALTER TABLE quality_flags ADD COLUMN resolved INT NOT NULL DEFAULT 0;
-ALTER TABLE quality_flags ADD COLUMN resolved_at TEXT;
-CREATE INDEX IF NOT EXISTS idx_quality_flags_ds_unresolved
-  ON quality_flags(dataset_id, severity, resolved);
-"""
-
-# Migration registry — new migrations add entries here
-_all_migrations: list[dict[str, str]] = [
-    {
-        "version": "0001",
-        "sql": MIGRATION_0001_SQL,
-        "description": (
-            "Initial DDL: source_registry, dataset_registry, checkpoints, "
-            "run_log, quality_flags, schema_versions"
-        ),
-    },
-    {
-        "version": "0002",
-        "sql": MIGRATION_0002_SQL,
-        "description": "Add resolved/resolved_at to quality_flags (audit H-6)",
-    },
-]
