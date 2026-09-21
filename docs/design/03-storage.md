@@ -121,7 +121,43 @@ class RawStore(Protocol):
 ```
 
 - `natural_key_cols` 由 `models` 按类型提供（`natural_key(CanonicalType) -> tuple[str,...]`，实现 D02 各"身份键"）
-- **revision 类**（NUMBER/POSITION）：natural key 含 `revision_time`，天然多版本追加，不走去重路径的"keep last"合并冲突（同一 (nk, revision_time) 重复才合并）
+- **revision 类**（NUMBER/FLOW/POSITION/POSITION_AGGREGATE）：natural key 含 `revision_time`，天然多版本追加，不走去重路径的"keep last"合并冲突（同一 (nk, revision_time) 重复才合并）
+
+**身份键逐类型对照表（冻结附件，审计 C-1 / §8）**：
+
+`storage/base.py::_NATURAL_KEY_MAP` 为唯一实现，下表为其冻结镜像；与模型层 `natural_key()` 的一致性由架构测试 `tests/architecture/test_nk_mapping_consistency.py` 守卫。基准：D02 §2 显式声明身份的类型（OHLCV/LIQUIDATION_EVENT/NUMBER/FLOW）以声明为准，其余以模型层 `natural_key()` 实现为冻结基准。**任何变更必须走冻结契约变更流程（A-2），禁止在实现层单方面偏离。**
+
+| CanonicalType | natural key 列 |
+| --- | --- |
+| OHLCV | market_id, event_time, interval |
+| TRADE | market_id, trade_id |
+| TICKER | market_id, event_time |
+| FUNDING | market_id, event_time |
+| OPEN_INTEREST | market_id, event_time |
+| ORDERBOOK | market_id, event_time, transaction_time |
+| OPTION | instrument_id, event_time |
+| IMPLIED_VOLATILITY | instrument_id, event_time |
+| GREEKS | instrument_id, event_time |
+| LIQUIDATION_EVENT | market_id, order_id |
+| LIQUIDATION_AGGREGATE | market_id, event_time, interval |
+| NUMBER † | source_id, observation_time, revision_time |
+| FLOW † | source_id, observation_time, revision_time |
+| MACRO_EVENT | event_ref, scheduled_time |
+| FUNDAMENTAL | entity_id, concept, observation_time |
+| FILING | cik, accession_number |
+| DOCUMENT | url, publication_time |
+| POSITION † | contract, report_date, participant_type, revision_time |
+| POSITION_AGGREGATE † | contract, report_date, participant_type, revision_time |
+| PREDICTION_MARKET | source_id, event_id |
+| PREDICTION_PRICE | market_id, outcome_id, event_time |
+| TEXT_MESSAGE | source_id, event_time, author |
+| TEXT_EVENT | event_time, gkg_themes |
+| ENTITY | entity_id |
+| INSTRUMENT | instrument_id |
+| DERIVED | name, computed_at |
+| FEATURE | name, computed_at |
+
+† revision 类：natural key 含 `revision_time`。
 
 **DerivedStore**：同布局 `data/derived/{name}/...`，接口 `write(rebuild=True)` 整体替换；`features/` 由 FeatureEngine 使用。
 
