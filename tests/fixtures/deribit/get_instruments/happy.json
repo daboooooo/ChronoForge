@@ -1,0 +1,40 @@
+{
+  "result": [
+    {
+      "base_currency": "BTC",
+      "cash_currency": "BTC",
+      "currency": "BTC",
+      "expiration_timestamp": 1799798400000,
+      "instrument_name": "BTC-26DEC26-100000-C",
+      "kind": "option",
+      "listing_timestamp": 1609459200000,
+      "settlement_currency": "BTC",
+      "strike": 100000,
+      "tick_supports_autoprice": true
+    },
+    {
+      "base_currency": "BTC",
+      "cash_currency": "BTC",
+      "currency": "BTC",
+      "expiration_timestamp": 1799798400000,
+      "instrument_name": "BTC-26DEC26-100000-P",
+      "kind": "option",
+      "listing_timestamp": 1609459200000,
+      "settlement_currency": "BTC",
+      "strike": 100000,
+      "tick_supports_autoprice": true
+    },
+    {
+      "base_currency": "BTC",
+      "cash_currency": "BTC",
+      "currency": "BTC",
+      "expiration_timestamp": null,
+      "instrument_name": "BTC-PERP",
+      "kind": "future",
+      "listing_timestamp": 1609459200000,
+      "settlement_currency": "BTC",
+      "strike": 0,
+      "tick_supports_autoprice": false
+    }
+  ]
+}

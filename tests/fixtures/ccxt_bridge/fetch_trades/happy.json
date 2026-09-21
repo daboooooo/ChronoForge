@@ -1,0 +1,20 @@
+[
+  {
+    "id": "trade_001",
+    "timestamp": 1672444800000,
+    "datetime": "2023-01-01T00:00:00.000Z",
+    "symbol": "BTCUSDT",
+    "price": 16580.50,
+    "amount": 0.5,
+    "side": "buy"
+  },
+  {
+    "id": "trade_002",
+    "timestamp": 1672444860000,
+    "datetime": "2023-01-01T00:01:00.000Z",
+    "symbol": "BTCUSDT",
+    "price": 16575.00,
+    "amount": 0.25,
+    "side": "sell"
+  }
+]

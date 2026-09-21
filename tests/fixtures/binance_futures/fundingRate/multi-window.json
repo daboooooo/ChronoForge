@@ -1,0 +1,26 @@
+[
+  {
+    "symbol": "BTCUSDT",
+    "fundingRate": "0.00001000",
+    "markPrice": "16500.00",
+    "indexPrice": "16500.00",
+    "fundingTime": 1672444800000,
+    "nextFundingTime": 1672473600000
+  },
+  {
+    "symbol": "BTCUSDT",
+    "fundingRate": "0.00000500",
+    "markPrice": "16510.00",
+    "indexPrice": "16510.00",
+    "fundingTime": 1672473600000,
+    "nextFundingTime": 1672502400000
+  },
+  {
+    "symbol": "BTCUSDT",
+    "fundingRate": "-0.00001000",
+    "markPrice": "16490.00",
+    "indexPrice": "16490.00",
+    "fundingTime": 1672502400000,
+    "nextFundingTime": 1672531200000
+  }
+]

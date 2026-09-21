@@ -1,0 +1,66 @@
+{
+  "chart": {
+    "result": [
+      {
+        "meta": {
+          "symbol": "AAPL",
+          "currency": "USD",
+          "regularMarketPrice": 185.0,
+          "gmtOffset": 0,
+          "exchangeName": "NMS",
+          "instrumentType": "EQUITY"
+        },
+        "timestamp": [
+          1672531200,
+          1672617600,
+          1672704000,
+          1672790400
+        ],
+        "quote": {
+          "open": [
+            130.15,
+            130.73,
+            129.93,
+            126.36
+          ],
+          "high": [
+            130.9,
+            131.45,
+            130.4,
+            127.77
+          ],
+          "low": [
+            129.89,
+            129.50,
+            125.50,
+            124.50
+          ],
+          "close": [
+            130.73,
+            129.93,
+            126.04,
+            125.07
+          ],
+          "volume": [
+            89113600,
+            77663800,
+            84501900,
+            89113600
+          ]
+        },
+        "events": {
+          "splits": {
+            "1661299200": {
+              "date": 1661299200,
+              "numerator": 3,
+              "denominator": 1,
+              "splitRatio": "3:1"
+            }
+          },
+          "dividends": {}
+        }
+      }
+    ],
+    "error": null
+  }
+}

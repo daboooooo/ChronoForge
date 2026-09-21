@@ -1,0 +1,10 @@
+{
+  "series_id": "CPIAUCSL",
+  "units": "LIN1",
+  "seasonal_adjustment": "SA",
+  "observations": [
+    {"date": "2022-01-01", "value": "184.2", "realtime_start": "2022-06-10"},
+    {"date": "2022-02-01", "value": "186.8", "realtime_start": "2022-07-12"},
+    {"date": "2022-03-01", "value": "190.3", "realtime_start": "2022-08-11"}
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "series_id": "GDP",
+  "units": "LIN1",
+  "seasonal_adjustment": "SA",
+  "observations": [
+    {"date": "2023-01-01", "value": ".", "realtime_start": "2023-02-03"},
+    {"date": "2023-02-01", "value": "21.5", "realtime_start": "2023-03-10"},
+    {"date": "2023-03-01", "value": ".", "realtime_start": ""},
+    {"date": "2023-04-01", "value": "22.1", "realtime_start": "2023-05-15"}
+  ]
+}

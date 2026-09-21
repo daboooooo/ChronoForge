@@ -1,0 +1,43 @@
+{
+  "kind": "option",
+  "BTC": [
+    {
+      "ask_price": 1500.5,
+      "bid_price": 1499.0,
+      "mark_price": 1499.75,
+      "instrument_name": "BTC-26SEP26-100000-C",
+      "iv": 0.65,
+      "last_update_time": 1672444800000,
+      "mark_iv": 0.66,
+      "low": 1400.0,
+      "high": 1600.0,
+      "change": 2.5,
+      "volume": 50.0,
+      "total_volume": 500.0,
+      "open_interest": 200.0,
+      "settlement_fee": 0.001,
+      "settlement_price": 99500.0,
+      "creation_timestamp": 1672358400000,
+      "block_trade_id": null
+    },
+    {
+      "ask_price": 800.0,
+      "bid_price": 798.5,
+      "mark_price": 799.25,
+      "instrument_name": "BTC-26SEP26-90000-P",
+      "iv": 0.72,
+      "last_update_time": 1672444800000,
+      "mark_iv": 0.73,
+      "low": 750.0,
+      "high": 850.0,
+      "change": -1.2,
+      "volume": 30.0,
+      "total_volume": 300.0,
+      "open_interest": 150.0,
+      "settlement_fee": 0.001,
+      "settlement_price": 89500.0,
+      "creation_timestamp": 1672358400000,
+      "block_trade_id": null
+    }
+  ]
+}

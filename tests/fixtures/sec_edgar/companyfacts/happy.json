@@ -1,0 +1,58 @@
+{
+  "cik": "0000325023",
+  "entityName": "Apple Inc.",
+  "facts": {
+    "Assets": {
+      "units": [
+        {
+          "value": 352755000000,
+          "u": "USD",
+          "i": "2024",
+          "f": "9",
+          "frame": "CY2024",
+          "taxonomy": {"entry": {"url": "https://fasb.org/us-gaap/2024-01-31#Assets"}}
+        },
+        {
+          "value": 335034000000,
+          "u": "USD",
+          "i": "2023",
+          "f": "9",
+          "frame": "CY2023",
+          "taxonomy": {"entry": {"url": "https://fasb.org/us-gaap/2023-01-31#Assets"}}
+        }
+      ]
+    },
+    "Revenues": {
+      "units": [
+        {
+          "value": 383285000000,
+          "u": "USD",
+          "i": "2024",
+          "f": "9",
+          "frame": "CY2024",
+          "taxonomy": {"entry": {"url": "https://fasb.org/us-gaap/2024-01-31#Revenues"}}
+        },
+        {
+          "value": 394328000000,
+          "u": "USD",
+          "i": "2023",
+          "f": "9",
+          "frame": "CY2023",
+          "taxonomy": {"entry": {"url": "https://fasb.org/us-gaap/2023-01-31#Revenues"}}
+        }
+      ]
+    },
+    "NetIncomeLoss": {
+      "units": [
+        {
+          "value": 93736000000,
+          "u": "USD",
+          "i": "2024",
+          "f": "9",
+          "frame": "CY2024",
+          "taxonomy": {"entry": {"url": "https://fasb.org/us-gaap/2024-01-31#NetIncomeLoss"}}
+        }
+      ]
+    }
+  }
+}

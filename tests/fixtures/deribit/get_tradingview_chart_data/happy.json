@@ -1,0 +1,26 @@
+{
+  "candles": [
+    {
+      "timestamp": 1672444800000,
+      "open": 16500.0,
+      "close": 16550.0,
+      "high": 16600.0,
+      "low": 16450.0,
+      "volume": 100.5,
+      "iv": 0.65,
+      "mark_iv": 0.66
+    },
+    {
+      "timestamp": 1672448400000,
+      "open": 16550.0,
+      "close": 16600.0,
+      "high": 16650.0,
+      "low": 16500.0,
+      "volume": 120.3,
+      "iv": 0.64,
+      "mark_iv": 0.65
+    }
+  ],
+  "instrument_name": "BTC-26SEP26-100000-C",
+  "resolution": "60"
+}

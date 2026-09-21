@@ -1,0 +1,9 @@
+[
+  {
+    "symbol": "BTCUSDT",
+    "fundingRate": "0.00001000",
+    "fundingTime": 1672444800000,
+    "markPrice": "16550.50000000",
+    "nextFundingTime": 1672473600000
+  }
+]
