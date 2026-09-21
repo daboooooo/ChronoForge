@@ -24,7 +24,8 @@ from chronoforge.connectors.base import (
     HealthStatus,
     RawBatch,
 )
-from chronoforge.connectors.ccxt_bridge import CcxtBridgeConnector
+from chronoforge.connectors.ccxt_bridge import CcxtBridgeConnector, _map_ccxt_error
+from chronoforge.exceptions import ProviderError, RateLimitError, TransportError
 from chronoforge.models.enums import CanonicalType, QualityStatus
 from chronoforge.models.market import OHLCV, TRADE
 
@@ -733,3 +734,32 @@ class TestMissingSymbol:
             list(conn.fetch(req))
         assert "unknown" in str(exc_info.value).lower()
         conn.close()
+
+
+# ── ccxt 异常映射（审计 SR-12）────────────────────────────────────────
+
+
+class TestCcxtErrorMapping:
+    """_map_ccxt_error 三分支（架构 08 §1 错误分类）。
+
+    ccxt ≥4 层级：RateLimitExceeded ⊂ NetworkError；
+    ExchangeError 与 NetworkError 同级 → 判定顺序 RateLimit → Network → else。
+    """
+
+    def test_rate_limit_error(self) -> None:
+        """ccxt.RateLimitExceeded → RateLimitError（可重试 + 退避）。"""
+        mapped = _map_ccxt_error("fetchOHLCV", ccxt.RateLimitExceeded("slow down"))
+        assert isinstance(mapped, RateLimitError)
+        assert "fetchOHLCV" in str(mapped)
+
+    def test_network_error_maps_to_transport(self) -> None:
+        """非限流 NetworkError（RequestTimeout）→ TransportError（可重试）。"""
+        mapped = _map_ccxt_error("fetchTrades", ccxt.RequestTimeout("timed out"))
+        assert isinstance(mapped, TransportError)
+        assert not isinstance(mapped, RateLimitError)
+
+    def test_exchange_error_maps_to_provider(self) -> None:
+        """ccxt.ExchangeError（BadSymbol）→ ProviderError（不重试）。"""
+        mapped = _map_ccxt_error("fetchTicker", ccxt.BadSymbol("no such symbol"))
+        assert isinstance(mapped, ProviderError)
+        assert not isinstance(mapped, TransportError)

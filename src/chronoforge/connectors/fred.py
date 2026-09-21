@@ -41,7 +41,7 @@ from chronoforge.connectors.ratelimit import RateLimiter
 from chronoforge.models.base import BaseRecord
 from chronoforge.models.enums import CanonicalType, QualityStatus
 from chronoforge.models.macro import NUMBER
-from chronoforge.quality.report import QualityFinding, QualityReport
+from chronoforge.models.quality import QualityFinding, QualityReport
 from chronoforge.security import SecretStr
 
 # FRED 官方限流：120 req/min

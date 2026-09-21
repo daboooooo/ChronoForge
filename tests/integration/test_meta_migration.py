@@ -165,8 +165,10 @@ class TestDDLIntegrity:
             cursor = conn.execute("PRAGMA table_info(checkpoints)")
             columns = {row[1]: row[2] for row in cursor.fetchall()}
 
+            # 迁移 0004（审计 SR-03）追加熔断持久化列
             assert set(columns.keys()) == {
                 "source_id", "dataset_id", "last_cursor", "last_success_time",
+                "consecutive_failed", "circuit_open", "circuit_opened_at",
             }
 
     def test_run_log_columns(self, tmp_stores) -> None:

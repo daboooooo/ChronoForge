@@ -22,7 +22,6 @@ import structlog
 
 from chronoforge.config.settings import Settings
 from chronoforge.connectors.base import DataConnector, RawBatch
-from chronoforge.pipeline.state import RunStatus
 from chronoforge.pipeline.runner import (
     CanonicalStage,
     NormalizeStage,
@@ -35,6 +34,7 @@ from chronoforge.pipeline.runner import (
     compose_run_row,
     finish_failed_run,
 )
+from chronoforge.pipeline.state import RunStatus
 from chronoforge.storage.base import CanonicalStore
 from chronoforge.storage.meta import MetaStore, RunRow
 from chronoforge.storage.raw import RawStore
@@ -86,6 +86,8 @@ def replay(
     source_id = connector.source_id
     # DEVIATION-1：run_id 由 try_lock_dataset 生成（无 "R" 前缀），复用其锁
     lock = meta.try_lock_dataset(dataset_id, source_id=source_id)
+    # SR-07：PENDING → RUNNING（与 PipelineRunner.run 同一状态机路径）
+    meta.mark_run_running(lock.run_id)
 
     ctx = RunContext(
         run_id=lock.run_id,

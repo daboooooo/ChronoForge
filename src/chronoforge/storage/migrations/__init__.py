@@ -109,6 +109,17 @@ CREATE TABLE IF NOT EXISTS research_snapshot(
 );
 """
 
+# 0004 migration SQL — 审计 SR-03：熔断状态持久化（D05 §3）。
+# 此前熔断计数为 runner 实例内存态，CLI 每 dataset 新建 runner → 计数跨
+# job 归零，同 dataset 连续 3 次 FAILED 的熔断契约在真实运行中永不触发。
+# checkpoints 增加旁路字段：consecutive_failed（连续 FAILED 计数）、
+# circuit_open（熔断打开标志）、circuit_opened_at（打开时刻）。
+MIGRATION_0004_SQL = """
+ALTER TABLE checkpoints ADD COLUMN consecutive_failed INT NOT NULL DEFAULT 0;
+ALTER TABLE checkpoints ADD COLUMN circuit_open INT NOT NULL DEFAULT 0;
+ALTER TABLE checkpoints ADD COLUMN circuit_opened_at TEXT;
+"""
+
 # Migration registry — new migrations add entries here
 _all_migrations: list[dict[str, str]] = [
     {
@@ -128,5 +139,10 @@ _all_migrations: list[dict[str, str]] = [
         "version": "0003",
         "sql": MIGRATION_0003_SQL,
         "description": "Add research_snapshot table (D07 §3, QUERY-003)",
+    },
+    {
+        "version": "0004",
+        "sql": MIGRATION_0004_SQL,
+        "description": "Add circuit breaker columns to checkpoints (audit SR-03)",
     },
 ]

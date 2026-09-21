@@ -47,7 +47,7 @@
 | QUERY-001 | L4 | QueryService | DONE | 2026-09-12 | 2026-09-21 | [tasks/QUERY-001.md](tasks/QUERY-001.md) |
 | QUERY-002 | L5 | FeatureEngine | DONE | 2026-09-12 | 2026-09-21 | [tasks/QUERY-002.md](tasks/QUERY-002.md) |
 | QUERY-003 | L5 | ResearchSnapshot | DONE | 2026-09-12 | 2026-09-21 | [tasks/QUERY-003.md](tasks/QUERY-003.md) |
-| CLI-001 | L6 | 命令树/Settings/脱敏 | READY | 2026-09-12 | | [tasks/CLI-001.md](tasks/CLI-001.md) |
+| CLI-001 | L6 | 命令树/Settings/脱敏 | DONE | 2026-09-12 | 2026-09-21 | [tasks/CLI-001.md](tasks/CLI-001.md) |
 
 ## 2. 派发事件流水
 
@@ -104,6 +104,7 @@
 | 2026-09-21 | 两周积压按域分 10 笔补提交完成（Xcode 许可证已接受） | 8d347c6(model)→a021c1b(storage)→c4da48a(acquisition)→6aa7492(data-source)→c7cd885(quality)→b67d15a(pipeline)→2ffe43f(research: QUERY-001)→969f60d(config)→353b27d(docs: implement)→ecdf377(chore)；QUERY-001 git commit PENDING→DONE（8fa86e5）；清理误存 index.html |
 | 2026-09-21 | QUERY-002 主会话直执并验收通过 → DONE | features/engine.py（FeatureEngine 协议 + FeatureRegistry + FeatureResult.output_hash + register 构造注入）+ features/builtin.py（5 个 P0 特征：returns/realized_vol/iv_surface/funding_oi_divergence/btc_market_stress）+ features/__init__.py（`__all__`）+ test_features.py 26 用例（GWT 双条 + 黄金值 + 确定性/replay hash + 注册中心 + realized_vol→stress 特征链闭环）；决策 D-1~D-8 入档（compute 返回 FeatureResult、写连接构造注入、版本语义同 QUERY-001 D-2、QueryServiceLike 同层协议、IV strike/expiry 自 instrument_id 镜像解析、stress 并集网格 + 行级可用分量归一替代伪代码缺陷等）；复跑：26 passed，全量 **1260 passed / 0 failed**，ruff features scope All checks passed，mypy Success（58 文件），lint-imports 无新增违规（存量 2 处 broken：models.reference 与 quality.rules → exceptions → connectors.errors 传递链；另存量 2 处 pipeline I001 import 排序随补提交引入，均 0 处涉及 features）；git commit DONE（9af25ce） |
 | 2026-09-21 | QUERY-003 主会话直执并验收通过 → DONE | migrations/0003_snapshot.py（research_snapshot 表；版本号 0002 已被审计 H-6 占用顺延 0003，DDL 与 D07 §3 逐列一致）+ migrations/__init__.py 注册 + research/snapshot.py（research_snapshot contextmanager 进入锁定 dataset_version + compute 落库 output_hash=sha256(全列排序 Arrow IPC) + snapshot_reproduce hash 比对与版本变化报告 + get_snapshot）+ research/__init__.py 导出 6 新符号 + test_snapshot.py 12 用例（TC-R-004 双 GWT + 迁移幂等 + 边界空 datasets/空帧/无 SUCCESS run + 重复 compute 拒绝）；联动 test_meta_migration.py EXPECTED_TABLES（schema 演进测试维护）；决策 D-1~D-8 入档（run_log 事实源锁定版本、MetaStoreLike 同层协议 + ValueError/RuntimeError 错误模型规避存量 exceptions→connectors.errors 传递闭包、IPC 序列化哈希替代伪代码 model_dump_json 缺陷、compute() 显式落库时机等）；复跑：12 passed，全量 **1272 passed / 0 failed**，ruff All checks passed（存量 2 处 pipeline I001 与本任务无关），mypy Success（60 文件），lint-imports research 禁入契约 KEPT（存量 Layered 契约 broken 与本任务无关）；git commit DONE（3e006cc，验收记录 e79ab45） |
+| 2026-09-21 | CLI-001 主会话直执并验收通过 → DONE（**全任务清单收口**） | logging.py（EVENT_VOCABULARY 21 条存量事件名 + D09 §2 ③ AST 相等校验 + contextvar 贯穿 + redact_processor 全量脱敏链位）+ registry/service.py（D04 §5 指定位置，7 源 bootstrap_defaults 幂等 + add_dataset + 只读投影，RegistryStoreLike Protocol 规避同层导入）+ cli/ 8 模块（_wiring 组合根 + pipeline/registry/dataset/quality/research 五组 + query 顶层单命令，挂载以 D08 §2 冻结树为准）+ .env.example 全 env 名 + pyproject console script；决策 D-1~D-8 入档（D-1 Settings 保留 969f60d 预备实现并修复 `_load_from_env` kwargs>env 优先级 bug、D-3 redact 复用 security/、D-5 FRED 缺 key ConfigError 落组合根、D-6 --all-due=enabled=1 等）；tests unit 三文件 53 用例（TC-X-001~004 + TC-SEC-001/002 全覆盖，TC-SEC-003 复用存量 test_security.py::TestSettings）；复跑：53 passed，全量 **1325 passed / 0 failed**（基线 1272 + 53，零破坏），ruff All checks passed（顺带修复存量 pipeline I001×2），mypy Success（70 文件），lint-imports 1 broken 为存量传递链（0 处涉及本任务）；Deferred：DEF-006（storage.upsert/quality.finding 发射缺口）、DEF-007（D06 §4 SQL 检查器）；git commit PENDING（待统一提交） |
 
 ## 3. Design Issue 登记
 
@@ -117,7 +118,9 @@
 | ID | 登记时间 | 任务 | 验收项 | 依赖 | 状态 |
 |---|---|---|---|---|---|
 | DEF-001 | 2026-09-11 | INFRA-001 | strategies.ohlcv() 通过 MODEL-002 schema 校验 | MODEL-002 | CLOSED（2026-09-20：ohlcv() 策略已被 TC-PROP-001 hypothesis 测试消费并通过，OHLCV 不变量断言见 tests/unit/test_strategies.py） |
-| DEF-002 | 2026-09-11 | INFRA-001 | conftest 的 settings fixture（Settings 类） | CLI-001 | OPEN |
+| DEF-002 | 2026-09-11 | INFRA-001 | conftest 的 settings fixture（Settings 类） | CLI-001 | OPEN（依赖已就绪：CLI-001 DONE（2026-09-21），Settings.load 可用；现有测试均显式 Settings.load() 无 fixture 消费方，待出现消费需求时补充） |
 | DEF-003 | 2026-09-11 | MODEL-001 | TC-M-001/002 的 OHLCV 实例断言 | MODEL-002 | CLOSED（2026-09-20：TC-M-001 tests/unit/test_market_types.py::test_ohlcv_valid；TC-M-002 ::test_ohlcv_high_lt_low_rejected） |
 | DEF-004 | 2026-09-11 | INFRA-001 | CI 覆盖率门槛启用 | 首个业务逻辑任务 | OPEN |
 | DEF-005 | 2026-09-20 | PIPELINE-001 | GWT-3 derived 层：replay("derived") 输出与原快照逐字节一致（当前 NotImplementedError） | QUERY-002（FeatureEngine） | OPEN（依赖 QUERY-002 已 DONE（2026-09-21），待 PIPELINE-001 接线 FeatureEngine.recompute 后复核） |
+| DEF-006 | 2026-09-21 | CLI-001 | D08 §3 规范事件 storage.upsert / quality.finding 实现发射点（logging.py 词表机制已就绪：EVENT_VOCABULARY 相等校验强制新事件先入表再发射） | 未派发的埋点任务（STORAGE-003 / VALIDATION-001 侧日志面） | OPEN |
+| DEF-007 | 2026-09-21 | CLI-001 | quality report 命令的 D06 §4 SQL 检查器输出（当前仅渲染 quality_flags 表 + severity 计数） | 未派发的 SQL 检查器任务 | OPEN |

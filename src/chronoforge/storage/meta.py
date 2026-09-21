@@ -13,7 +13,7 @@ import sqlite3
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import structlog
@@ -231,7 +231,7 @@ class MetaStore:
             raise StorageError("Connection is closed")
 
         run_id = uuid.uuid4().hex
-        now = datetime.utcnow().isoformat() + "Z"
+        now = datetime.now(UTC).replace(tzinfo=None).isoformat() + "Z"
 
         try:
             self._begin_immediate()
@@ -302,7 +302,7 @@ class MetaStore:
         if timeout_seconds < 0:
             raise StorageError("timeout_seconds must be >= 0")
 
-        now = datetime.utcnow()
+        now = datetime.now(UTC).replace(tzinfo=None)
         cutoff = (now - timedelta(seconds=timeout_seconds)).isoformat() + "Z"
         ended = now.isoformat() + "Z"
 
@@ -328,6 +328,37 @@ class MetaStore:
             if self._conn is not None:
                 self._conn.rollback()
             raise StorageError(f"Failed to release stale locks: {e}") from e
+
+    def mark_run_running(self, run_id: str) -> None:
+        """PENDING → RUNNING（D05 §3 状态机，审计 SR-07）。
+
+        try_lock_dataset 创建 PENDING 行后、阶段执行开始前调用。
+        此前全库无 RUNNING 写入路径：crash 后无法区分「从未开始」（PENDING）
+        与「执行中死亡」（RUNNING），活性不可观测。幂等：仅 PENDING 行迁移。
+
+        Raises:
+            StorageError: run 不存在或 SQL 执行失败。
+        """
+        if self._conn is None:
+            raise StorageError("Connection is closed")
+
+        try:
+            cursor = self._conn.execute(
+                "UPDATE run_log SET status = 'RUNNING' "
+                "WHERE run_id = ? AND status = 'PENDING'",
+                (run_id,),
+            )
+            self._conn.commit()
+            if cursor.rowcount == 0:
+                raise StorageError(
+                    f"Cannot mark run RUNNING (not found or not PENDING): {run_id}"
+                )
+        except StorageError:
+            raise
+        except sqlite3.Error as e:
+            if self._conn is not None:
+                self._conn.rollback()
+            raise StorageError(f"Failed to mark run running {run_id}: {e}") from e
 
     def finish_run(
         self,
@@ -410,6 +441,22 @@ class MetaStore:
                     (run_id,),
                 )
 
+            # 审计 SR-06：D03 §1「RunLogStage 终态时按序判定更新
+            # dataset_registry.status」。于 finish_run 统一写回，覆盖全部
+            # 终态路径（SUCCESS/PARTIAL/FAILED/CANCELLED；RunLogStage 异常
+            # 路径不经 stage 7）。推导读同连接事务内已更新的 run_log/
+            # quality_flags/checkpoints；dataset 不在 registry 时 UPDATE
+            # 影响 0 行。恢复路径的对账写回见 consistency 模块。
+            ds_row = self._conn.execute(
+                "SELECT dataset_id FROM run_log WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if ds_row is not None and ds_row[0]:
+                derived = self.derive_dataset_status(str(ds_row[0]))
+                self._conn.execute(
+                    "UPDATE dataset_registry SET status = ? WHERE dataset_id = ?",
+                    (derived, str(ds_row[0])),
+                )
+
             self._conn.commit()
         except sqlite3.Error as e:
             if self._conn is not None:
@@ -450,7 +497,8 @@ class MetaStore:
         """查询 checkpoint。
 
         Returns:
-            last_cursor 字符串，或 None（无记录）。
+            last_cursor 字符串，或 None（无记录/空 cursor——熔断首败会创建
+            last_cursor='' 的行，空串不可作为 cursor 传递给 plan_chunks）。
         """
         if self._conn is None:
             raise StorageError("Connection is closed")
@@ -463,7 +511,96 @@ class MetaStore:
         row = cursor.fetchone()
         if row is None:
             return None
-        return str(row[0])
+        return str(row[0]) or None
+
+    # ── Circuit breaker（D05 §3，审计 SR-03）────────────────────────
+
+    def is_circuit_open(self, source_id: str, dataset_id: str) -> bool:
+        """查询该 dataset 熔断是否处于打开状态（跨进程持久化，SR-03）。
+
+        Returns:
+            circuit_open=1 时 True；无 checkpoint 行时 False。
+        """
+        if self._conn is None:
+            raise StorageError("Connection is closed")
+
+        cursor = self._conn.execute(
+            "SELECT circuit_open FROM checkpoints "
+            "WHERE source_id = ? AND dataset_id = ?",
+            (source_id, dataset_id),
+        )
+        row = cursor.fetchone()
+        return row is not None and bool(row[0])
+
+    def record_circuit_failure(
+        self, source_id: str, dataset_id: str, threshold: int = 3
+    ) -> None:
+        """记录一次 FAILED：连续失败计数 +1，达到 threshold 置 circuit_open=1。
+
+        D05 §3：同 dataset 连续 3 次 FAILED → checkpoints 旁路字段
+        circuit_open=1。无 checkpoint 行（从未成功过的坏数据源）时以
+        last_cursor='' 建行——get_checkpoint 对空串返回 None，不影响
+        cursor 语义；last_success_time 记为当前时间（活跃失败中，非 STALE）。
+
+        Args:
+            source_id: 数据源 ID。
+            dataset_id: 数据集 ID。
+            threshold: 连续 FAILED 触发熔断的阈值（架构 08 §3 N=3）。
+
+        Raises:
+            StorageError: SQL 执行失败。
+        """
+        if self._conn is None:
+            raise StorageError("Connection is closed")
+
+        try:
+            self._conn.execute(
+                "INSERT INTO checkpoints "
+                "(source_id, dataset_id, last_cursor, last_success_time, "
+                " consecutive_failed, circuit_open, circuit_opened_at) "
+                "VALUES (?, ?, '', datetime('now'), 1, "
+                " CASE WHEN 1 >= ? THEN 1 ELSE 0 END, "
+                " CASE WHEN 1 >= ? THEN datetime('now') ELSE NULL END) "
+                "ON CONFLICT(source_id, dataset_id) DO UPDATE SET "
+                "consecutive_failed = checkpoints.consecutive_failed + 1, "
+                "circuit_open = CASE "
+                "  WHEN checkpoints.consecutive_failed + 1 >= ? THEN 1 "
+                "  ELSE checkpoints.circuit_open END, "
+                "circuit_opened_at = CASE "
+                "  WHEN checkpoints.consecutive_failed + 1 >= ? "
+                "    AND checkpoints.circuit_open = 0 THEN datetime('now') "
+                "  ELSE checkpoints.circuit_opened_at END",
+                (source_id, dataset_id, threshold, threshold, threshold, threshold),
+            )
+            self._conn.commit()
+        except sqlite3.Error as e:
+            if self._conn is not None:
+                self._conn.rollback()
+            raise StorageError(f"Failed to record circuit failure: {e}") from e
+
+    def reset_circuit(self, source_id: str, dataset_id: str) -> None:
+        """成功（SUCCESS/PARTIAL_SUCCESS）后重置熔断计数并解除打开状态。
+
+        无 checkpoint 行时为幂等 no-op。
+
+        Raises:
+            StorageError: SQL 执行失败。
+        """
+        if self._conn is None:
+            raise StorageError("Connection is closed")
+
+        try:
+            self._conn.execute(
+                "UPDATE checkpoints SET consecutive_failed = 0, "
+                "circuit_open = 0, circuit_opened_at = NULL "
+                "WHERE source_id = ? AND dataset_id = ?",
+                (source_id, dataset_id),
+            )
+            self._conn.commit()
+        except sqlite3.Error as e:
+            if self._conn is not None:
+                self._conn.rollback()
+            raise StorageError(f"Failed to reset circuit: {e}") from e
 
     # ── Quality flags ──────────────────────────────────────────────
 
@@ -482,7 +619,7 @@ class MetaStore:
         if self._conn is None:
             raise StorageError("Connection is closed")
 
-        now = datetime.utcnow().isoformat() + "Z"
+        now = datetime.now(UTC).replace(tzinfo=None).isoformat() + "Z"
         rows = []
         for flag in flags:
             rows.append((
@@ -539,7 +676,7 @@ class MetaStore:
         if self._conn is None:
             raise StorageError("Connection is closed")
 
-        now = datetime.utcnow().isoformat() + "Z"
+        now = datetime.now(UTC).replace(tzinfo=None).isoformat() + "Z"
         try:
             if record_keys is None:
                 cursor = self._conn.execute(
@@ -652,7 +789,7 @@ class MetaStore:
                     last_dt = datetime.fromisoformat(
                         last_success.replace("Z", "+00:00")
                     )
-                    now_dt = datetime.utcnow().replace(tzinfo=last_dt.tzinfo)
+                    now_dt = datetime.now(UTC).replace(tzinfo=last_dt.tzinfo)
                     elapsed_hours = (now_dt - last_dt).total_seconds() / 3600
                     if elapsed_hours > freq_hours * 2:
                         return "STALE"

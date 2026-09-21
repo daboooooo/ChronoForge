@@ -35,6 +35,9 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/chronoforge"]
 
+[project.scripts]
+chronoforge = "chronoforge.cli.main:app"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-m 'not smoke'"       # CI 默认跳过真实源冒烟（D09 §6）

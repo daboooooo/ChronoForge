@@ -172,7 +172,7 @@ class QDRIFT001Rule(QualityRule):
 
     @property
     def applies_to(self) -> frozenset[CanonicalType] | Literal["ALL"]:
-        from chronoforge.storage.base import REVISION_TYPES
+        from chronoforge.models.identity import REVISION_TYPES
         return frozenset(
             ct for ct in CanonicalType
             if ct not in REVISION_TYPES
@@ -473,7 +473,11 @@ class QTS003Rule(QualityRule):
         *,
         context: GapContext | None = None,
     ) -> list[QualityFinding]:
-        now = datetime.now(UTC)
+        # D01 §4 naive-UTC 存储契约：canonical event_time 为 naive，
+        # now 须同为 naive 才可比较（此前 aware now 触发 TypeError，
+        # 被 rules.run 捕获后每次 run 都产出 RULE_ERROR:Q-TS-003 ERROR
+        # finding，连带 derive_dataset_status 恒判 INCOMPLETE）
+        now = datetime.now(UTC).replace(tzinfo=None)
         findings = []
         for rec in records:
             event_time = _get_event_time(rec, canonical_type)
@@ -482,7 +486,12 @@ class QTS003Rule(QualityRule):
             interval_sec = self._interval_seconds(rec, context)
             if interval_sec is None:
                 continue
-            if _to_datetime(event_time) + timedelta(seconds=interval_sec) > now:
+            # 输入兼容：pipeline canonical 为 naive（D01 §4），单测/外部
+            # 调用方可能传 aware → 统一归一化为 naive-UTC 再比较
+            et = _to_datetime(event_time)
+            if et.tzinfo is not None:
+                et = et.astimezone(UTC).replace(tzinfo=None)
+            if et + timedelta(seconds=interval_sec) > now:
                 findings.append(QualityFinding(
                     record_key=_extract_nk(rec, canonical_type),
                     rule_id=self.rule_id,
@@ -1210,7 +1219,7 @@ def _extract_nk(rec: dict[str, object], canonical_type: CanonicalType) -> str:
 
 def _nk_tuple(rec: dict[str, object], canonical_type: CanonicalType) -> tuple[object, ...]:
     """从记录提取 natural key 元组。"""
-    from chronoforge.storage.base import natural_key as _nk_cols
+    from chronoforge.models.identity import natural_key as _nk_cols
     cols = _nk_cols(canonical_type)
     return tuple(rec.get(col) for col in cols)
 
@@ -1224,7 +1233,7 @@ def _nk_without_revision(
     rec: dict[str, object], canonical_type: CanonicalType
 ) -> tuple[object, ...]:
     """提取不含 revision_time 的 natural key（用于 Q-REV-001）。"""
-    from chronoforge.storage.base import natural_key as _nk_cols
+    from chronoforge.models.identity import natural_key as _nk_cols
     cols = _nk_cols(canonical_type)
     # 排除 revision_time 列
     cols_no_rev = [c for c in cols if c != "revision_time"]
@@ -1233,7 +1242,7 @@ def _nk_without_revision(
 
 def _get_event_time(rec: dict[str, object], canonical_type: CanonicalType) -> object:
     """获取记录的事件时间字段。"""
-    from chronoforge.storage.base import partition_time_field
+    from chronoforge.models.identity import partition_time_field
     field = partition_time_field(canonical_type)
     if field:
         return rec.get(field)

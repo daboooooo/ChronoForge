@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -987,7 +987,9 @@ class TestReleaseStaleLocks:
 
     def _backdate_run(self, store: MetaStore, run_id: str, hours: float) -> None:
         """将 run 的 started_at 回拨 hours 小时（模拟崩溃残留）。"""
-        old = (datetime.utcnow() - timedelta(hours=hours)).isoformat() + "Z"
+        old = (
+            datetime.now(UTC) - timedelta(hours=hours)
+        ).replace(tzinfo=None).isoformat() + "Z"
         store.connection.execute(
             "UPDATE run_log SET started_at = ? WHERE run_id = ?",
             (old, run_id),

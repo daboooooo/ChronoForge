@@ -33,15 +33,41 @@ from chronoforge.connectors.base import (
     RawBatch,
 )
 from chronoforge.connectors.ratelimit import RateLimiter
+from chronoforge.exceptions import (
+    ProviderError,
+    RateLimitError,
+    TransportError,
+)
 from chronoforge.models.base import BaseRecord
 from chronoforge.models.derivatives import Interval
 from chronoforge.models.enums import CanonicalType, QualityStatus
 from chronoforge.models.market import OHLCV, TICKER, TRADE, Side
-from chronoforge.quality.report import QualityFinding, QualityReport
+from chronoforge.models.quality import QualityFinding, QualityReport
 
 # 保守默认限流配置（不同交易所差异大，按 exchange 调整）
 _DEFAULT_RATE = 60.0  # requests per second
 _DEFAULT_BURST = 60
+
+
+def _map_ccxt_error(op: str, exc: Exception) -> TransportError | ProviderError:
+    """ccxt 异常 → 领域错误层级（架构 08 §1 错误分类，审计 SR-12）。
+
+    此前映射为 Python 内建 ConnectionError，runner 的 chunk 级失败语义
+    （TransportError/RateLimitError/ProviderError）无法识别 → ccxt 源的
+    瞬时网络故障被当作不可重试异常直接终态 FAILED。
+
+    映射（ccxt ≥4 异常层级：RateLimitExceeded ⊂ NetworkError，
+    ExchangeError 与 NetworkError 同级，故判定顺序不可调换；
+    旧版 ccxt 中限流异常名为 RateLimitError ⊂ DDoSProtection）：
+    - ccxt.RateLimitExceeded → RateLimitError（可重试 + 退避）
+    - ccxt.NetworkError      → TransportError（可重试）
+    - ccxt.ExchangeError     → ProviderError（4xx 参数/资源错误，不重试）
+    """
+    if isinstance(exc, ccxt.RateLimitExceeded):
+        return RateLimitError(f"ccxt_bridge: {op} failed: {exc}")
+    if isinstance(exc, ccxt.NetworkError):
+        return TransportError(f"ccxt_bridge: {op} failed: {exc}")
+    return ProviderError(f"ccxt_bridge: {op} failed: {exc}")
 
 
 @dataclass
@@ -360,9 +386,7 @@ class CcxtBridgeConnector(DataConnector):
                         limit=limit,
                     )
                 except (ccxt.NetworkError, ccxt.ExchangeError) as e:
-                    raise ConnectionError(
-                        f"ccxt_bridge: fetchOHLCV failed: {e}"
-                    ) from e
+                    raise _map_ccxt_error("fetchOHLCV", e) from e
 
                 if not ohlcv_data:
                     break
@@ -399,9 +423,7 @@ class CcxtBridgeConnector(DataConnector):
                     symbol, timeframe, limit=limit
                 )
             except (ccxt.NetworkError, ccxt.ExchangeError) as e:
-                raise ConnectionError(
-                    f"ccxt_bridge: fetchOHLCV failed: {e}"
-                ) from e
+                raise _map_ccxt_error("fetchOHLCV", e) from e
 
             # 过滤到 until 之前的数据
             cutoff = int(until)
@@ -425,9 +447,7 @@ class CcxtBridgeConnector(DataConnector):
                     symbol, timeframe, limit=limit
                 )
             except (ccxt.NetworkError, ccxt.ExchangeError) as e:
-                raise ConnectionError(
-                    f"ccxt_bridge: fetchOHLCV failed: {e}"
-                ) from e
+                raise _map_ccxt_error("fetchOHLCV", e) from e
 
             if ohlcv_data:
                 yield RawBatch(
@@ -462,9 +482,7 @@ class CcxtBridgeConnector(DataConnector):
             self._rate_limiter.acquire(1)
             trades_data = self.exchange.fetchTrades(symbol, params=params)
         except (ccxt.NetworkError, ccxt.ExchangeError) as e:
-            raise ConnectionError(
-                f"ccxt_bridge: fetchTrades failed: {e}"
-            ) from e
+            raise _map_ccxt_error("fetchTrades", e) from e
 
         if trades_data:
             yield RawBatch(
@@ -488,9 +506,7 @@ class CcxtBridgeConnector(DataConnector):
             self._rate_limiter.acquire(1)
             ticker_data = self.exchange.fetchTicker(symbol)
         except (ccxt.NetworkError, ccxt.ExchangeError) as e:
-            raise ConnectionError(
-                f"ccxt_bridge: fetchTicker failed: {e}"
-            ) from e
+            raise _map_ccxt_error("fetchTicker", e) from e
 
         if ticker_data:
             yield RawBatch(

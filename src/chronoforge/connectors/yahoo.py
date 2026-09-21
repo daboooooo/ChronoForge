@@ -43,7 +43,7 @@ from chronoforge.models.base import BaseRecord
 from chronoforge.models.derivatives import Interval
 from chronoforge.models.enums import CanonicalType, QualityStatus
 from chronoforge.models.market import OHLCV
-from chronoforge.quality.report import QualityFinding, QualityReport
+from chronoforge.models.quality import QualityFinding, QualityReport
 
 # Yahoo Finance 保守限流配置（无官方限流文档）
 _DEFAULT_RATE = 30.0  # requests per minute

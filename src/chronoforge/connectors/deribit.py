@@ -46,6 +46,7 @@ from chronoforge.models.derivatives import (
 )
 from chronoforge.models.enums import CanonicalType, QualityStatus
 from chronoforge.models.market import OHLCV
+from chronoforge.models.quality import QualityFinding, QualityReport
 from chronoforge.models.reference import (
     INSTRUMENT,
     InstrumentResolver,
@@ -53,7 +54,6 @@ from chronoforge.models.reference import (
     OptionType,
     parse_deribit,
 )
-from chronoforge.quality.report import QualityFinding, QualityReport
 
 # Deribit 限流配置（D04 §4.3）
 # Deribit: 100 req/min for public endpoints, 2000 for authenticated
@@ -310,8 +310,10 @@ class DeribitConnector(DataConnector):
             )
 
             # Pagination: use last candle's timestamp as start for next page
+            # 审计 SR-08：步进按 resolution 计算（60000 硬编码 1m 假设使
+            # 1D 分辨率同一根 K 线重复返回约 1440 次/天，请求放大三个数量级）
             last_ts = int(candles[-1]["timestamp"])
-            params["start_timestamp"] = last_ts + 60000  # 1 minute in ms
+            params["start_timestamp"] = last_ts + int(resolution) * 60_000
             # If end is set and we've passed it, stop
             if request.end is not None:
                 end_ms = int(request.end.timestamp() * 1000)

@@ -40,7 +40,7 @@ from chronoforge.connectors.ratelimit import RateLimiter
 from chronoforge.models.base import BaseRecord
 from chronoforge.models.enums import CanonicalType, QualityStatus
 from chronoforge.models.fundamental import FILING, FUNDAMENTAL
-from chronoforge.quality.report import QualityFinding, QualityReport
+from chronoforge.models.quality import QualityFinding, QualityReport
 
 # SEC EDGAR 限流：≤10 req/s（D04 §4.7）
 _DEFAULT_RATE = 10.0

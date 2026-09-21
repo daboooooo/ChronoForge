@@ -53,7 +53,7 @@ from chronoforge.quality import rules as quality_rules
 from chronoforge.quality.report import GapContext, QualityFinding
 from chronoforge.storage.base import CanonicalStore, natural_key
 from chronoforge.storage.meta import MetaStore, RunRow
-from chronoforge.storage.raw import RawStore, RawRef, _BatchItem
+from chronoforge.storage.raw import RawRef, RawStore, _BatchItem
 
 logger = structlog.get_logger()
 
@@ -697,12 +697,12 @@ class PipelineRunner:
     """七阶段流水线编排器（D05 §2）。
 
     进程内单线程执行（SQLite 单写者）；dataset 锁经 MetaStore.try_lock_dataset；
-    熔断状态为实例内计数（dataset_id → 连续 FAILED 次数）。
+    熔断状态持久化于 checkpoints 旁路字段（circuit_open/consecutive_failed，
+    D05 §3 + 审计 SR-03：跨 job/进程累计，CLI 每 dataset 新建 runner 不再归零）。
     """
 
     def __init__(self, ctx_factory: Callable[[AcquisitionJob], RunContext]) -> None:
         self._ctx_factory = ctx_factory
-        self._circuit_breaker: dict[str, int] = {}
         # 七阶段固定顺序（D05 §1，禁止跨阶段调用）
         self.stages: list[Stage] = [
             FetchStage(),
@@ -721,8 +721,9 @@ class PipelineRunner:
         dataset_id = ctx.dataset_id
         source_id = ctx.connector.source_id
 
-        # 1. 熔断检查：连续 FAILED ≥ 3 → 直接 CANCELLED，不执行 stages
-        if self._circuit_breaker.get(dataset_id, 0) >= _CIRCUIT_THRESHOLD:
+        # 1. 熔断检查（SR-03：持久化状态，跨 job/进程生效）：
+        #    连续 FAILED ≥ 3 → 直接 CANCELLED，不执行 stages
+        if ctx.meta.is_circuit_open(source_id, dataset_id):
             lock = ctx.meta.try_lock_dataset(dataset_id, source_id=source_id)
             ctx.meta.finish_run(
                 lock.run_id,
@@ -746,6 +747,9 @@ class PipelineRunner:
         lock = ctx.meta.try_lock_dataset(dataset_id, source_id=source_id)
         ctx.run_id = lock.run_id
         ctx.ingest_batch_id = lock.ingest_batch_id
+        # SR-07：PENDING → RUNNING（D05 §3 状态机；区分「从未开始」与
+        # 「执行中死亡」，crash 后由 startup_repair 按状态对账）
+        ctx.meta.mark_run_running(ctx.run_id)
 
         stage_results: list[StageResult] = []
         try:
@@ -773,11 +777,21 @@ class PipelineRunner:
                     error_count=result.error_count,
                     latency_ms=result.latency_ms,
                 )
+        except (KeyboardInterrupt, SystemExit) as exc:
+            # 2a. 用户中断（SR-02）：BaseException 不被下述 except Exception
+            #     捕获，此前直接穿透 → run_log 滞留 PENDING、锁不释放。
+            #     D05 §3 状态机「用户取消 → CANCELLED」：写 CANCELLED 终态
+            #     （锁随终态释放）后重新抛出；不递增熔断计数。
+            _finish_aborted_run(
+                ctx, stage_results, exc, RunStatus.CANCELLED.value
+            )
+            raise
+
         except Exception as exc:
             # 3. 异常映射 → FAILED（聚合已有计数）→ 熔断 +1 → 重新 raise
             finish_failed_run(ctx, stage_results, exc)
-            self._circuit_breaker[dataset_id] = (
-                self._circuit_breaker.get(dataset_id, 0) + 1
+            ctx.meta.record_circuit_failure(
+                source_id, dataset_id, threshold=_CIRCUIT_THRESHOLD
             )
             raise
 
@@ -785,8 +799,8 @@ class PipelineRunner:
         if status == RunStatus.FAILED.value:
             # DEC-F0：全 0 chunk 成功且 fetch 失败 → FAILED
             # （RunLogStage 已 finish_run，这里只计熔断并返回 FAILED RunRow）
-            self._circuit_breaker[dataset_id] = (
-                self._circuit_breaker.get(dataset_id, 0) + 1
+            ctx.meta.record_circuit_failure(
+                source_id, dataset_id, threshold=_CIRCUIT_THRESHOLD
             )
             row = compose_run_row(lock, ctx, status)
             logger.warning(
@@ -799,8 +813,8 @@ class PipelineRunner:
             )
             return row
 
-        # 4. 成功路径：熔断计数归零 → RunRow
-        self._circuit_breaker[dataset_id] = 0
+        # 4. 成功路径：熔断计数归零并解除打开状态（SR-03）→ RunRow
+        ctx.meta.reset_circuit(source_id, dataset_id)
         row = compose_run_row(lock, ctx, status)
         logger.info(
             "run.finish",
@@ -864,19 +878,41 @@ def finish_failed_run(
     聚合已有 StageResult 计数；chunk_success/chunk_failed 取 Fetch 已计值；
     checkpoint_after 恒为 None（FAILED 不写 cursor）。
     """
+    _finish_aborted_run(ctx, stage_results, exc, RunStatus.FAILED.value)
+
+
+def _finish_aborted_run(
+    ctx: RunContext,
+    stage_results: Sequence[StageResult],
+    exc: BaseException,
+    status: str,
+) -> None:
+    """异常/中断路径共享记账体（finish_failed_run 与 SR-02 取消路径共用）。
+
+    status 为 FAILED（可重试类耗尽等失败）或 CANCELLED（用户中断）；
+    两者均不推进 cursor（checkpoint_after=None，TC-P-005）。
+    """
     counts = _aggregate(stage_results)
     msgs = _stage_errors(stage_results)
     msgs.append(f"{type(exc).__name__}: {exc}")
     summary = "; ".join(msgs)
-    logger.error(
-        "pipeline.run_failed",
-        run_id=ctx.run_id,
-        dataset_id=ctx.dataset_id,
-        error=summary[:500],
-    )
+    if status == RunStatus.CANCELLED.value:
+        logger.warning(
+            "pipeline.run_cancelled",
+            run_id=ctx.run_id,
+            dataset_id=ctx.dataset_id,
+            reason=type(exc).__name__,
+        )
+    else:
+        logger.error(
+            "pipeline.run_failed",
+            run_id=ctx.run_id,
+            dataset_id=ctx.dataset_id,
+            error=summary[:500],
+        )
     ctx.meta.finish_run(
         ctx.run_id,
-        RunStatus.FAILED.value,
+        status,
         source_id=ctx.source_id or ctx.connector.source_id,
         input_count=counts["input_count"],
         output_count=counts["output_count"],

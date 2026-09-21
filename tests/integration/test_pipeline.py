@@ -935,3 +935,137 @@ def test_drift_findings_persisted_to_quality_flags(tmp_stores, monkeypatch) -> N
     ).fetchall()
     assert flags, "drift findings 应落盘 quality_flags"
     assert all(f[1] == "WARNING" and f[2] == row2.run_id for f in flags)
+
+
+# ── 服务就绪审计回归（2026-09-21 SR-02/03/06/07）──────────────────────
+
+
+def test_sr02_keyboard_interrupt_writes_cancelled(tmp_stores, monkeypatch) -> None:
+    """SR-02：fetch 中断（KeyboardInterrupt）→ CANCELLED 终态 + 锁释放。
+
+    此前 runner 仅捕获 Exception，BaseException 穿透 → run_log 滞留
+    PENDING、dataset 锁不释放（D05 §3「用户取消 → CANCELLED」）。
+    """
+    h = _harness(
+        tmp_stores,
+        monkeypatch,
+        "sr02",
+        connector=FakeConnector(chunk_failures={1: KeyboardInterrupt}),
+    )
+    with pytest.raises(KeyboardInterrupt):
+        h.runner.run(_make_job())
+    rows = h.meta.connection.execute(
+        "SELECT status, error_summary FROM run_log"
+    ).fetchall()
+    assert len(rows) == 1
+    assert rows[0][0] == "CANCELLED"
+    assert "KeyboardInterrupt" in str(rows[0][1])
+    # 取消不计入熔断（仅 FAILED 计数）
+    assert not h.meta.is_circuit_open(SOURCE_ID, DS_ID)
+    # 锁随终态释放：后续 run 正常执行
+    h.connectors[DS_ID].start_new_run()
+    h.connectors[DS_ID].chunk_failures = {}  # 清除注入，验证可完整跑通
+    assert h.runner.run(_make_job()).status == "SUCCESS"
+
+
+def test_sr03_circuit_persists_across_runner_instances(tmp_stores, monkeypatch) -> None:
+    """SR-03：熔断状态持久化——新 runner 实例继承熔断（CLI 每 dataset
+    build_runner 的真实形态下 3 连败熔断可触发）。"""
+    h = _harness(
+        tmp_stores,
+        monkeypatch,
+        "sr03",
+        connector=FakeConnector(chunk_failures={1: TransportError}),
+    )
+    for _ in range(3):
+        h.connectors[DS_ID].start_new_run()
+        assert h.runner.run(_make_job()).status == "FAILED"
+    assert h.meta.is_circuit_open(SOURCE_ID, DS_ID)
+
+    runner2 = PipelineRunner(h.runner._ctx_factory)  # type: ignore[arg-type]
+    h.connectors[DS_ID].start_new_run()
+    row = runner2.run(_make_job())
+    assert row.status == "CANCELLED"
+    assert row.error_summary == "circuit open"
+    assert len(h.connectors[DS_ID].fetch_calls) == 3  # 第 4 次未进入 stages
+
+
+def test_sr03_success_resets_persisted_circuit(tmp_stores, monkeypatch) -> None:
+    """SR-03：SUCCESS 重置持久化的连续失败计数与打开标志。"""
+    h = _harness(
+        tmp_stores,
+        monkeypatch,
+        "sr03_reset",
+        connector=FakeConnector(chunk_failures={1: TransportError}),
+    )
+    for _ in range(2):
+        h.connectors[DS_ID].start_new_run()
+        h.runner.run(_make_job())
+    cnt = h.meta.connection.execute(
+        "SELECT consecutive_failed FROM checkpoints "
+        "WHERE source_id = ? AND dataset_id = ?",
+        (SOURCE_ID, DS_ID),
+    ).fetchone()[0]
+    assert cnt == 2
+
+    h.connectors[DS_ID].start_new_run()
+    h.connectors[DS_ID].chunk_failures = {}  # 第三次成功
+    assert h.runner.run(_make_job()).status == "SUCCESS"
+    assert not h.meta.is_circuit_open(SOURCE_ID, DS_ID)
+    cnt2 = h.meta.connection.execute(
+        "SELECT consecutive_failed FROM checkpoints "
+        "WHERE source_id = ? AND dataset_id = ?",
+        (SOURCE_ID, DS_ID),
+    ).fetchone()[0]
+    assert cnt2 == 0
+
+
+def test_sr03_empty_cursor_checkpoint_returns_none(tmp_stores, monkeypatch) -> None:
+    """SR-03：熔断首败创建 last_cursor='' 行 → get_checkpoint 归一化 None。
+
+    空串若透传 plan_chunks 会因 ISO 解析失败崩溃，故必须归一化。
+    """
+    h = _harness(
+        tmp_stores,
+        monkeypatch,
+        "sr03_cursor",
+        connector=FakeConnector(chunk_failures={1: TransportError}),
+    )
+    assert h.runner.run(_make_job()).status == "FAILED"
+    assert h.meta.get_checkpoint(SOURCE_ID, DS_ID) is None
+
+
+def test_sr07_run_transitions_pending_to_running(tmp_stores, monkeypatch) -> None:
+    """SR-07：阶段执行期间 run_log 状态为 RUNNING（活性可观测）。"""
+    h = _harness(tmp_stores, monkeypatch, "sr07")
+    seen: list[str] = []
+    conn = h.connectors[DS_ID]
+    orig_fetch = conn.fetch
+
+    def spy_fetch(request: Any) -> Iterator[RawBatch]:
+        for batch in orig_fetch(request):
+            row = h.meta.connection.execute(
+                "SELECT status FROM run_log ORDER BY started_at DESC LIMIT 1"
+            ).fetchone()
+            seen.append(str(row[0]))
+            yield batch
+
+    conn.fetch = spy_fetch  # type: ignore[method-assign]
+    row = h.runner.run(_make_job())
+    assert row.status == "SUCCESS"
+    assert seen, "spy fetch 未被调用"
+    assert set(seen) == {"RUNNING"}
+
+
+def test_sr06_finish_run_writes_back_dataset_status(tmp_stores, monkeypatch) -> None:
+    """SR-06：finish_run 终态写回 dataset_registry.status（D03 §1）。
+
+    最新 run SUCCESS 且无 ERROR finding → COMPLETE；circuit-open
+    CANCELLED 路径同样不破坏写回。
+    """
+    h = _harness(tmp_stores, monkeypatch, "sr06")
+    assert h.runner.run(_make_job()).status == "SUCCESS"
+    st = h.meta.connection.execute(
+        "SELECT status FROM dataset_registry WHERE dataset_id = ?", (DS_ID,)
+    ).fetchone()[0]
+    assert st == "COMPLETE"

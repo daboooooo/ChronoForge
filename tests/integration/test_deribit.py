@@ -743,6 +743,53 @@ class TestChartPagination:
         assert first_call_params["resolution"] == "60"
         conn.close()
 
+    def test_fetch_chart_data_step_advances_by_resolution(self) -> None:
+        """审计 SR-08：分页步进 = last_ts + resolution×60000（非 1m 硬编码）。
+
+        Given 1D 分辨率首页返回 1 根 K 线 When fetch Then 第二次请求的
+        start_timestamp = 首页末根 ts + 1440×60000；空页触发循环终止。
+        """
+        ts = 1672444800000  # 2023-01-01T00:00:00Z
+        page1 = {
+            "candles": [
+                {
+                    "timestamp": ts,
+                    "open": 16500.0, "close": 16550.0,
+                    "high": 16600.0, "low": 16450.0,
+                    "volume": 100.0, "iv": 0.65, "mark_iv": 0.66,
+                }
+            ],
+            "instrument_name": "BTC-PERP",
+            "resolution": "1440",
+        }
+
+        resp1 = _mock_response(status_code=200, json_data=page1)
+        mock_client = _mock_client([resp1])  # 队列耗尽后返回空 candles → break
+
+        with patch.object(
+            DeribitConnector, "__init__", lambda self, s: None
+        ):
+            conn = DeribitConnector.__new__(DeribitConnector)
+            conn._client = mock_client
+            conn._rate_limiter = MagicMock()
+
+        req = FetchRequest(
+            dataset_id="test",
+            params={"data_type": "chart", "instrument_name": "BTC-PERP", "resolution": "1440"},
+            start=None,
+            end=None,
+            cursor=None,
+        )
+
+        batches = list(conn.fetch(req))
+
+        assert len(batches) == 1
+        calls = mock_client.post.call_args_list
+        assert len(calls) == 2  # page1 + 空页 break
+        second_params = calls[1][1]["json"]["params"]
+        assert second_params["start_timestamp"] == ts + 1440 * 60_000
+        conn.close()
+
 
 # ── checkpoint_from ────────────────────────────────────────────────────
 

@@ -40,8 +40,8 @@ from chronoforge.models.base import BaseRecord
 from chronoforge.models.derivatives import Interval
 from chronoforge.models.enums import CanonicalType, QualityStatus
 from chronoforge.models.market import OHLCV, TICKER, TRADE, Side
+from chronoforge.models.quality import QualityFinding, QualityReport
 from chronoforge.models.reference import parse_binance
-from chronoforge.quality.report import QualityFinding, QualityReport
 
 logger = structlog.get_logger()
 

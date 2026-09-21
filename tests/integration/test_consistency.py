@@ -447,8 +447,8 @@ class TestStartupRepair:
             # 模拟崩溃残留的 PENDING 行（started_at 回拨 2 小时）
             row = meta.try_lock_dataset("test_dataset")
             stale_start = (
-                datetime.utcnow() - timedelta(hours=2)
-            ).isoformat() + "Z"
+                datetime.now(UTC) - timedelta(hours=2)
+            ).replace(tzinfo=None).isoformat() + "Z"
             meta.connection.execute(
                 "UPDATE run_log SET started_at = ? WHERE run_id = ?",
                 (stale_start, row.run_id),

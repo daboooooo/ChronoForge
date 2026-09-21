@@ -19,7 +19,7 @@ from typing import Any, Protocol
 
 from chronoforge.models.derivatives import Interval
 from chronoforge.models.enums import CanonicalType
-from chronoforge.quality.report import QualityReport
+from chronoforge.models.quality import QualityReport
 
 
 @dataclass(frozen=True)

@@ -19,7 +19,7 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from chronoforge.connectors.errors import ConfigError
+from chronoforge.exceptions import ConfigError
 from chronoforge.security.secret import SecretStr
 
 
@@ -114,9 +114,11 @@ class Settings(BaseModel):
         所以手动读取。Secret 字段由 __init__ 处理。
         """
         if isinstance(values, dict):
-            # 已经有值（从 __init__ 传入），合并 env
+            # 已有值（显式 kwargs）优先，env 仅填充未提供的键
+            # （D08 §1 加载顺序：defaults ← .env ← 环境变量 ← kwargs）
             env_overrides = _read_env_fields(cls)
-            values.update(env_overrides)
+            for key, value in env_overrides.items():
+                values.setdefault(key, value)
         else:
             values = _read_env_fields(cls)
         return values
