@@ -21,6 +21,8 @@ EXPECTED_TABLES = {
     "run_log",
     "quality_flags",
     "schema_versions",
+    # 迁移 0003（QUERY-003，D07 §3）：research_snapshot 表
+    "research_snapshot",
 }
 
 
@@ -108,8 +110,8 @@ class TestMigrationIdempotency:
 
 class TestDDLIntegrity:
 
-    def test_all_6_tables_exist(self, tmp_stores) -> None:
-        """6 张表全部存在"""
+    def test_all_tables_exist(self, tmp_stores) -> None:
+        """全部表存在（0001 六表 + 0003 research_snapshot；0002 为 0001 表扩展列）"""
         meta_dir = str(tmp_stores.meta_dir)
         with MetaStore(meta_dir) as store:
             store.migrate()

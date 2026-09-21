@@ -7,6 +7,14 @@ from chronoforge.research.query import (
     DuckDBQueryService,
     QueryResult,
 )
+from chronoforge.research.snapshot import (
+    ReproduceResult,
+    ResearchSnapshot,
+    SnapshotRecord,
+    get_snapshot,
+    research_snapshot,
+    snapshot_reproduce,
+)
 
 __all__ = [
     "DatasetEntry",
@@ -14,4 +22,10 @@ __all__ = [
     "DatasetVersionInfo",
     "DuckDBQueryService",
     "QueryResult",
+    "ReproduceResult",
+    "ResearchSnapshot",
+    "SnapshotRecord",
+    "get_snapshot",
+    "research_snapshot",
+    "snapshot_reproduce",
 ]

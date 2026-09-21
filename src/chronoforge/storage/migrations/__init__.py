@@ -93,6 +93,22 @@ CREATE INDEX IF NOT EXISTS idx_quality_flags_ds_unresolved
   ON quality_flags(dataset_id, severity, resolved);
 """
 
+# 0003 migration SQL — QUERY-003：research_snapshot 表（D07 §3）。
+# 版本化源文件见 0003_snapshot.py（与 0001_init.py 同模式，两处需同步维护）。
+# 注：D07 §3 原编号 0002 已被上方审计 H-6 迁移占用，本迁移顺延为 0003。
+MIGRATION_0003_SQL = """
+CREATE TABLE IF NOT EXISTS research_snapshot(
+  snapshot_id TEXT PRIMARY KEY,           -- uuid hex 12
+  created_at TEXT NOT NULL,
+  datasets_json TEXT NOT NULL,            -- [{"dataset_id","dataset_version"}]
+  code_version TEXT NOT NULL,             -- chronoforge.__version__
+  params_json TEXT NOT NULL,              -- 研究参数
+  output_hash TEXT NOT NULL,              -- sha256(结果序列化)
+  notebook_ref TEXT,                      -- 可选溯源
+  query_text TEXT                         -- 可选溯源
+);
+"""
+
 # Migration registry — new migrations add entries here
 _all_migrations: list[dict[str, str]] = [
     {
@@ -107,5 +123,10 @@ _all_migrations: list[dict[str, str]] = [
         "version": "0002",
         "sql": MIGRATION_0002_SQL,
         "description": "Add resolved/resolved_at to quality_flags (audit H-6)",
+    },
+    {
+        "version": "0003",
+        "sql": MIGRATION_0003_SQL,
+        "description": "Add research_snapshot table (D07 §3, QUERY-003)",
     },
 ]
