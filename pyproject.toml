@@ -52,6 +52,11 @@ warn_unused_ignores = true
 module = ["chronoforge.models.*", "chronoforge.storage.*", "chronoforge.pipeline.*"]
 strict = true
 
+# ccxt 无类型标注（缺 py.typed）
+[[tool.mypy.overrides]]
+module = ["ccxt.*"]
+ignore_missing_imports = true
+
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
