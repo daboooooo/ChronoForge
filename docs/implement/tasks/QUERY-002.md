@@ -294,7 +294,7 @@ DoD 逐项勾选（howto §43）：
 
 接管性抽查：builtin.py 模块 docstring 完整陈述 D07 §2 公式表与 How 层决策索引；每个特征类 docstring 给出公式/空值语义/排除规则；D-1~D-8 决策均给出设计依据；陌生 Agent 仅凭任务单 + D07 §2 + 本记录可接管维护。**通过**。
 
-git commit：**PENDING**
+git commit：**DONE** — `9af25ce` feat(features): QUERY-002 FeatureEngine 协议 + 5 个 P0 特征（D07 §2）（2026-09-21 主会话直执，交付物 + 任务单 + 台账独立成笔）
 
 ## 执行记录
 
