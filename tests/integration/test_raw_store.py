@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import time
 from datetime import UTC, datetime
 
 import pytest
@@ -757,3 +758,188 @@ class TestIntegration:
             # 所有记录使用同一个 batch_id（每次 append 调用生成一个）
             assert ref.ingest_batch_id is not None
             assert ref.fetched_at == test_cases[i]["fetched_at"]
+
+
+# ── Batch fsync tests（READY-002 / SR-09）─────────────────────────────
+
+
+class TestBatchFsync:
+    """常驻句柄 + 按批 fsync（durable boundary 契约，READY-002）。"""
+
+    @staticmethod
+    def _count_fsync(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+        """替换 os.fsync 为计数包装（真实 fsync 仍执行）。"""
+        calls: list[int] = []
+        real_fsync = os.fsync
+
+        def counting_fsync(fd: int) -> int:
+            calls.append(fd)
+            return real_fsync(fd)
+
+        monkeypatch.setattr(os, "fsync", counting_fsync)
+        return calls
+
+    def test_single_fsync_per_append_call(self, tmp_stores, monkeypatch) -> None:
+        """Given 逐行 fsync 基线 When 一次 append 100 行 Then 仅 1 次 fsync（调用边界）。"""
+        calls = self._count_fsync(monkeypatch)
+        store = RawStore(str(tmp_stores.data_dir))
+
+        now = datetime(2026, 9, 11, 12, 0, 0)
+        batches = [
+            _make_batch(fetched_at=now, ingest_timestamp=now, payload=f"item_{i}".encode())
+            for i in range(100)
+        ]
+        store.append("src", "ds", batches)
+        assert len(calls) == 1
+
+        # 第二次 append 调用 → 再 1 次
+        store.append("src", "ds", batches[:5])
+        assert len(calls) == 2
+
+    def test_per_partition_fsync_in_one_call(self, tmp_stores, monkeypatch) -> None:
+        """单次 append 跨两个日期分区 → 每个脏句柄各 fsync 1 次。"""
+        calls = self._count_fsync(monkeypatch)
+        store = RawStore(str(tmp_stores.data_dir))
+
+        batches = [
+            _make_batch(
+                fetched_at=datetime(2026, 9, 11, 22, 0, 0),
+                ingest_timestamp=datetime(2026, 9, 11, 22, 0, 0),
+                payload=b"day11",
+            ),
+            _make_batch(
+                fetched_at=datetime(2026, 9, 12, 1, 0, 0),
+                ingest_timestamp=datetime(2026, 9, 12, 1, 0, 0),
+                payload=b"day12",
+            ),
+        ]
+        store.append("src", "ds", batches)
+        assert len(calls) == 2
+
+    def test_fsync_every_n_intermediate_points(self, tmp_stores, monkeypatch) -> None:
+        """Given fsync_every_n=10 When 一次 append 25 行 Then fsync 3 次
+        （第 10/20 行中间点 + 调用边界收尾），durable boundary = 25 行。"""
+        calls = self._count_fsync(monkeypatch)
+        store = RawStore(str(tmp_stores.data_dir), fsync_every_n=10)
+
+        now = datetime(2026, 9, 11, 12, 0, 0)
+        batches = [
+            _make_batch(fetched_at=now, ingest_timestamp=now, payload=f"item_{i}".encode())
+            for i in range(25)
+        ]
+        store.append("src", "ds", batches)
+        assert len(calls) == 3
+
+    def test_flush_batch_idempotent_after_append(self, tmp_stores, monkeypatch) -> None:
+        """GWT-1：append 返回即 durable → flush_batch 幂等（无新增 fsync），
+        该批数据完整可读，cursor 可安全推进。"""
+        calls = self._count_fsync(monkeypatch)
+        store = RawStore(str(tmp_stores.data_dir))
+
+        now = datetime(2026, 9, 11, 12, 0, 0)
+        batches = [
+            _make_batch(fetched_at=now, ingest_timestamp=now, payload=f"item_{i}".encode())
+            for i in range(5)
+        ]
+        refs = store.append("src", "ds", batches)
+        assert len(calls) == 1
+
+        store.flush_batch()
+        assert len(calls) == 1  # 无未落盘写入 → 幂等
+
+        # 数据完整可读（durable boundary 内）
+        read_refs = list(store.iter_refs("src", "ds"))
+        assert len(read_refs) == 5
+        assert [r.payload for r in read_refs] == [r.payload for r in refs]
+
+    def test_append_durable_visible_to_new_reader(self, tmp_stores) -> None:
+        """append() 返回 ⇒ 数据已 flush+fsync：全新 RawStore 实例（独立
+        句柄）立即可读回全部行（durable boundary 判定点契约）。"""
+        store = RawStore(str(tmp_stores.data_dir))
+        now = datetime(2026, 9, 11, 12, 0, 0)
+        batches = [
+            _make_batch(fetched_at=now, ingest_timestamp=now, payload=f"item_{i}".encode())
+            for i in range(30)
+        ]
+        store.append("src", "ds", batches)
+
+        fresh = RawStore(str(tmp_stores.data_dir))
+        assert len(list(fresh.iter_refs("src", "ds"))) == 30
+
+    def test_rollover_switches_resident_handle(self, tmp_stores) -> None:
+        """10000 行滚动新建文件时同步切换常驻句柄：旧文件整 10000 行，
+        新文件 line_no 从 1 起，跨文件读回完整。"""
+        store = RawStore(str(tmp_stores.data_dir))
+        now = datetime(2026, 9, 11, 12, 0, 0)
+
+        batches_1 = [
+            _make_batch(fetched_at=now, ingest_timestamp=now, payload=f"a_{i}".encode())
+            for i in range(10000)
+        ]
+        refs_1 = store.append("src", "ds", batches_1)
+        file_1 = refs_1[0].file_path
+
+        batches_2 = [
+            _make_batch(fetched_at=now, ingest_timestamp=now, payload=f"b_{i}".encode())
+            for i in range(3)
+        ]
+        refs_2 = store.append("src", "ds", batches_2)
+
+        assert refs_2[0].file_path != file_1
+        assert refs_2[0].line_no == 1
+        assert len(list(store.iter_refs("src", "ds"))) == 10003
+
+    def test_close_then_append_reopens(self, tmp_stores) -> None:
+        """close() 后再 append：重新打开句柄，行号延续、数据完整。"""
+        store = RawStore(str(tmp_stores.data_dir))
+        now = datetime(2026, 9, 11, 12, 0, 0)
+
+        refs_1 = store.append(
+            "src", "ds", [_make_batch(fetched_at=now, ingest_timestamp=now, payload=b"first")]
+        )
+        store.close()
+
+        refs_2 = store.append(
+            "src", "ds", [_make_batch(fetched_at=now, ingest_timestamp=now, payload=b"second")]
+        )
+        assert refs_2[0].line_no == 2
+        assert refs_2[0].file_path == refs_1[0].file_path
+        assert len(list(store.iter_refs("src", "ds"))) == 2
+
+    def test_duplicate_append_allowed_for_replay_convergence(self, tmp_stores) -> None:
+        """GWT-2（raw 侧语义）：crash 后重放同批数据 → raw 允许重复行，
+        iter_refs 逐行可回读；幂等由 canonical upsert 按 natural key 收敛
+        （D03 §3，由 STORAGE-003 既有测试覆盖）。"""
+        store = RawStore(str(tmp_stores.data_dir))
+        now = datetime(2026, 9, 11, 12, 0, 0)
+        batches = [
+            _make_batch(fetched_at=now, ingest_timestamp=now, payload=b"replayed")
+        ]
+
+        store.append("src", "ds", batches)
+        store.append("src", "ds", batches)  # 重放 → 重复行允许
+
+        read_refs = list(store.iter_refs("src", "ds"))
+        assert len(read_refs) == 2
+        assert all(r.payload == b"replayed" for r in read_refs)
+        assert [r.line_no for r in read_refs] == [1, 2]
+
+    def test_throughput_fsync_count_order_of_magnitude(self, tmp_stores, monkeypatch) -> None:
+        """吞吐治理（SR-09 数量级验证）：20 万行单次 append 仅 1 次 fsync
+        （逐行 fsync 基线为 20 万次，≥5 个数量级削减）；墙钟 sanity < 60s。"""
+        calls = self._count_fsync(monkeypatch)
+        store = RawStore(str(tmp_stores.data_dir))
+
+        now = datetime(2026, 9, 11, 12, 0, 0)
+        batches = [
+            _make_batch(fetched_at=now, ingest_timestamp=now, payload=f"item_{i}".encode())
+            for i in range(200_000)
+        ]
+
+        t0 = time.perf_counter()
+        refs = store.append("src", "ds", batches)
+        elapsed = time.perf_counter() - t0
+
+        assert len(refs) == 200_000
+        assert len(calls) == 1
+        assert elapsed < 60

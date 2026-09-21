@@ -10,9 +10,12 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import subprocess
 import sys
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -188,3 +191,144 @@ class TestCorruptedCheckpoint:
             advance_cursor(
                 "not-a-cursor", ChunkResult(chunk=chunk, success=True)
             )
+
+
+class TestRawFsyncCrash:
+    """READY-002：RawStore 批量 fsync 的 crash 窗口语义（SR-09）。
+
+    子进程写入中途 os._exit(1) 模拟进程崩溃；durable boundary 不变量：
+    已 fsync 边界内数据完整可读，fsync 前窗口内允许丢失，但行数与
+    boundary 一致、无 torn line。
+    """
+
+    @staticmethod
+    def _crash_child_script() -> str:
+        """子进程脚本：fsync_every_n=10 写 25 行，在第 1 个 fsync 点
+        （fsync 系统调用生效前）硬崩溃。data_dir 经 argv[1] 传入。"""
+        return """
+import os
+import sys
+from datetime import datetime
+
+import chronoforge.storage.raw as raw_mod
+
+
+def crash_before_fsync(fd):
+    # _sync_handle 已 flush（本批行进入 page cache），fsync 尚未生效
+    os._exit(1)
+
+
+os.fsync = crash_before_fsync
+store = raw_mod.RawStore(sys.argv[1], fsync_every_n=10)
+items = []
+for i in range(25):
+    items.append({
+        "url": "https://example.com/data.json",
+        "payload": ("row_%d" % i).encode(),
+        "fetched_at": datetime(2026, 9, 21, 12, 0, 0),
+        "ingest_batch_id": "b1",
+        "ingest_timestamp": datetime(2026, 9, 21, 12, 0, 0),
+    })
+store.append("src", "ds", items)
+os._exit(0)  # 不可达：append 内首个 fsync 点即崩溃
+"""
+
+    def _read_raw_lines(self, data_dir: Path) -> tuple[Path, list[str]]:
+        """读取子进程落盘的唯一 jsonl 文件，返回 (路径, 非空行列表)。"""
+        files = sorted((data_dir / "raw" / "src" / "ds").glob("ingest_date=*/*.jsonl"))
+        assert len(files) == 1
+        text = files[0].read_text(encoding="utf-8")
+        return files[0], [ln for ln in text.splitlines() if ln]
+
+    def test_crash_before_fsync_boundary_consistent(self, tmp_stores) -> None:
+        """GWT-2：fsync 前崩溃 → 可读行数 = durable boundary（10 行），
+        全部完整可解析、无 torn line；丢失行（11~25）均在 boundary 之外。"""
+        result = subprocess.run(
+            [sys.executable, "-c", self._crash_child_script(), str(tmp_stores.data_dir)],
+            capture_output=True,
+            timeout=30,
+        )
+        assert result.returncode == 1  # 确实在 fsync 点崩溃
+
+        file_path, lines = self._read_raw_lines(tmp_stores.data_dir)
+        # durable boundary = 第 1 个 fsync 点 = 10 行；page cache 中恰好
+        # 保留 boundary 内的行（flush 已执行），窗口内行未越界落盘
+        assert len(lines) == 10
+        assert file_path.read_bytes().endswith(b"\n")  # 无 torn line
+        for ln in lines:
+            record = json.loads(ln)  # 全部完整可解析
+            assert record["ingest_batch_id"] == "b1"
+
+    def test_crash_after_flush_batch_data_complete(self, tmp_stores) -> None:
+        """GWT-1：chunk 内 append 完成 + flush_batch 后 crash → 该批数据
+        完整可读，cursor 可安全推进（checkpoint 只会越过已 fsync 边界）。"""
+        script = """
+import os
+import sys
+from datetime import datetime
+
+from chronoforge.storage.raw import RawStore
+
+store = RawStore(sys.argv[1], fsync_every_n=10)
+items = []
+for i in range(25):
+    items.append({
+        "url": "https://example.com/data.json",
+        "payload": ("row_%d" % i).encode(),
+        "fetched_at": datetime(2026, 9, 21, 12, 0, 0),
+        "ingest_batch_id": "b1",
+        "ingest_timestamp": datetime(2026, 9, 21, 12, 0, 0),
+    })
+store.append("src", "ds", items)
+store.flush_batch()
+os._exit(1)  # flush + fsync 完成后崩溃
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", script, str(tmp_stores.data_dir)],
+            capture_output=True,
+            timeout=30,
+        )
+        assert result.returncode == 1
+
+        _file_path, lines = self._read_raw_lines(tmp_stores.data_dir)
+        assert len(lines) == 25  # 全批 durable
+        for i, ln in enumerate(lines):
+            record = json.loads(ln)
+            assert record["payload"] == base64.b64encode(
+                f"row_{i}".encode()
+            ).decode("ascii")
+
+        # cursor 可安全推进：新 RawStore 实例（模拟重启）读回 boundary 内全部行
+        fresh = RawStore(str(tmp_stores.data_dir))
+        assert len(list(fresh.iter_refs("src", "ds"))) == 25
+
+    def test_crash_then_replay_duplicates_converge(self, tmp_stores) -> None:
+        """GWT-2（重放收敛）：fsync 前崩溃后重放同批数据 → 重放行落盘
+        （新文件），raw 允许重复行，幂等由 canonical upsert 收敛（D03 §3）。"""
+        result = subprocess.run(
+            [sys.executable, "-c", self._crash_child_script(), str(tmp_stores.data_dir)],
+            capture_output=True,
+            timeout=30,
+        )
+        assert result.returncode == 1
+
+        # 上游 chunk 重试重放同批 25 行（新 RawStore 实例 = 新句柄/新文件）
+        store = RawStore(str(tmp_stores.data_dir))
+        items = []
+        for i in range(25):
+            items.append(
+                {
+                    "url": "https://example.com/data.json",
+                    "payload": f"row_{i}".encode(),
+                    "fetched_at": datetime(2026, 9, 21, 12, 0, 0),
+                    "ingest_batch_id": "b1",
+                    "ingest_timestamp": datetime(2026, 9, 21, 12, 0, 0),
+                }
+            )
+        store.append("src", "ds", items)
+
+        # 重放批完整 durable（25 行）+ 崩溃批 boundary 内 10 行 = 35 行可读
+        read_refs = list(store.iter_refs("src", "ds"))
+        assert len(read_refs) == 35
+        payloads = [r.payload for r in read_refs]
+        assert payloads.count(b"row_0") == 2  # 重复行允许，幂等由 upsert 收敛
