@@ -230,7 +230,7 @@ DoD 逐项勾选（howto §43）：
 
 接管性抽查：模块 docstring 完整陈述六规则与只读契约；query() 内联注释逐条标注规则编号（规则 1~6 与 D07 §1 一一对应）；D-1~D-7 决策均给出设计依据，陌生 Agent 仅凭任务单 + D07 §1 + 本记录可接管维护。**通过**。
 
-git commit：**PENDING**（git 因 Xcode 许可证未接受不可用；建议许可接受后执行 `feat(research): QUERY-001 DuckDBQueryService with as-of/injection-defense/read-only/stable-order`）
+git commit：**DONE** — `2ffe43f` feat(research): QUERY-001 DuckDBQueryService 读侧查询（D07 §1）（2026-09-21 Xcode 许可证已接受，两周积压按域分 10 笔补提交，本任务交付物独立成笔）
 
 ## 执行记录
 
