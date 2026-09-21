@@ -30,7 +30,7 @@ QUALITY_STATUSES = ("VALID", "SUSPECT", "INVALID")
 #: OHLCV interval 枚举（D02 §2 market.py）
 INTERVALS = ("1m", "5m", "1h", "1d")
 #: 非法 interval 取值池（ohlcv_invalid 用，与 INTERVALS 不相交）
-ILLEGAL_INTERVALS = ("1s", "2m", "15m", "3h", "1w")
+ILLEGAL_INTERVALS = ("1s", "2m", "3h", "10m", "1M")
 #: D04 §4 各源的 source_id（source_registry.source_id 形态）
 SOURCES = (
     "binance_spot",

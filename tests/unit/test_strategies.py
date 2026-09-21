@@ -53,7 +53,8 @@ def _assert_violation_matches(record: dict[str, Any], reason: str) -> None:
 @given(ohlcv())
 @settings(max_examples=1000)
 def test_ohlcv_keys_finite_and_invariants(record: dict[str, Any]) -> None:
-    """INFRA-SELF-01 ohlcv() 千例含全部必填键、数值 finite 且 OHLC 不变量成立"""
+    """TC-PROP-003/INFRA-SELF-01 ohlcv() 千例含全部必填键、数值 finite
+    且 OHLC 不变量成立（low ≤ min(o,c) ∧ max(o,c) ≤ high ∧ volume ≥ 0）"""
     assert set(record) == _OHLCV_REQUIRED_KEYS
     for field in PRICE_FIELDS:
         value = record[field]
@@ -151,3 +152,38 @@ def test_conftest_env_isolation(tmp_stores: Any) -> None:
     assert os.environ["CHRONOFORGE_META_DIR"] == str(tmp_stores.meta_dir)
     assert tmp_stores.data_dir.is_dir()
     assert tmp_stores.meta_dir.is_dir()
+
+
+# ── TC-PROP-001: dedup 幂等律（D09 §3）─────────────────────────────────
+
+
+def _table_from_records(records: list[dict[str, Any]]):
+    """将 dict 列表转为 PyArrow Table（列转置）。"""
+    import pyarrow as pa
+
+    cols: dict[str, list[Any]] = {}
+    for rec in records:
+        for k, v in rec.items():
+            cols.setdefault(k, []).append(v)
+    return pa.table(cols)
+
+
+@settings(max_examples=50, deadline=None)
+@given(st.lists(ohlcv(), min_size=1, max_size=30))
+def test_dedup_idempotent_law(records: list[dict[str, Any]]) -> None:
+    """TC-PROP-001 dedup 幂等律：dedup(dedup(X)) == dedup(X)（任意记录序列）"""
+    from chronoforge.storage.canonical import CanonicalStoreImpl
+
+    # _dedup_by_columns 为无状态纯表操作，__new__ 跳过 __post_init__
+    # （无需 data_dir；hypothesis given 测试不接受 pytest fixture 参数）
+    store = CanonicalStoreImpl.__new__(CanonicalStoreImpl)
+    table = _table_from_records(records)
+    for nk_cols in (
+        ["market_id", "event_time", "interval"],
+        ["market_id", "event_time"],
+    ):
+        once = store._dedup_by_columns(table, nk_cols)
+        twice = store._dedup_by_columns(once, nk_cols)
+        assert twice.equals(once, check_metadata=False)
+        # 行数不超过输入（去重只减不增）
+        assert once.num_rows <= table.num_rows
