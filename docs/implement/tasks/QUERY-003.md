@@ -257,7 +257,7 @@ DoD 逐项勾选（howto §43）：
 
 接管性抽查：snapshot.py 模块 docstring 完整陈述 D07 §3 契约、output_hash 序列化语义、迁移编号顺延原因与错误模型；compute/reproduce 步骤注释对齐任务单伪代码；D-1~D-8 均给出设计依据；陌生 Agent 仅凭任务单 + D07 §3 + 本记录可接管维护。**通过**。
 
-git commit：PENDING（feat(research) 交付物已提交，回填中）
+git commit：**DONE** — `3e006cc` feat(research): QUERY-003 ResearchSnapshot 与复现（D07 §3）（2026-09-21 主会话直执，交付物独立成笔；验收记录 e79ab45）
 
 ## 执行记录
 
