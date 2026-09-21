@@ -45,7 +45,7 @@
 | DATA-SOURCE-007 | L3 | sec_edgar | DONE | 2026-09-12 | 2026-09-18 | [tasks/DATA-SOURCE-007.md](tasks/DATA-SOURCE-007.md) |
 | PIPELINE-001 | L4 | Runner 七阶段 | DONE | 2026-09-12 | 2026-09-20 | [tasks/PIPELINE-001.md](tasks/PIPELINE-001.md) |
 | QUERY-001 | L4 | QueryService | DONE | 2026-09-12 | 2026-09-21 | [tasks/QUERY-001.md](tasks/QUERY-001.md) |
-| QUERY-002 | L5 | FeatureEngine | READY | 2026-09-12 | | [tasks/QUERY-002.md](tasks/QUERY-002.md) |
+| QUERY-002 | L5 | FeatureEngine | DONE | 2026-09-12 | 2026-09-21 | [tasks/QUERY-002.md](tasks/QUERY-002.md) |
 | QUERY-003 | L5 | ResearchSnapshot | READY | 2026-09-12 | | [tasks/QUERY-003.md](tasks/QUERY-003.md) |
 | CLI-001 | L6 | 命令树/Settings/脱敏 | READY | 2026-09-12 | | [tasks/CLI-001.md](tasks/CLI-001.md) |
 
@@ -101,6 +101,8 @@
 | 2026-09-20 | 派发 PIPELINE-001（Coding-Agent-P 子会话执行） | L4；依赖 ACQUISITION-002、STORAGE-001/002/003/005、VALIDATION-001、DATA-SOURCE-001~007 均已 DONE；file_ownership 独占 pipeline/{runner,state,replay,__init__}.py + tests/integration/test_pipeline.py；Agent 不执行 git |
 | 2026-09-20 | PIPELINE-001 验收通过 → DONE | runner/state/replay/__init__ 四文件 + 31 集成测试（TC-P-001~011 全组 + 锁互斥 + drift 落盘，含参数化共 38 用例）；GWT 逐条核对通过（GWT-3 derived 层登记 DEF-005 依赖 QUERY-002）；偏差裁决入档（DEVIATION-1 replay run_id 前缀、DEC-F0 首 chunk 失败→FAILED 等 8 项）；复跑：31 passed，全量 **1212 passed / 0 failed**，ruff All checks passed，mypy strict（pipeline 6 文件）0 issues，lint-imports 1 broken 为存量问题（0 处涉及 pipeline）；git commit PENDING（Xcode 许可证未接受） |
 | 2026-09-21 | QUERY-001 主会话直执并验收通过 → DONE | research/query.py（六规则：视图选择/时间列/as-of/白名单/投影/稳定排序）+ research/__init__.py（__all__）+ test_query.py 22 用例（TC-R-001/002/003 + 边界 + 稳定排序）；决策 D-1~D-7 入档（DatasetRegistry 读侧最小接口定义于 research/query.py、dataset_version 经 run_log 推导替代未派发的迁移 0003、时间列取 D02 §4 矩阵、asof 缺省=now() 走点时视图等）；复跑：22 passed，全量 **1234 passed / 0 failed**，ruff All checks passed，mypy Success（56 文件），lint-imports 1 broken 为存量问题（0 处涉及 research）；git commit PENDING（Xcode 许可证未接受） |
+| 2026-09-21 | 两周积压按域分 10 笔补提交完成（Xcode 许可证已接受） | 8d347c6(model)→a021c1b(storage)→c4da48a(acquisition)→6aa7492(data-source)→c7cd885(quality)→b67d15a(pipeline)→2ffe43f(research: QUERY-001)→969f60d(config)→353b27d(docs: implement)→ecdf377(chore)；QUERY-001 git commit PENDING→DONE（8fa86e5）；清理误存 index.html |
+| 2026-09-21 | QUERY-002 主会话直执并验收通过 → DONE | features/engine.py（FeatureEngine 协议 + FeatureRegistry + FeatureResult.output_hash + register 构造注入）+ features/builtin.py（5 个 P0 特征：returns/realized_vol/iv_surface/funding_oi_divergence/btc_market_stress）+ features/__init__.py（`__all__`）+ test_features.py 26 用例（GWT 双条 + 黄金值 + 确定性/replay hash + 注册中心 + realized_vol→stress 特征链闭环）；决策 D-1~D-8 入档（compute 返回 FeatureResult、写连接构造注入、版本语义同 QUERY-001 D-2、QueryServiceLike 同层协议、IV strike/expiry 自 instrument_id 镜像解析、stress 并集网格 + 行级可用分量归一替代伪代码缺陷等）；复跑：26 passed，全量 **1260 passed / 0 failed**，ruff features scope All checks passed，mypy Success（58 文件），lint-imports 无新增违规（存量 2 处 broken：models.reference 与 quality.rules → exceptions → connectors.errors 传递链；另存量 2 处 pipeline I001 import 排序随补提交引入，均 0 处涉及 features）；git commit PENDING |
 
 ## 3. Design Issue 登记
 
@@ -117,4 +119,4 @@
 | DEF-002 | 2026-09-11 | INFRA-001 | conftest 的 settings fixture（Settings 类） | CLI-001 | OPEN |
 | DEF-003 | 2026-09-11 | MODEL-001 | TC-M-001/002 的 OHLCV 实例断言 | MODEL-002 | CLOSED（2026-09-20：TC-M-001 tests/unit/test_market_types.py::test_ohlcv_valid；TC-M-002 ::test_ohlcv_high_lt_low_rejected） |
 | DEF-004 | 2026-09-11 | INFRA-001 | CI 覆盖率门槛启用 | 首个业务逻辑任务 | OPEN |
-| DEF-005 | 2026-09-20 | PIPELINE-001 | GWT-3 derived 层：replay("derived") 输出与原快照逐字节一致（当前 NotImplementedError） | QUERY-002（FeatureEngine） | OPEN |
+| DEF-005 | 2026-09-20 | PIPELINE-001 | GWT-3 derived 层：replay("derived") 输出与原快照逐字节一致（当前 NotImplementedError） | QUERY-002（FeatureEngine） | OPEN（依赖 QUERY-002 已 DONE（2026-09-21），待 PIPELINE-001 接线 FeatureEngine.recompute 后复核） |
