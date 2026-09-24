@@ -234,6 +234,49 @@ class TestNormalizeHappy:
         conn.close()
 
 
+class TestSeriesIdFallback:
+    """回归：真实 FRED observations 响应不回显 series_id → 从 raw_meta 回退。
+
+    旧代码 payload.get("series_id", "") → source_id="" → SchemaError
+    （NK 首列 source_id 为空）。
+    """
+
+    def test_series_id_from_raw_meta_when_payload_missing(self) -> None:
+        """payload 无 series_id 时用 raw_meta。"""
+        obs_data = _load_fixture("happy.json")
+        obs_data.pop("series_id", None)  # 模拟真实 API：不回显 series_id
+
+        conn, _ = _create_mock_connector(obs_data)
+        raw = RawBatch(
+            endpoint="/series/observations",
+            payload=obs_data,
+            raw_meta={"series_id": "DGS10"},
+        )
+        records = conn.normalize(raw)
+
+        assert len(records) > 0
+        assert all(r.source_id == "DGS10" for r in records)
+        assert all(r.source_id != "" for r in records)
+        conn.close()
+
+    def test_payload_series_id_takes_precedence(self) -> None:
+        """payload 显式提供 series_id 时优先。"""
+        obs_data = _load_fixture("happy.json")
+        obs_data["series_id"] = "EXPLICIT"
+
+        conn, _ = _create_mock_connector(obs_data)
+        raw = RawBatch(
+            endpoint="/series/observations",
+            payload=obs_data,
+            raw_meta={"series_id": "DGS10"},
+        )
+        records = conn.normalize(raw)
+
+        assert len(records) > 0
+        assert all(r.source_id == "EXPLICIT" for r in records)
+        conn.close()
+
+
 # ── TC-M-007: 双 vintage 并存 ────────────────────────────────────────
 
 

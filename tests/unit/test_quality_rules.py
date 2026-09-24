@@ -278,6 +278,53 @@ class TestQSchema001:
         findings = rule.check([rec], CanonicalType.OHLCV)
         assert len(findings) == 0
 
+    def test_skips_unmodeled_types(self):
+        """无对应 Pydantic 模型的类型（ORDERBOOK 等）→ 跳过而非误报。
+
+        回归：binance_futures_open_interest 曾因 _build_record 抛
+        "Unknown canonical type" 被 Q-SCHEMA-001 误报 ERROR 并阻断。
+        """
+        rule = get_rule("Q-SCHEMA-001")
+        assert rule.check([{"foo": "bar"}], CanonicalType.ORDERBOOK) == []
+        assert rule.check([], CanonicalType.DOCUMENT) == []
+
+    def test_open_interest_valid_no_finding(self):
+        """valid OPEN_INTEREST → 无 finding（模型校验通过）。"""
+        now = datetime.now(UTC)
+        rec = {
+            "schema_version": "v1",
+            "source": "test",
+            "source_id": "BTC-PERPETUAL",
+            "source_timestamp": now,
+            "ingest_timestamp": now,
+            "raw_record_id": "test:oi:0",
+            "market_id": "DERIBIT:BTC-PERPETUAL",
+            "event_time": now,
+            "open_interest": 100.0,
+            "unit": "BTC",
+        }
+        rule = get_rule("Q-SCHEMA-001")
+        assert rule.check([rec], CanonicalType.OPEN_INTEREST) == []
+
+    def test_open_interest_invalid_triggers(self):
+        """open_interest < 0 → Pydantic 校验失败 → 1 finding。"""
+        now = datetime.now(UTC)
+        rec = {
+            "schema_version": "v1",
+            "source": "test",
+            "source_id": "BTC-PERPETUAL",
+            "source_timestamp": now,
+            "ingest_timestamp": now,
+            "raw_record_id": "test:oi:0",
+            "market_id": "DERIBIT:BTC-PERPETUAL",
+            "event_time": now,
+            "open_interest": -1.0,
+            "unit": "BTC",
+        }
+        rule = get_rule("Q-SCHEMA-001")
+        findings = rule.check([rec], CanonicalType.OPEN_INTEREST)
+        assert len(findings) == 1
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Q-PROV-001

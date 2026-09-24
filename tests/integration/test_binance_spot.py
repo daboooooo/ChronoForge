@@ -743,6 +743,109 @@ class TestPagination:
         conn.close()
 
 
+class TestAggTradesWindowPagination:
+    """aggTrades 窗口分页回归（-1128/-1100 修复）。
+
+    Binance 约束：fromId 与 startTime/endTime 组合非法。
+    - ISO cursor / None → 时间窗口（startTime/endTime）
+    - 纯数字 cursor → fromId-only
+    - 翻页统一 fromId-only，末页 T >= endTime 时客户端截断
+    """
+
+    def _make_record(self, agg_id: int, trade_ms: int) -> dict:
+        return {
+            "a": agg_id,
+            "p": "0.01500000",
+            "q": "50.00000000",
+            "T": trade_ms,
+            "m": False,
+            "M": True,
+        }
+
+    def test_iso_cursor_uses_time_window(self) -> None:
+        """ISO cursor（pipeline checkpoint）→ startTime/endTime 路径，非 fromId。"""
+        conn, mock_client = _create_mock_connector()
+        mock_client.get.return_value = _mock_response(200, [])  # 空页 → 首次调用后停止
+        start = datetime(2026, 9, 1, 0, 0, 0)
+        end = datetime(2026, 9, 1, 1, 0, 0)
+        req = FetchRequest(
+            dataset_id="test",
+            params={"symbol": "BTCUSDT", "data_type": "aggregate"},
+            start=start,
+            end=end,
+            cursor="2026-09-01T00:00:00",  # ISO 字符串
+        )
+        list(conn.fetch(req))
+
+        params = mock_client.get.call_args_list[0][1]["params"]
+        assert "fromId" not in params
+        assert params["startTime"] == int(start.timestamp() * 1000)
+        assert params["endTime"] == int(end.timestamp() * 1000)
+        conn.close()
+
+    def test_numeric_cursor_uses_from_id_only(self) -> None:
+        """纯数字 cursor → fromId-only，不带时间参数（-1128）。"""
+        conn, mock_client = _create_mock_connector()
+        mock_client.get.return_value = _mock_response(200, [])  # 空页 → 首次调用后停止
+        req = FetchRequest(
+            dataset_id="test",
+            params={"symbol": "BTCUSDT", "data_type": "aggregate"},
+            start=None,
+            end=None,
+            cursor="26131",
+        )
+        list(conn.fetch(req))
+
+        params = mock_client.get.call_args_list[0][1]["params"]
+        assert params["fromId"] == "26131"
+        assert "startTime" not in params
+        assert "endTime" not in params
+        conn.close()
+
+    def test_pagination_switches_to_from_id_and_stops_at_end(self) -> None:
+        """窗口首页 → 翻页 fromId-only → 末页 T >= endTime 停止。"""
+        start = datetime(2026, 9, 1, 0, 0, 0)
+        end = datetime(2026, 9, 1, 1, 0, 0)
+        end_ms = int(end.timestamp() * 1000)
+        page1 = [
+            self._make_record(100, end_ms - 60_000),
+            self._make_record(101, end_ms - 30_000),
+        ]
+        # 末页最后一条越过 endTime → 截断停止
+        page2 = [self._make_record(102, end_ms + 60_000)]
+
+        mock_client = _mock_client([
+            _mock_response(200, page1, url="https://api.binance.com/api/v3/aggTrades"),
+            _mock_response(200, page2, url="https://api.binance.com/api/v3/aggTrades?fromId=102"),
+        ])
+        with patch.object(
+            BinanceSpotConnector, "__init__", lambda self, s: None
+        ):
+            conn = BinanceSpotConnector.__new__(BinanceSpotConnector)
+            conn._client = mock_client
+            conn._rate_limiter = MagicMock()
+
+        req = FetchRequest(
+            dataset_id="test",
+            params={"symbol": "BTCUSDT", "data_type": "aggregate"},
+            start=start,
+            end=end,
+            cursor=None,
+        )
+        batches = list(conn.fetch(req))
+
+        assert len(batches) == 2
+        call_args = mock_client.get.call_args_list
+        # 恰好 2 次调用（末页越过 endTime 后不再翻页）
+        assert len(call_args) == 2
+        # 翻页请求为 fromId-only
+        params2 = call_args[1][1]["params"]
+        assert params2["fromId"] == "102"
+        assert "startTime" not in params2
+        assert "endTime" not in params2
+        conn.close()
+
+
 # ── checkpoint_from ────────────────────────────────────────────────────
 
 

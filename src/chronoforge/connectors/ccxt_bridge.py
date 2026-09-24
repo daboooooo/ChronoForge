@@ -16,6 +16,7 @@ market_id 格式：CCXT-{EX}:{symbol}:{type}
 from __future__ import annotations
 
 import math
+import os
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -179,6 +180,17 @@ class CcxtBridgeConnector(DataConnector):
         exchange_class = getattr(ccxt, exchange_id, None)
         if exchange_class is None:
             raise ValueError(f"ccxt: unknown exchange '{exchange_id}'")
+
+        # 代理支持：ccxt 不读环境代理变量，需显式 proxies
+        # （okx 等需代理才能访问的源依赖 HTTPS_PROXY/HTTP_PROXY）
+        proxy = (
+            os.environ.get("HTTPS_PROXY")
+            or os.environ.get("https_proxy")
+            or os.environ.get("HTTP_PROXY")
+            or os.environ.get("http_proxy")
+        )
+        if proxy:
+            config["proxies"] = {"http": proxy, "https": proxy}
 
         return exchange_class(config)
 
@@ -559,7 +571,10 @@ class CcxtBridgeConnector(DataConnector):
         now = datetime.now(UTC).replace(tzinfo=None)
 
         # interval 是 OHLCV 身份键组成部分（D02 §2 L43），缺失/非法必须熔断
-        timeframe_raw = (raw_meta or {}).get("timeframe")
+        # replay 场景 raw_meta 由 dataset params 补齐，键名为 interval
+        timeframe_raw = (raw_meta or {}).get("timeframe") or (
+            raw_meta or {}
+        ).get("interval")
         if not timeframe_raw:
             raise ValueError("ccxt_bridge: timeframe missing in raw_meta for fetchOHLCV")
         try:
@@ -570,16 +585,28 @@ class CcxtBridgeConnector(DataConnector):
             ) from e
 
         for candle in payload:
-            if not isinstance(candle, (list, tuple)) or len(candle) < 7:
+            if not isinstance(candle, (list, tuple)):
                 continue
 
-            timestamp_ms = int(candle[0])
-            # ccxt format: [timestamp, datetime_str, open, high, low, close, volume]
-            open_val = float(candle[2])
-            high_val = float(candle[3])
-            low_val = float(candle[4])
-            close_val = float(candle[5])
-            volume_val = float(candle[6])
+            # ccxt 统一格式为 6 元素: [ts, open, high, low, close, volume]
+            # 兼容 7 元素变体（部分交易所在 ts 后附带 datetime 字符串）
+            if len(candle) == 6:
+                timestamp_ms = int(candle[0])
+                open_val = float(candle[1])
+                high_val = float(candle[2])
+                low_val = float(candle[3])
+                close_val = float(candle[4])
+                volume_val = float(candle[5])
+            elif len(candle) >= 7:
+                timestamp_ms = int(candle[0])
+                # ccxt format: [timestamp, datetime_str, open, high, low, close, volume]
+                open_val = float(candle[2])
+                high_val = float(candle[3])
+                low_val = float(candle[4])
+                close_val = float(candle[5])
+                volume_val = float(candle[6])
+            else:
+                continue
 
             # ms → us ×1000 for storage
             event_time = datetime.fromtimestamp(
@@ -597,7 +624,12 @@ class CcxtBridgeConnector(DataConnector):
 
             ex_upper = self.exchange_id.upper()
             if symbol:
-                market_id = f"CCXT-{ex_upper}:{symbol}:SPOT"
+                # ccxt 原生符号含 "/"（BTC/USDT），会破坏 canonical 的
+                # entity={market_id} 单路径段分区约定；与项目跨源命名
+                # （BINANCE:BTCUSDT:SPOT）对齐，统一去掉斜杠
+                market_id = (
+                    f"CCXT-{ex_upper}:{symbol.replace('/', '')}:SPOT"
+                )
             else:
                 market_id = f"CCXT-{ex_upper}:UNKNOWN:SPOT"
 
@@ -669,7 +701,12 @@ class CcxtBridgeConnector(DataConnector):
                 ).replace(tzinfo=None)
 
                 symbol = trade.get("symbol", "")
-                market_id = f"CCXT-{self.exchange_id.upper()}:{symbol}:SPOT" if symbol else ""
+                market_id = (
+                    f"CCXT-{self.exchange_id.upper()}:"
+                    f"{symbol.replace('/', '')}:SPOT"
+                    if symbol
+                    else ""
+                )
 
                 record = TRADE(
                     schema_version="1.0",
@@ -698,7 +735,12 @@ class CcxtBridgeConnector(DataConnector):
         try:
             now = datetime.now(UTC).replace(tzinfo=None)
             symbol = payload.get("symbol", "")
-            market_id = f"CCXT-{self.exchange_id.upper()}:{symbol}:SPOT" if symbol else ""
+            market_id = (
+                f"CCXT-{self.exchange_id.upper()}:"
+                f"{symbol.replace('/', '')}:SPOT"
+                if symbol
+                else ""
+            )
 
             last_price = float(payload.get("last", 0))
             bid = float(payload.get("bid", 0))

@@ -1028,3 +1028,23 @@ class TestGWT:
             assert inst["instrument_id"] is not None
             assert inst["market_id"] is not None
         conn.close()
+
+
+class TestBaseUrlNormalization:
+    """base_url 回归：注册表 base_url 带 /api/v2 后缀 → 防双重前缀（400）。"""
+
+    def test_strips_api_v2_suffix(self) -> None:
+        """base_url="https://www.deribit.com/api/v2" → 剥掉后缀。"""
+        from chronoforge.connectors.deribit import _Settings
+
+        conn = DeribitConnector(_Settings(base_url="https://www.deribit.com/api/v2"))
+        assert str(conn._client.base_url).rstrip("/") == "https://www.deribit.com"
+        conn.close()
+
+    def test_plain_base_url_unchanged(self) -> None:
+        """不带后缀的 base_url 保持原样。"""
+        from chronoforge.connectors.deribit import _Settings
+
+        conn = DeribitConnector(_Settings(base_url="https://www.deribit.com"))
+        assert str(conn._client.base_url).rstrip("/") == "https://www.deribit.com"
+        conn.close()

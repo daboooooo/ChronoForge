@@ -1120,3 +1120,26 @@ class TestUnfinishedKline:
         assert len(records) == 1
         assert isinstance(records[0], OHLCV)
         conn.close()
+
+
+class TestCursorToMs:
+    """_cursor_to_ms 回归：pipeline checkpoint cursor 为 ISO 格式，int() 会崩溃。"""
+
+    def test_numeric_cursor(self) -> None:
+        """历史 ms 串 → 原样转 int。"""
+        from chronoforge.connectors.binance_futures import _cursor_to_ms
+
+        assert _cursor_to_ms("1727136000000") == 1727136000000
+
+    def test_iso_cursor_utc(self) -> None:
+        """ISO datetime（含时区）→ ms。"""
+        from chronoforge.connectors.binance_futures import _cursor_to_ms
+
+        assert _cursor_to_ms("2024-09-24T00:00:00+00:00") == 1727136000000
+
+    def test_iso_cursor_naive_roundtrip(self) -> None:
+        """naive ISO → ms（本地时区解释，与 .timestamp() 语义一致）。"""
+        from chronoforge.connectors.binance_futures import _cursor_to_ms
+
+        dt = datetime(2026, 9, 1, 0, 0, 0)
+        assert _cursor_to_ms(dt.isoformat()) == int(dt.timestamp() * 1000)

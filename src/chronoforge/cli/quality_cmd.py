@@ -7,6 +7,7 @@ quality_flags（Deferred 登记，见 01-dispatch-log.md）。
 
 from __future__ import annotations
 
+import contextlib
 import json
 
 import typer
@@ -25,26 +26,28 @@ def quality_report(
 ) -> None:
     """质量发现报告（读 quality_flags）。"""
     try:
-        settings = Settings.load()
-        meta = _wiring.open_meta(settings)
-        rows = _wiring.list_quality_flags(meta, dataset)
-        if as_json:
-            typer.echo(json.dumps(_wiring.to_jsonable(rows), ensure_ascii=False))
-            return
-        if not rows:
-            typer.echo("(no findings)")
-            return
-        by_severity: dict[str, int] = {}
-        for r in rows:
-            sev = str(r["severity"])
-            by_severity[sev] = by_severity.get(sev, 0) + 1
-        summary = " ".join(f"{k}={v}" for k, v in sorted(by_severity.items()))
-        typer.echo(f"findings={len(rows)} {summary}")
-        for r in rows:
-            typer.echo(
-                f"{r['severity']:<8} {r['rule_id']} dataset={r['dataset_id']} "
-                f"record_key={r['record_key']} run={r['run_id']}"
-            )
+        with contextlib.ExitStack() as stack:
+            settings = Settings.load()
+            meta = _wiring.open_meta(settings)
+            stack.callback(meta.close)  # 审计 SR-11：资源统一管理
+            rows = _wiring.list_quality_flags(meta, dataset)
+            if as_json:
+                typer.echo(json.dumps(_wiring.to_jsonable(rows), ensure_ascii=False))
+                return
+            if not rows:
+                typer.echo("(no findings)")
+                return
+            by_severity: dict[str, int] = {}
+            for r in rows:
+                sev = str(r["severity"])
+                by_severity[sev] = by_severity.get(sev, 0) + 1
+            summary = " ".join(f"{k}={v}" for k, v in sorted(by_severity.items()))
+            typer.echo(f"findings={len(rows)} {summary}")
+            for r in rows:
+                typer.echo(
+                    f"{r['severity']:<8} {r['rule_id']} dataset={r['dataset_id']} "
+                    f"record_key={r['record_key']} run={r['run_id']}"
+                )
     except ChronoForgeError as exc:
         typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc

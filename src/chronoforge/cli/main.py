@@ -1,7 +1,7 @@
 """CLI 命令树（D08 §2，typer）。
 
 chronoforge
-├── pipeline run | replay | status
+├── pipeline run | replay | status | circuit-reset
 ├── registry sync | list-sources | list-datasets
 ├── dataset add
 ├── query                                   # 顶层单命令

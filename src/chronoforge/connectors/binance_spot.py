@@ -82,10 +82,14 @@ class BinanceSpotConnector(DataConnector):
         self._settings: Any = settings
         timeout = getattr(settings, "http_timeout_s", 30.0)
         base_url = getattr(settings, "base_url", "https://api.binance.com")
+        # 支持 HTTP_PROXY / HTTPS_PROXY 环境变量
+        import os
+        proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
         self._client = httpx.Client(
             base_url=base_url,
             timeout=timeout,
             headers={"User-Agent": "ChronoForge/binance_spot"},
+            proxy=proxy or None,
         )
         self._rate_limiter = RateLimiter(
             rate=_BINFREQ_PER_MIN / 60.0,
@@ -241,14 +245,20 @@ class BinanceSpotConnector(DataConnector):
         Pagination: fromId scrolling. Cursor = fromId (aggregate first trade ID).
         Q-SEQ-001: adjacent records must satisfy prev.l+1 == curr.a.
         """
+        # Binance aggTrades 约束：fromId 与 startTime/endTime 组合非法（-1128）。
+        # cursor 为纯数字时走 fromId 分页（时间边界客户端截断）；
+        # 否则（ISO cursor/None）走时间窗口；翻页统一改 fromId-only。
+        end_ms = (
+            int(request.end.timestamp() * 1000) if request.end is not None else None
+        )
         params: dict[str, Any] = {"symbol": symbol, "limit": 1000}
-
-        if request.cursor is not None:
+        if request.cursor is not None and request.cursor.isdigit():
             params["fromId"] = request.cursor
-        if request.start is not None:
-            params["startTime"] = int(request.start.timestamp() * 1000)
-        if request.end is not None:
-            params["endTime"] = int(request.end.timestamp() * 1000)
+        else:
+            if request.start is not None:
+                params["startTime"] = int(request.start.timestamp() * 1000)
+            if end_ms is not None:
+                params["endTime"] = end_ms
 
         while True:
             self._rate_limiter.acquire(_TRADE_WEIGHT)
@@ -280,12 +290,14 @@ class BinanceSpotConnector(DataConnector):
                     "url": str(response.url),
                 },
             )
+            # 时间边界（客户端截断，兼容 fromId-only 翻页）
+            if end_ms is not None and int(data[-1]["T"]) >= end_ms:
+                break
             # Advance cursor: next fromId = last aggTradeId + 1
             # aggTradeId is field 'a' in response
             last_agg_id = int(data[-1]["a"])
-            # Copy params and update fromId to avoid mutating the dict that httpx
-            # may have cached in call_args_list
-            params = {**params, "fromId": str(last_agg_id + 1)}
+            # fromId-only 翻页（与 startTime/endTime 组合非法），并移除时间参数
+            params = {"symbol": symbol, "limit": 1000, "fromId": str(last_agg_id + 1)}
 
     def _fetch_ticker(self, symbol: str) -> Iterator[RawBatch]:
         """Fetch ticker24hr endpoint（单次请求，不分页）。"""

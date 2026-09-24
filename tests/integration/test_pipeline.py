@@ -16,6 +16,7 @@ FakeConnector 不触网，按窗口生成小时级 OHLCV payload（半开区间 
 from __future__ import annotations
 
 import json
+import tracemalloc
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -40,7 +41,7 @@ from chronoforge.connectors.errors import (
 )
 from chronoforge.models.market import OHLCV, Interval
 from chronoforge.pipeline.replay import replay
-from chronoforge.pipeline.runner import PipelineRunner
+from chronoforge.pipeline.runner import PipelineRunner, RunContext
 from chronoforge.pipeline.windows import WINDOW_CONFIG, AcquisitionJob
 from chronoforge.storage.canonical import CanonicalStoreImpl
 from chronoforge.storage.meta import MetaStore
@@ -71,6 +72,8 @@ _ENV_VARS = (
     "CHRONOFORGE_NORMALIZE_ERROR_THRESHOLD",
     "CHRONOFORGE_SEC_CONTACT",
     "CHRONOFORGE_VERSION",
+    "CHRONOFORGE_RETRY_MAX",
+    "CHRONOFORGE_CIRCUIT_COOLDOWN_S",
 )
 
 
@@ -80,13 +83,21 @@ _ENV_VARS = (
 class FakeConnector:
     """测试假连接器：按窗口生成小时级 OHLCV payload，多注入点驱动失败场景。
 
-    注入点（chunk 序号 1-based，按 fetch 调用顺序）：
-    - chunk_failures: 该 chunk 的 fetch 抛指定异常（可重试类 → chunk 级失败）
+    注入点（chunk 序号 1-based，按 chunk 窗口编号；同一 chunk 的重试尝试
+    共享该序号——R2-04 后 FetchStage 对可重试异常做 chunk 级退避重试，
+    chunk_failures 表示「该 chunk 全部尝试均失败」，fail_attempts 表示
+    「该 chunk 前 N 次尝试失败、其后成功」）：
+    - chunk_failures: 该 chunk 的 fetch 抛指定异常（可重试类 → 退避重试
+      耗尽后 chunk 级失败）
+    - fail_attempts: 该 chunk 前 N 次尝试抛 TransportError（瞬态故障语义）
     - bad_payload_chunks: payload=None（ValidateStage SchemaError）
     - fail_normalize_chunks: 该 chunk 的 normalize 抛 RuntimeError（记录级失败）
     - retry_transport_chunk: 该 chunk 首次尝试传输失败、连接器内部重试成功
     - empty_payload: 所有 chunk 返回 0 行（空结果）
+    - empty_batches_chunks: 该 chunk 的 fetch 不产出任何批次（0 batch，
+      R2-05 历史空 chunk 语义）
     - price_offset: 价格偏移（drift 场景）
+    - pad_bytes: payload 附加填充字节（READY-001 内存断言用）
     """
 
     source_id = SOURCE_ID
@@ -95,29 +106,39 @@ class FakeConnector:
         self,
         *,
         chunk_failures: dict[int, type[BaseException]] | None = None,
+        fail_attempts: dict[int, int] | None = None,
         bad_payload_chunks: set[int] | None = None,
         fail_normalize_chunks: set[int] | None = None,
         retry_transport_chunk: int | None = None,
         empty_payload: bool = False,
+        empty_batches_chunks: set[int] | None = None,
         market_id: str = MARKET_ID,
         price_offset: float = 0.0,
+        pad_bytes: int = 0,
     ) -> None:
         self.chunk_failures = dict(chunk_failures or {})
+        self.fail_attempts = dict(fail_attempts or {})
         self.bad_payload_chunks = set(bad_payload_chunks or set())
         self.fail_normalize_chunks = set(fail_normalize_chunks or set())
         self.retry_transport_chunk = retry_transport_chunk
         self.empty_payload = empty_payload
+        self.empty_batches_chunks = set(empty_batches_chunks or set())
         self.market_id = market_id
         self.price_offset = price_offset
+        self.pad_bytes = pad_bytes
         self.fetch_calls: list[FetchRequest] = []
         self.request_count = 0
         self.retry_count = 0
         self._retried = False
-        self._call_no = 0
+        self._chunk_no = 0
+        self._attempt_no = 0
+        self._last_request: FetchRequest | None = None
 
     def start_new_run(self) -> None:
         """重置 chunk 序号（多次 run 复用同一连接器时注入按 run 内序号生效）。"""
-        self._call_no = 0
+        self._chunk_no = 0
+        self._attempt_no = 0
+        self._last_request = None
 
     # ── 协议方法 ──
 
@@ -133,16 +154,29 @@ class FakeConnector:
     def fetch(self, request: FetchRequest) -> Iterator[RawBatch]:
         self.fetch_calls.append(request)
         self.request_count += 1
-        self._call_no += 1
-        chunk_no = self._call_no
+        # R2-04：同一 chunk 的重试尝试（同 request）共享 chunk 序号
+        if request != self._last_request:
+            self._chunk_no += 1
+            self._attempt_no = 0
+            self._last_request = request
+        self._attempt_no += 1
+        chunk_no = self._chunk_no
         if self.retry_transport_chunk == chunk_no and not self._retried:
             # TC-P-011h：连接器内部重试语义（首次尝试失败 → 重试成功）
             self._retried = True
             self.retry_count += 1
             self.request_count += 1
+        transient = self.fail_attempts.get(chunk_no, 0)
+        if self._attempt_no <= transient:
+            raise TransportError(
+                f"injected transient attempt {self._attempt_no}/{transient}",
+                {"chunk_no": chunk_no},
+            )
         failure = self.chunk_failures.get(chunk_no)
         if failure is not None:
             raise failure(f"injected {failure.__name__}", {"chunk_no": chunk_no})
+        if chunk_no in self.empty_batches_chunks:
+            return  # 0 batch：连接器对空窗口不产出任何批次（R2-05）
         rows: list[list[object]] = []
         if not self.empty_payload:
             assert request.start is not None and request.end is not None
@@ -155,6 +189,8 @@ class FakeConnector:
             payload = None  # shape 违规（非 list/dict）
         else:
             payload = {"chunk_no": chunk_no, "rows": rows}
+            if self.pad_bytes:
+                payload["pad"] = "x" * self.pad_bytes
         yield RawBatch(endpoint=f"https://api.test/{request.dataset_id}", payload=payload)
 
     def normalize(self, raw: RawBatch) -> list[Any]:
@@ -564,10 +600,12 @@ def test_tcp004_circuit_breaker_after_three_failures(tmp_stores, monkeypatch) ->
         assert h.runner.run(_make_job()).status == "FAILED"
 
     h.connectors[DS_ID].start_new_run()
+    calls_before = len(h.connectors[DS_ID].fetch_calls)
     row4 = h.runner.run(_make_job())
     assert row4.status == "CANCELLED"
     assert row4.error_summary == "circuit open"
-    assert len(h.connectors[DS_ID].fetch_calls) == 3  # 第 4 次未进入 stages
+    # 第 4 次未进入 stages（R2-04 后失败 run 含重试调用，故用增量断言）
+    assert len(h.connectors[DS_ID].fetch_calls) == calls_before
     db = _run_log_row(h.meta, row4.run_id)
     assert db["status"] == "CANCELLED"
 
@@ -759,7 +797,9 @@ def test_tcp010_chunk_semantics_full_accounting(tmp_stores, monkeypatch) -> None
     fetch = sr["fetch"]
     assert (fetch.input_count, fetch.output_count) == (3, 1)
     assert fetch.chunk_success == 1 and fetch.chunk_failed == 1
-    assert fetch.request_count == 2 and fetch.retry_count == 0
+    # R2-04：失败 chunk 含 1 初次 + retry_max 次重试
+    assert fetch.request_count == 2 + h.settings.retry_max
+    assert fetch.retry_count == h.settings.retry_max
     assert fetch.checkpoint_before is None
     assert fetch.checkpoint_after == CHUNK1_END
     assert len(fetch.errors) == 1 and "TransportError" in fetch.errors[0]
@@ -778,8 +818,8 @@ def test_tcp010_chunk_semantics_full_accounting(tmp_stores, monkeypatch) -> None
     assert row.input_count == 77
     assert row.output_count == 75  # fetch 仅缓冲 chunk1 的 1 个批次
     assert row.error_count == 0
-    assert row.request_count == 2
-    assert row.retry_count == 0
+    assert row.request_count == 2 + h.settings.retry_max
+    assert row.retry_count == h.settings.retry_max
     assert row.duplicate_count == 0
     assert row.missing_count == 0
     assert row.latency_ms >= 0
@@ -984,10 +1024,11 @@ def test_sr03_circuit_persists_across_runner_instances(tmp_stores, monkeypatch) 
 
     runner2 = PipelineRunner(h.runner._ctx_factory)  # type: ignore[arg-type]
     h.connectors[DS_ID].start_new_run()
+    calls_before = len(h.connectors[DS_ID].fetch_calls)
     row = runner2.run(_make_job())
     assert row.status == "CANCELLED"
     assert row.error_summary == "circuit open"
-    assert len(h.connectors[DS_ID].fetch_calls) == 3  # 第 4 次未进入 stages
+    assert len(h.connectors[DS_ID].fetch_calls) == calls_before  # 未进入 stages
 
 
 def test_sr03_success_resets_persisted_circuit(tmp_stores, monkeypatch) -> None:
@@ -1069,3 +1110,448 @@ def test_sr06_finish_run_writes_back_dataset_status(tmp_stores, monkeypatch) -> 
         "SELECT status FROM dataset_registry WHERE dataset_id = ?", (DS_ID,)
     ).fetchone()[0]
     assert st == "COMPLETE"
+
+
+# ── READY-001：分窗口 run（SR-04 内存治理，方案 B） ───────────────────
+
+
+def _harness_mem(tmp_stores, monkeypatch, name: str, *, pad_bytes: int):
+    """内存断言专用环境：ctx_factory 不保留 ctx 引用（同生产 _wiring 组合根）。
+
+    _harness 的 ctxs 列表会保留每个窗口 ctx（其 _batches/_raw_refs 持有
+    payload），干扰峰值测量；生产 build_runner 的工厂无保留，此处同构。
+    """
+    h = _harness(
+        tmp_stores, monkeypatch, name, connector=FakeConnector(pad_bytes=pad_bytes)
+    )
+
+    def _factory(job: AcquisitionJob) -> RunContext:
+        return RunContext(
+            run_id="",
+            ingest_batch_id="",
+            source_id=SOURCE_ID,
+            dataset_id=job.dataset_id,
+            connector=h.connectors[DS_ID],
+            raw_store=h.raw,
+            canonical_store=h.canonical,
+            meta=h.meta,
+            settings=h.settings,
+        )
+
+    runner = PipelineRunner(_factory)  # type: ignore[arg-type]
+    return SimpleNamespace(
+        runner=runner,
+        meta=h.meta,
+        connectors=h.connectors,
+        settings=h.settings,
+        data_dir=h.data_dir,
+    )
+
+
+def test_ready001_window_coverage_and_status(tmp_stores, monkeypatch) -> None:
+    """READY-001：2 天窗口 × 3 天任务 → 2 个窗口；fetch 覆盖区间连续无缝
+    （起点 = start - overlap，终点 = end，缝间仅 overlap 幂等重取）；
+    终态 cursor 与行数同全量单 run。"""
+    h = _harness(tmp_stores, monkeypatch, "ready001_cover")
+    with pytest.raises(ConfigError, match="window_seconds"):
+        h.runner.run_windowed(_make_job(), window_seconds=0)
+
+    rows = h.runner.run_windowed(_make_job(), window_seconds=2 * 86400)
+    assert [r.status for r in rows] == ["SUCCESS", "SUCCESS"]
+    assert h.meta.get_checkpoint(SOURCE_ID, DS_ID) == FULL_CURSOR
+    assert len(_canonical_rows(h.data_dir)) == 72
+
+    ivs = sorted((c.start, c.end) for c in h.connectors[DS_ID].fetch_calls)
+    assert ivs[0][0] == JOB_START - timedelta(hours=1)  # 起点 = start - overlap
+    assert ivs[-1][1] == JOB_END  # 终点 = end
+    for (s1, e1), (s2, e2) in zip(ivs, ivs[1:], strict=False):
+        assert s2 <= e1  # 无缝（≤ 允许 overlap 重复）
+        assert s2 >= s1 and e2 >= e1  # 单调推进，无整体回退
+
+
+def test_ready001_windowed_matches_single_run(tmp_stores, monkeypatch) -> None:
+    """READY-001 GWT-1：分窗口（3×1 天）与全量单 run 的 canonical 值列
+    逐字节一致、终态 cursor 一致；run_log 产生 N 行（方案 B 语义变化）。"""
+    h1 = _harness(tmp_stores, monkeypatch, "ready001_eq_single")
+    row = h1.runner.run(_make_job())
+    assert row.status == "SUCCESS"
+
+    h2 = _harness(tmp_stores, monkeypatch, "ready001_eq_windowed")
+    rows = h2.runner.run_windowed(_make_job(), window_seconds=86400)
+    assert [r.status for r in rows] == ["SUCCESS", "SUCCESS", "SUCCESS"]
+    assert (
+        _canonical_values(_canonical_rows(h1.data_dir))
+        == _canonical_values(_canonical_rows(h2.data_dir))
+    )
+    assert h2.meta.get_checkpoint(SOURCE_ID, DS_ID) == FULL_CURSOR
+    n_runs = h2.meta.connection.execute(
+        "SELECT COUNT(*) FROM run_log WHERE dataset_id = ?", (DS_ID,)
+    ).fetchone()[0]
+    assert n_runs == 3  # 一次逻辑 backfill → N 行 run_log
+
+
+def test_ready001_resume_after_window_failure(tmp_stores, monkeypatch) -> None:
+    """READY-001 GWT-2：窗口 2 首个 chunk 失败（DEC-F0 FAILED）→ 循环停止、
+    cursor 停在窗口 1 末尾；重入从 checkpoint 精确续传，无重复无遗漏。"""
+    h1 = _harness(tmp_stores, monkeypatch, "ready001_res_base")
+    assert h1.runner.run(_make_job()).status == "SUCCESS"
+    expected = _canonical_values(_canonical_rows(h1.data_dir))
+
+    h = _harness(
+        tmp_stores,
+        monkeypatch,
+        "ready001_res",
+        connector=FakeConnector(chunk_failures={3: TransportError}),
+    )
+    rows = h.runner.run_windowed(_make_job(), window_seconds=86400)
+    assert [r.status for r in rows] == ["SUCCESS", "FAILED"]
+    assert h.meta.get_checkpoint(SOURCE_ID, DS_ID) == "2024-01-02T00:00:00"
+
+    # 重入：已完成窗口不重取（window 1 的 2 个 fetch 不重复），续传收尾
+    h.connectors[DS_ID].start_new_run()
+    h.connectors[DS_ID].chunk_failures = {}
+    rows2 = h.runner.run_windowed(_make_job(), window_seconds=86400)
+    assert [r.status for r in rows2] == ["SUCCESS", "SUCCESS"]
+    assert h.meta.get_checkpoint(SOURCE_ID, DS_ID) == FULL_CURSOR
+    calls = h.connectors[DS_ID].fetch_calls
+    # R2-04：首入 8（失败 chunk 含 5 次重试）+ 重入 3（窗口2 2 chunk + 窗口3 1 chunk）
+    assert len(calls) == 8 + 3
+    assert calls[0].start == datetime(2023, 12, 31, 23, 0)  # 首入：start - overlap
+    assert calls[8].start == datetime(2024, 1, 1, 23, 0)  # 重入首 chunk：checkpoint 起的 overlap 窗
+    assert len(_canonical_rows(h.data_dir)) == 72
+    assert _canonical_values(_canonical_rows(h.data_dir)) == expected  # 无重复无遗漏
+
+
+def test_ready001_partial_window_chains_retry(tmp_stores, monkeypatch) -> None:
+    """READY-001 DEC-W4：窗口 1 的 chunk2 失败 → PARTIAL（cursor 停 chunk1
+    右界）→ 循环继续，下一窗口从新 checkpoint 起自然重试失败区间 → 全量。"""
+    h = _harness(
+        tmp_stores,
+        monkeypatch,
+        "ready001_partial",
+        connector=FakeConnector(chunk_failures={2: TransportError}),
+    )
+    rows = h.runner.run_windowed(_make_job(), window_seconds=2 * 86400)
+    assert [r.status for r in rows] == ["PARTIAL_SUCCESS", "SUCCESS"]
+    assert h.meta.get_checkpoint(SOURCE_ID, DS_ID) == FULL_CURSOR
+    assert len(_canonical_rows(h.data_dir)) == 72
+
+
+def test_ready001_interrupt_cancelled_resume(tmp_stores, monkeypatch) -> None:
+    """READY-001 SR-02 联动：窗口 2 fetch 中断（KeyboardInterrupt）→
+    run_windowed 透传异常，run_log 留 CANCELLED 终态、cursor 不越界；
+    重入后剩余窗口可恢复。"""
+    h = _harness(
+        tmp_stores,
+        monkeypatch,
+        "ready001_cancel",
+        connector=FakeConnector(chunk_failures={3: KeyboardInterrupt}),
+    )
+    with pytest.raises(KeyboardInterrupt):
+        h.runner.run_windowed(_make_job(), window_seconds=86400)
+    statuses = [
+        r[0]
+        for r in h.meta.connection.execute(
+            "SELECT status FROM run_log ORDER BY started_at"
+        ).fetchall()
+    ]
+    assert statuses == ["SUCCESS", "CANCELLED"]
+    assert h.meta.get_checkpoint(SOURCE_ID, DS_ID) == "2024-01-02T00:00:00"
+
+    h.connectors[DS_ID].start_new_run()
+    h.connectors[DS_ID].chunk_failures = {}
+    rows = h.runner.run_windowed(_make_job(), window_seconds=86400)
+    assert [r.status for r in rows] == ["SUCCESS", "SUCCESS"]
+    assert h.meta.get_checkpoint(SOURCE_ID, DS_ID) == FULL_CURSOR
+    assert len(_canonical_rows(h.data_dir)) == 72
+
+
+def test_ready001_circuit_breaker_stops_windowed_loop(tmp_stores, monkeypatch) -> None:
+    """READY-001：FAILED 窗口停止循环（每调用 1 次失败计数）；跨调用 3 连败
+    → 第 4 次调用首窗口 CANCELLED（SR-03 熔断按 run 计数语义不变）。"""
+    h = _harness(
+        tmp_stores,
+        monkeypatch,
+        "ready001_circuit",
+        connector=FakeConnector(chunk_failures={1: TransportError}),
+    )
+    for _ in range(3):
+        h.connectors[DS_ID].start_new_run()
+        rows = h.runner.run_windowed(_make_job(), window_seconds=86400)
+        assert [r.status for r in rows] == ["FAILED"]  # 首窗口即败，不继续
+    h.connectors[DS_ID].start_new_run()
+    rows = h.runner.run_windowed(_make_job(), window_seconds=86400)
+    assert [r.status for r in rows] == ["CANCELLED"]
+    assert rows[0].error_summary == "circuit open"
+
+
+def test_ready001_full_window_dataset_not_split(tmp_stores, monkeypatch) -> None:
+    """READY-001 DEC-W2：全窗口 diff 类（chunk_size=full_window）不拆分——
+    window_seconds 传入也只产生单 run（fred/sec 语义依赖全窗口 diff）。"""
+    ds = "ready001_full"
+    monkeypatch.setitem(
+        WINDOW_CONFIG,
+        ds,
+        {"overlap_seconds": "full_window", "chunk_size_seconds": "full_window"},
+    )
+    conn = FakeConnector(market_id="BINANCE:FULLUSDT:SPOT")
+    h = _harness(tmp_stores, monkeypatch, "ready001_full", connectors={ds: conn})
+    job = AcquisitionJob(
+        ds, start=JOB_START, end=JOB_END, mode="backfill", params={"symbol": "X"}
+    )
+    rows = h.runner.run_windowed(job, window_seconds=3600)
+    assert len(rows) == 1 and rows[0].status == "SUCCESS"
+    assert len(conn.fetch_calls) == 1  # 单 chunk 全窗口
+
+
+def test_ready001_completed_backfill_rerun_returns_empty(
+    tmp_stores, monkeypatch
+) -> None:
+    """READY-001 DEC-W4：checkpoint 已覆盖请求跨度 → 幂等返回 []，零请求
+    （断点续传的退化形态：全部窗口已完成）。"""
+    h = _full_run_harness(tmp_stores, monkeypatch, "ready001_done")
+    assert len(h.connectors[DS_ID].fetch_calls) == 3
+    rows = h.runner.run_windowed(_make_job(), window_seconds=86400)
+    assert rows == []
+    assert len(h.connectors[DS_ID].fetch_calls) == 3  # 未发起任何新请求
+
+
+def test_ready001_peak_memory_bounded_by_window(tmp_stores, monkeypatch) -> None:
+    """READY-001 GWT-1 内存断言：tracemalloc 峰值不随总跨度线性增长。
+
+    每 batch 附 200KB pad：1 窗口（2 天 = 3 chunk）vs 6 窗口（12 天 = 13
+    chunk）——全量缓冲实现下峰值 ≈ 总 chunk 数 × batch 大小（≈4×），分窗口
+    后单 run 内存 O(窗口)，两峰值应同量级（< 2.5×）。ctx 工厂不保留引用
+    （同生产 _wiring.build_runner），排除测试自身保留的干扰。
+    """
+    pad = 200_000
+
+    def _peak(name: str, days: int) -> int:
+        h = _harness_mem(tmp_stores, monkeypatch, name, pad_bytes=pad)
+        job = AcquisitionJob(
+            DS_ID,
+            start=JOB_START,
+            end=JOB_START + timedelta(days=days),
+            mode="backfill",
+            params={"symbol": "BTCUSDT", "interval": "1m"},
+        )
+        tracemalloc.start()
+        try:
+            rows = h.runner.run_windowed(job, window_seconds=2 * 86400)
+        finally:
+            _current, peak = tracemalloc.get_traced_memory()
+            tracemalloc.stop()
+        assert all(r.status == "SUCCESS" for r in rows)
+        return peak
+
+    peak1 = _peak("ready001_mem_1w", days=2)
+    peak6 = _peak("ready001_mem_6w", days=12)
+    assert peak1 > 300_000, "pad 应被 run 内缓冲持有（防断言失效）"
+    assert peak6 < peak1 * 2.5, "峰值内存应 O(窗口)，不随总跨度线性增长"
+
+
+# ── 采集就绪审计回归（2026-09-22 R2-01/04/05）────────────────────────
+
+
+def test_r201_half_open_probe_after_cooldown(tmp_stores, monkeypatch) -> None:
+    """R2-01：熔断打开超冷却期 → half-open 放行探测 run；成功重置熔断。
+
+    冷却期内仍硬拦截（未进 stages）；回拨 circuit_opened_at（模拟冷却期
+    流逝）后探测 run 放行并发出 pipeline.circuit_half_open 日志；探测
+    成功经 reset_circuit 解除熔断。
+    """
+    h = _harness(
+        tmp_stores,
+        monkeypatch,
+        "r201_probe",
+        connector=FakeConnector(chunk_failures={1: TransportError}),
+        circuit_cooldown_s=1800.0,
+    )
+    for _ in range(3):
+        h.connectors[DS_ID].start_new_run()
+        assert h.runner.run(_make_job()).status == "FAILED"
+    assert h.meta.is_circuit_open(SOURCE_ID, DS_ID)
+
+    # 冷却期内：仍硬拦截，未进入 stages
+    h.connectors[DS_ID].start_new_run()
+    calls_before = len(h.connectors[DS_ID].fetch_calls)
+    row = h.runner.run(_make_job())
+    assert row.status == "CANCELLED"
+    assert len(h.connectors[DS_ID].fetch_calls) == calls_before
+
+    # 冷却期流逝（回拨 opened_at 1 小时）→ 探测放行 + half-open 日志
+    h.meta.connection.execute(
+        "UPDATE checkpoints SET circuit_opened_at = datetime('now', '-3600 seconds') "
+        "WHERE source_id = ? AND dataset_id = ?",
+        (SOURCE_ID, DS_ID),
+    )
+    h.meta.connection.commit()
+    h.connectors[DS_ID].start_new_run()
+    h.connectors[DS_ID].chunk_failures = {}  # 探测成功
+    with capture_logs() as logs:
+        row = h.runner.run(_make_job())
+    assert row.status == "SUCCESS"
+    assert any(e.get("event") == "pipeline.circuit_half_open" for e in logs)
+    assert not h.meta.is_circuit_open(SOURCE_ID, DS_ID)  # reset_circuit 解除
+
+
+def test_r201_probe_failure_rearms_cooldown(tmp_stores, monkeypatch) -> None:
+    """R2-01：half-open 探测失败 → record_circuit_failure 刷新 opened_at
+    重新计时（防失败源被逐 tick 反复探测），后续 run 冷却期内仍 CANCELLED。"""
+    h = _harness(
+        tmp_stores,
+        monkeypatch,
+        "r201_rearm",
+        connector=FakeConnector(chunk_failures={1: TransportError}),
+        circuit_cooldown_s=1800.0,
+    )
+    for _ in range(3):
+        h.connectors[DS_ID].start_new_run()
+        assert h.runner.run(_make_job()).status == "FAILED"
+
+    def _opened_at() -> str:
+        row = h.meta.connection.execute(
+            "SELECT circuit_opened_at FROM checkpoints "
+            "WHERE source_id = ? AND dataset_id = ?",
+            (SOURCE_ID, DS_ID),
+        ).fetchone()
+        assert row is not None and row[0] is not None
+        return str(row[0])
+
+    h.meta.connection.execute(
+        "UPDATE checkpoints SET circuit_opened_at = datetime('now', '-3600 seconds') "
+        "WHERE source_id = ? AND dataset_id = ?",
+        (SOURCE_ID, DS_ID),
+    )
+    h.meta.connection.commit()
+    rolled = _opened_at()
+
+    # 探测 run 放行且真正执行 fetch（DEC-F0 FAILED，不 raise）
+    h.connectors[DS_ID].start_new_run()
+    calls_before = len(h.connectors[DS_ID].fetch_calls)
+    row = h.runner.run(_make_job())
+    assert row.status == "FAILED"
+    assert len(h.connectors[DS_ID].fetch_calls) > calls_before
+
+    # opened_at 刷新为当前时间（重新计时）→ 后续 run 冷却期内仍拦截
+    assert _opened_at() > rolled  # datetime('now') 同格式：字典序 = 时间序
+    h.connectors[DS_ID].start_new_run()
+    assert h.runner.run(_make_job()).status == "CANCELLED"
+
+
+def test_r201_is_circuit_open_cooldown_semantics(tmp_stores, monkeypatch) -> None:
+    """R2-01 meta 层：is_circuit_open 的 cooldown_seconds 语义矩阵。
+
+    None = 打开即 True（硬拦截/运维查询旧行为）；冷却未到 = True；
+    冷却已到 = False（half-open 放行）；circuit_open=0 恒 False；
+    opened_at 缺失/不可解析 = 保守保持打开。
+    """
+    h = _harness(
+        tmp_stores,
+        monkeypatch,
+        "r201_meta",
+        connector=FakeConnector(chunk_failures={1: TransportError}),
+    )
+    for _ in range(3):
+        h.connectors[DS_ID].start_new_run()
+        h.runner.run(_make_job())
+    conn = h.meta.connection
+    conn.execute(
+        "UPDATE checkpoints SET circuit_opened_at = datetime('now', '-3600 seconds') "
+        "WHERE source_id = ? AND dataset_id = ?",
+        (SOURCE_ID, DS_ID),
+    )
+    conn.commit()
+
+    is_open = h.meta.is_circuit_open
+    assert is_open(SOURCE_ID, DS_ID)  # None：打开即 True（旧行为）
+    assert is_open(SOURCE_ID, DS_ID, cooldown_seconds=7200.0)  # 冷却未到
+    assert not is_open(SOURCE_ID, DS_ID, cooldown_seconds=1800.0)  # 冷却已过
+    assert not is_open(SOURCE_ID, DS_ID, cooldown_seconds=0.0)  # 0 = 立即放行
+
+    # circuit_open=0：恒 False（reset_circuit 后不受 cooldown 影响）
+    h.meta.reset_circuit(SOURCE_ID, DS_ID)
+    assert not is_open(SOURCE_ID, DS_ID, cooldown_seconds=10**9)
+
+    # opened_at 缺失 → 保守保持打开
+    conn.execute(
+        "UPDATE checkpoints SET circuit_open = 1, circuit_opened_at = NULL "
+        "WHERE source_id = ? AND dataset_id = ?",
+        (SOURCE_ID, DS_ID),
+    )
+    conn.commit()
+    assert is_open(SOURCE_ID, DS_ID, cooldown_seconds=1800.0)
+
+    # opened_at 不可解析（历史行）→ 保守保持打开
+    conn.execute(
+        "UPDATE checkpoints SET circuit_opened_at = 'not-a-date' "
+        "WHERE source_id = ? AND dataset_id = ?",
+        (SOURCE_ID, DS_ID),
+    )
+    conn.commit()
+    assert is_open(SOURCE_ID, DS_ID, cooldown_seconds=1800.0)
+
+
+def test_r204_transient_retry_succeeds_within_budget(tmp_stores, monkeypatch) -> None:
+    """R2-04：chunk1 前 2 次尝试 TransportError → chunk 级退避重试成功；
+    retry_count=2、SUCCESS（D05 §1「chunk 级重试」消费 settings.retry_max）。"""
+    h = _harness(
+        tmp_stores,
+        monkeypatch,
+        "r204_transient",
+        connector=FakeConnector(fail_attempts={1: 2}),
+    )
+    row = h.runner.run(_make_job())
+    assert row.status == "SUCCESS"
+    assert row.retry_count == 2
+    assert row.request_count == 5  # chunk1×3 次尝试 + chunk2/3 各 1
+    assert row.chunk_success == 3 and row.chunk_failed == 0
+    assert row.checkpoint_after == FULL_CURSOR
+    assert len(_canonical_rows(h.data_dir)) == 72
+
+
+def test_r204_retry_exhausted_chunk_failed(tmp_stores, monkeypatch) -> None:
+    """R2-04：chunk1 全部尝试（1 初次 + retry_max 次重试）失败 → 耗尽计
+    chunk 失败 → DEC-F0 FAILED + retry_count=retry_max（不 raise）。"""
+    h = _harness(
+        tmp_stores,
+        monkeypatch,
+        "r204_exhausted",
+        connector=FakeConnector(chunk_failures={1: TransportError}),
+    )
+    row = h.runner.run(_make_job())
+    assert row.status == "FAILED"
+    assert row.retry_count == h.settings.retry_max
+    assert row.request_count == h.settings.retry_max + 1
+    assert row.chunk_success == 0 and row.chunk_failed == 1
+    db = _run_log_row(h.meta, row.run_id)
+    assert "TransportError" in str(db["error_summary"])
+
+
+def test_r205_empty_history_chunk_warns(tmp_stores, monkeypatch) -> None:
+    """R2-05：完全处于历史区间（早于 now − 2×chunk 跨度）的 0 批次 chunk →
+    warning_count + empty_history_chunk 日志；SUCCESS 语义与 cursor 推进
+    不变；近期（阈值内）chunk 正常产出不告警。"""
+    h = _harness(
+        tmp_stores,
+        monkeypatch,
+        "r205_empty",
+        connector=FakeConnector(empty_batches_chunks={1}),
+    )
+    # 4 chunk 窗口（end = start + 3d23h）：仅第 1 chunk.end 早于阈值
+    job = AcquisitionJob(
+        DS_ID,
+        start=JOB_START,
+        end=JOB_START + timedelta(days=3, hours=23),
+        mode="backfill",
+        params={"symbol": "BTCUSDT", "interval": "1m"},
+    )
+    with capture_logs() as logs:
+        row = h.runner.run(job)
+    assert row.status == "SUCCESS"
+    assert row.warning_count == 1
+    empties = [e for e in logs if e.get("event") == "pipeline.empty_history_chunk"]
+    assert len(empties) == 1
+    assert empties[0]["dataset_id"] == DS_ID
+    assert h.meta.get_checkpoint(SOURCE_ID, DS_ID) == "2024-01-04T23:00:00"
+    assert len(_canonical_rows(h.data_dir)) == 72  # 近期 3 chunk 正常落盘

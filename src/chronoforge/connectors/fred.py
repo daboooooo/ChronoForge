@@ -291,7 +291,8 @@ class FREDConnector(DataConnector):
         if not observations or not isinstance(observations, list):
             return []
 
-        series_id = payload.get("series_id", "")
+        # FRED observations 响应不回显 series_id → 从 raw_meta 回退
+        series_id = payload.get("series_id") or raw.raw_meta.get("series_id", "")
         units = payload.get("units", "")
         seasonal_adjustment = payload.get("seasonal_adjustment", "")
 

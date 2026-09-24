@@ -515,8 +515,17 @@ class MetaStore:
 
     # ── Circuit breaker（D05 §3，审计 SR-03）────────────────────────
 
-    def is_circuit_open(self, source_id: str, dataset_id: str) -> bool:
+    def is_circuit_open(
+        self, source_id: str, dataset_id: str, cooldown_seconds: float | None = None
+    ) -> bool:
         """查询该 dataset 熔断是否处于打开状态（跨进程持久化，SR-03）。
+
+        R2-01（审计 2026-09-22）：cooldown_seconds 提供时消费
+        circuit_opened_at 实现冷却期 half-open——打开时长 ≥ 冷却期 → 返回
+        False 放行一次探测 run（成功经 reset_circuit 解除；失败经
+        record_circuit_failure 刷新 circuit_opened_at 重新计时）。
+        cooldown_seconds=None 保持旧语义：打开即 True（运维查询/硬拦截）。
+        circuit_opened_at 缺失或不可解析（历史行）→ 保守保持打开。
 
         Returns:
             circuit_open=1 时 True；无 checkpoint 行时 False。
@@ -525,12 +534,26 @@ class MetaStore:
             raise StorageError("Connection is closed")
 
         cursor = self._conn.execute(
-            "SELECT circuit_open FROM checkpoints "
+            "SELECT circuit_open, circuit_opened_at FROM checkpoints "
             "WHERE source_id = ? AND dataset_id = ?",
             (source_id, dataset_id),
         )
         row = cursor.fetchone()
-        return row is not None and bool(row[0])
+        if row is None or not row[0]:
+            return False
+        if cooldown_seconds is None:
+            return True
+        opened_at = row[1]
+        if not opened_at:
+            return True
+        try:
+            opened_dt = datetime.fromisoformat(str(opened_at).replace("Z", "+00:00"))
+        except ValueError:
+            return True
+        if opened_dt.tzinfo is None:
+            opened_dt = opened_dt.replace(tzinfo=UTC)
+        elapsed = (datetime.now(UTC) - opened_dt).total_seconds()
+        return elapsed < cooldown_seconds
 
     def record_circuit_failure(
         self, source_id: str, dataset_id: str, threshold: int = 3
@@ -541,6 +564,10 @@ class MetaStore:
         circuit_open=1。无 checkpoint 行（从未成功过的坏数据源）时以
         last_cursor='' 建行——get_checkpoint 对空串返回 None，不影响
         cursor 语义；last_success_time 记为当前时间（活跃失败中，非 STALE）。
+
+        R2-01：circuit_opened_at 在「达到阈值」的所有路径刷新——首次打开
+        与 half-open 探测失败（circuit_open 已为 1 时计数继续增长），
+        后者使冷却期重新计时，防失败源被逐 tick 反复探测。
 
         Args:
             source_id: 数据源 ID。
@@ -568,7 +595,7 @@ class MetaStore:
                 "  ELSE checkpoints.circuit_open END, "
                 "circuit_opened_at = CASE "
                 "  WHEN checkpoints.consecutive_failed + 1 >= ? "
-                "    AND checkpoints.circuit_open = 0 THEN datetime('now') "
+                "    THEN datetime('now') "
                 "  ELSE checkpoints.circuit_opened_at END",
                 (source_id, dataset_id, threshold, threshold, threshold, threshold),
             )

@@ -7,21 +7,31 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+import os
+import subprocess
+import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import duckdb
 import polars as pl
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from chronoforge.cli import _wiring
 from chronoforge.cli.main import app
-from chronoforge.connectors.errors import ConfigError
+from chronoforge.config.settings import Settings
+from chronoforge.connectors.errors import ChronoForgeError, ConfigError
+from chronoforge.models.enums import CanonicalType
 from chronoforge.registry import add_dataset, bootstrap_defaults
 from chronoforge.research.query import QueryResult
 from chronoforge.research.snapshot import ReproduceResult, SnapshotRecord
 from chronoforge.storage.meta import MetaStore, RunRow
+from chronoforge.storage.views import get_registered_view_names, missing_views
 
 runner = CliRunner()
 
@@ -123,7 +133,7 @@ class TestPipelineRun:
             or object()
         )
         monkeypatch.setattr(
-            _wiring, "build_runner", lambda s, m, c, sid: stub
+            _wiring, "build_runner", lambda s, m, c, sid, stack=None: stub
         )
 
         result = runner.invoke(
@@ -491,6 +501,7 @@ class TestQuery:
             "schema_version": "1.0",
             "row_count": 1,
             "elapsed_ms": 5,
+            "truncated": False,  # READY-003：截断元信息随 QueryResult 序列化
             "rows": [{"event_time": "2024-01-01T00:00:00", "close": 50500.5}],
         }
         (call,) = stub.calls
@@ -685,8 +696,9 @@ class TestOpenMetaStartupRepair:
     def test_open_meta_releases_stale_orphan_lock(
         self, cli_env: dict[str, Path], meta: MetaStore, registered: str
     ) -> None:
-        """审计 SR-01: Given 崩溃残留的 stale PENDING run When open_meta
-        Then release_stale_locks 置 CANCELLED 且同 dataset 锁可重新获取。
+        """审计 SR-01 + R2-03③: Given 崩溃残留的 stale PENDING run When
+        open_meta(repair=True)（写入口语义）Then release_stale_locks 置
+        CANCELLED 且同 dataset 锁可重新获取。
         """
         locked = meta.try_lock_dataset("ds_ok", source_id="binance_spot")
         # 回拨 started_at 至固定过去时刻（> 默认 3600s 租约超时）模拟崩溃残留
@@ -697,7 +709,7 @@ class TestOpenMetaStartupRepair:
         )
         meta.connection.commit()
 
-        repaired = _wiring.open_meta(Settings_load())
+        repaired = _wiring.open_meta(Settings_load(), repair=True)
 
         row = repaired.connection.execute(
             "SELECT status, error_summary FROM run_log WHERE run_id = ?",
@@ -710,3 +722,577 @@ class TestOpenMetaStartupRepair:
         # 锁已释放：同一 dataset 可重新 try_lock（原本会抛 "dataset locked"）
         relocked = repaired.try_lock_dataset("ds_ok", source_id="binance_spot")
         assert relocked.run_id != locked.run_id
+
+    def test_open_meta_default_skips_repair(
+        self, cli_env: dict[str, Path], meta: MetaStore, registered: str
+    ) -> None:
+        """R2-03③: Given 读命令默认 open_meta When 存在崩溃残留行
+        Then 不执行 startup_repair（防 cron 重叠期间误伤在途 run）。
+        """
+        locked = meta.try_lock_dataset("ds_ok", source_id="binance_spot")
+        meta.connection.execute(
+            "UPDATE run_log SET started_at = '2024-01-01T00:00:00Z' "
+            "WHERE run_id = ?",
+            (locked.run_id,),
+        )
+        meta.connection.commit()
+
+        opened = _wiring.open_meta(Settings_load())
+
+        row = opened.connection.execute(
+            "SELECT status FROM run_log WHERE run_id = ?", (locked.run_id,)
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "PENDING"  # 残留行未被 startup_repair 触碰
+
+
+# ── 资源生命周期（审计 SR-11 / READY-004）──────────────────────────────
+
+
+def _spy_meta_close(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """监视 MetaStore.close（类级 patch，覆盖 CLI 内部 open_meta 的新实例）。"""
+    calls: list[int] = []
+    orig = MetaStore.close
+
+    def _spy(self: MetaStore) -> None:
+        calls.append(1)
+        orig(self)
+
+    monkeypatch.setattr(MetaStore, "close", _spy)
+    return calls
+
+
+class _CloseSpyConnector:
+    """close 可观测的 connector stub（close 为 DataConnector 协议外可选能力）。"""
+
+    def __init__(self, events: list[str]) -> None:
+        self._events = events
+
+    def close(self) -> None:
+        self._events.append("close")
+
+
+class TestResourceLifecycle:
+    """SR-11：正常 / 异常 / typer.Exit 路径均显式关闭 connector 与 MetaStore。"""
+
+    def test_run_releases_connector_and_meta_on_success(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        cli_env: dict[str, Path],
+        registered: str,
+    ) -> None:
+        events: list[str] = []
+        monkeypatch.setattr(
+            _wiring, "build_connector", lambda *a, **k: _CloseSpyConnector(events)
+        )
+        monkeypatch.setattr(_wiring, "build_runner", lambda *a: _StubRunner())
+        meta_close = _spy_meta_close(monkeypatch)
+
+        result = runner.invoke(app, ["pipeline", "run", "--dataset", "ds_ok"])
+        assert result.exit_code == 0, result.output
+        assert events == ["close"]
+        assert meta_close == [1]
+
+    def test_run_releases_connector_and_meta_on_runner_exception(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        cli_env: dict[str, Path],
+        registered: str,
+    ) -> None:
+        class _BoomRunner:
+            def run(self, job: Any) -> RunRow:
+                raise ChronoForgeError("boom")
+
+        events: list[str] = []
+        monkeypatch.setattr(
+            _wiring, "build_connector", lambda *a, **k: _CloseSpyConnector(events)
+        )
+        monkeypatch.setattr(_wiring, "build_runner", lambda *a: _BoomRunner())
+        meta_close = _spy_meta_close(monkeypatch)
+
+        result = runner.invoke(app, ["pipeline", "run", "--dataset", "ds_ok"])
+        assert result.exit_code == 1
+        assert "error: boom" in result.stderr
+        assert events == ["close"]
+        assert meta_close == [1]
+
+    def test_run_releases_connector_and_meta_on_typer_exit(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        cli_env: dict[str, Path],
+        registered: str,
+    ) -> None:
+        """typer.Exit 穿透 with 块：ExitStack 仍释放全部资源后向上传播。"""
+
+        def _raise_exit(*a: Any, **k: Any) -> Any:
+            raise typer.Exit(code=7)
+
+        events: list[str] = []
+        monkeypatch.setattr(
+            _wiring, "build_connector", lambda *a, **k: _CloseSpyConnector(events)
+        )
+        monkeypatch.setattr(_wiring, "build_runner", _raise_exit)
+        meta_close = _spy_meta_close(monkeypatch)
+
+        result = runner.invoke(app, ["pipeline", "run", "--dataset", "ds_ok"])
+        assert result.exit_code == 7
+        assert events == ["close"]
+        assert meta_close == [1]
+
+    def test_run_all_due_releases_connector_per_iteration(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        cli_env: dict[str, Path],
+        meta: MetaStore,
+        registered: str,
+    ) -> None:
+        """GWT-2：--all-due 多 dataset → connector 单次迭代结束即 close，
+        不存在跨 dataset 存活的未关闭连接器（close 先于下一次 build）。"""
+        add_dataset(
+            meta, dataset_id="ds_ok2", source_id="binance_spot",
+            canonical_type="OHLCV", entity_id="ETHUSDT", params={},
+        )
+        events: list[str] = []
+
+        def _fake_build(*a: Any, **k: Any) -> _CloseSpyConnector:
+            events.append("build")
+            return _CloseSpyConnector(events)
+
+        monkeypatch.setattr(_wiring, "build_connector", _fake_build)
+        monkeypatch.setattr(_wiring, "build_runner", lambda *a: _StubRunner())
+        meta_close = _spy_meta_close(monkeypatch)
+
+        result = runner.invoke(app, ["pipeline", "run", "--all-due"])
+        assert result.exit_code == 0, result.output
+        assert events == ["build", "close", "build", "close"]
+        assert meta_close == [1]
+
+    def test_replay_releases_connector_and_meta(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        cli_env: dict[str, Path],
+        registered: str,
+    ) -> None:
+        import importlib
+
+        replay_module = importlib.import_module("chronoforge.pipeline.replay")
+        monkeypatch.setattr(
+            replay_module,
+            "replay",
+            lambda *a, **k: RunRow(
+                run_id="Rabc123",
+                source_id="binance_spot",
+                dataset_id="ds_ok",
+                status="SUCCESS",
+                started_at="2024-01-01T00:00:00",
+            ),
+        )
+        events: list[str] = []
+        monkeypatch.setattr(
+            _wiring, "build_connector", lambda *a, **k: _CloseSpyConnector(events)
+        )
+        meta_close = _spy_meta_close(monkeypatch)
+
+        result = runner.invoke(
+            app,
+            ["pipeline", "replay", "--layer", "canonical", "--dataset", "ds_ok"],
+        )
+        assert result.exit_code == 0, result.output
+        assert events == ["close"]
+        assert meta_close == [1]
+
+    def test_query_releases_con_and_meta_on_success(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        cli_env: dict[str, Path],
+    ) -> None:
+        con_close: list[int] = []
+
+        class _SpyCon:
+            def close(self) -> None:
+                con_close.append(1)
+
+        stub = _StubQueryService(pl.DataFrame({"x": [1]}), 1)
+        monkeypatch.setattr(
+            _wiring, "open_query_service", lambda s, m: (stub, _SpyCon())
+        )
+        meta_close = _spy_meta_close(monkeypatch)
+
+        result = runner.invoke(app, ["query", "--dataset", "ds_ok", "--json"])
+        assert result.exit_code == 0, result.output
+        assert con_close == [1]
+        assert meta_close == [1]
+
+    def test_query_releases_con_and_meta_on_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        cli_env: dict[str, Path],
+    ) -> None:
+        con_close: list[int] = []
+
+        class _SpyCon:
+            def close(self) -> None:
+                con_close.append(1)
+
+        class _Raising:
+            def query(self, *_: Any, **__: Any) -> QueryResult:
+                raise ValueError("boom")
+
+        monkeypatch.setattr(
+            _wiring, "open_query_service", lambda s, m: (_Raising(), _SpyCon())
+        )
+        meta_close = _spy_meta_close(monkeypatch)
+
+        result = runner.invoke(app, ["query", "--dataset", "ds_ok", "--json"])
+        assert result.exit_code == 1
+        assert con_close == [1]
+        assert meta_close == [1]
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["registry", "list-sources"],
+            ["registry", "list-datasets"],
+            ["quality", "report"],
+            ["pipeline", "status"],
+        ],
+    )
+    def test_meta_only_commands_close_meta(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        cli_env: dict[str, Path],
+        argv: list[str],
+    ) -> None:
+        meta_close = _spy_meta_close(monkeypatch)
+        result = runner.invoke(app, argv)
+        assert result.exit_code == 0, result.output
+        assert meta_close == [1]
+
+
+# ── READY-005：open_query_service 并发窗口消除（SR-16，方案 A）──────────
+
+_READY005_BASE_TIME = datetime(2026, 9, 11, 10, 0, 0)
+
+
+def _seed_canonical_parquet(
+    data_dir: Path, canonical_type: CanonicalType, records: list[dict[str, Any]]
+) -> None:
+    """records 写为 canonical/{TYPE}/entity=…/year=…/month=…/part-0001.parquet。"""
+    first = records[0]
+    entity = first.get("entity_id", first.get("source_id", "test"))
+    obs = first.get("observation_time", first.get("event_time", _READY005_BASE_TIME))
+    partition_dir = (
+        data_dir / "canonical" / canonical_type.value
+        / f"entity={entity}" / f"year={obs.strftime('%Y')}"
+        / f"month={obs.strftime('%m')}"
+    )
+    partition_dir.mkdir(parents=True, exist_ok=True)
+    columns: dict[str, list[Any]] = {}
+    for rec in records:
+        for k, v in rec.items():
+            columns.setdefault(k, []).append(v)
+    arrays: dict[str, pa.Array] = {}
+    for name, values in columns.items():
+        non_none = [v for v in values if v is not None]
+        if non_none and all(isinstance(v, datetime) for v in non_none):
+            arrays[name] = pa.array(
+                [v.replace(tzinfo=None) if v.tzinfo else v for v in values],
+                type=pa.timestamp("us"),
+            )
+        elif non_none and all(isinstance(v, str) for v in non_none):
+            arrays[name] = pa.array(values, type=pa.string())
+        else:
+            arrays[name] = pa.array(values, type=pa.float64())
+    pq.write_table(pa.table(arrays), str(partition_dir / "part-0001.parquet"))
+
+
+def _ready005_ohlcv_records() -> list[dict[str, Any]]:
+    """OHLCV 5 行（event_time 递增 1 分钟；同 test_query.py 列约定）。"""
+    return [
+        {
+            "schema_version": "1.0",
+            "source": "BINANCE",
+            "source_id": "btcusdt",
+            "source_timestamp": _READY005_BASE_TIME,
+            "ingest_timestamp": _READY005_BASE_TIME,
+            "raw_record_id": f"BINANCE:ohlcv:f.jsonl:{i}",
+            "market_id": "BINANCE:BTCUSDT:SPOT",
+            "event_time": _READY005_BASE_TIME + timedelta(minutes=i),
+            "interval": "1m",
+            "open": 50000.0 + i,
+            "high": 51000.0 + i,
+            "low": 49000.0 - i,
+            "close": 50500.0 + i,
+            "volume": 100.0 + i,
+        }
+        for i in range(5)
+    ]
+
+
+def _ready005_number_records() -> list[dict[str, Any]]:
+    """NUMBER 2 行（含 release_time/revision_time，as-of 视图可绑定）。"""
+    return [
+        {
+            "schema_version": "1.0",
+            "source": "FRED",
+            "source_id": "FRED:GDP",
+            "source_timestamp": _READY005_BASE_TIME,
+            "ingest_timestamp": _READY005_BASE_TIME,
+            "raw_record_id": f"FRED:macro:f.jsonl:{i}",
+            "observation_time": _READY005_BASE_TIME,
+            "release_time": _READY005_BASE_TIME,
+            "revision_time": _READY005_BASE_TIME,
+            "value": 100.0 + i,
+            "units": "IDX",
+            "seasonal_adjustment": "SA",
+        }
+        for i in range(2)
+    ]
+
+
+def _seed_success_run(meta: MetaStore, dataset_id: str, source_id: str) -> None:
+    """经 try_lock/finish_run 真实路径写 SUCCESS run（版本元信息事实源）。"""
+    row = meta.try_lock_dataset(dataset_id, source_id=source_id)
+    meta.finish_run(row.run_id, "SUCCESS", code_version="0.1.0", schema_version="1.0")
+
+
+class TestOpenQueryServiceConcurrency:
+    """READY-005（SR-16）：方案 A 只读探测优先 + 写路径有界退避。"""
+
+    def _seed_queryable(self, cli_env: dict[str, Path], meta: MetaStore) -> None:
+        """OHLCV parquet 5 行 + SUCCESS run（query 可真实返回行）。"""
+        _seed_canonical_parquet(
+            cli_env["data"], CanonicalType.OHLCV, _ready005_ohlcv_records()
+        )
+        _seed_success_run(meta, "ds_ok", "binance_spot")
+
+    def _spawn_query_subprocess(
+        self, cli_env: dict[str, Path]
+    ) -> subprocess.Popen[str]:
+        script = (
+            "from chronoforge.cli.main import app; "
+            "app(['query', '--dataset', 'ds_ok', '--json'])"
+        )
+        env = {
+            **os.environ,
+            "CHRONOFORGE_DATA_DIR": str(cli_env["data"]),
+            "CHRONOFORGE_META_DIR": str(cli_env["meta"]),
+            "CHRONOFORGE_SEC_CONTACT": CONTACT,
+        }
+        return subprocess.Popen(
+            [sys.executable, "-c", script],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+    def test_ready_views_skip_write_mode_and_idempotent(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        cli_env: dict[str, Path],
+        registered: str,
+        meta: MetaStore,
+    ) -> None:
+        """GWT-2 + 幂等：视图齐全时连续打开不进写模式，视图集合稳定。"""
+        self._seed_queryable(cli_env, meta)
+        settings = Settings.load()
+
+        # 预热：首次调用创建 catalog 并注册视图（写路径，spy 尚未生效）
+        service0, con0 = _wiring.open_query_service(settings, meta)
+        assert service0.query("ds_ok").row_count == 5
+        con0.close()
+
+        def _no_write(path: Path, data_dir: str) -> duckdb.DuckDBPyConnection:
+            raise AssertionError("write path entered despite complete views")
+
+        monkeypatch.setattr(_wiring, "_register_and_reopen", _no_write)
+        seen: list[set[str]] = []
+        for _ in range(3):
+            service, con = _wiring.open_query_service(settings, meta)
+            seen.append(get_registered_view_names(con))
+            assert service.query("ds_ok").row_count == 5
+            con.close()
+        assert all(s == seen[0] for s in seen)
+        assert "ohlcv" in seen[0]
+
+        # D07 §5：返回连接为 read_only（写 → 异常）
+        _, con = _wiring.open_query_service(settings, meta)
+        with pytest.raises(duckdb.Error):
+            con.execute("CREATE TABLE t(x INT)")
+        con.close()
+
+    def test_write_path_lock_retry_converges(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        cli_env: dict[str, Path],
+        registered: str,
+        meta: MetaStore,
+    ) -> None:
+        """有界重试语义：写打开遇锁冲突 → 指数退避后收敛（进程内注入）。"""
+        monkeypatch.setattr(_wiring, "_WRITE_OPEN_BACKOFF_S", 0.01)
+        real_connect = duckdb.connect
+        state = {"fails": 0}
+
+        def flaky_connect(path: str, *args: Any, **kwargs: Any) -> Any:
+            if "read_only" not in kwargs and state["fails"] < 2:
+                state["fails"] += 1
+                raise duckdb.IOException("Could not set lock on file")
+            return real_connect(path, *args, **kwargs)
+
+        monkeypatch.setattr(_wiring.duckdb, "connect", flaky_connect)
+        _, con = _wiring.open_query_service(Settings.load(), meta)
+        con.close()
+        assert state["fails"] == 2
+        assert (cli_env["meta"] / "query.duckdb").exists()
+
+    def test_write_path_lock_retry_exhausted(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        cli_env: dict[str, Path],
+        registered: str,
+        meta: MetaStore,
+    ) -> None:
+        """重试耗尽 → IOException 有界上抛（不死等、不静默）。"""
+        monkeypatch.setattr(_wiring, "_WRITE_OPEN_BACKOFF_S", 0.01)
+        real_connect = duckdb.connect
+
+        def always_locked(path: str, *args: Any, **kwargs: Any) -> Any:
+            if "read_only" not in kwargs:
+                raise duckdb.IOException("Could not set lock on file")
+            return real_connect(path, *args, **kwargs)
+
+        monkeypatch.setattr(_wiring.duckdb, "connect", always_locked)
+        with pytest.raises(duckdb.IOException):
+            _wiring.open_query_service(Settings.load(), meta)
+
+    def test_missing_views_detects_late_type(
+        self,
+        cli_env: dict[str, Path],
+        registered: str,
+        meta: MetaStore,
+    ) -> None:
+        """探测与惰性注册同源：已注册 → 空集；新增 NUMBER 数据 → 检出缺失。"""
+        settings = Settings.load()
+        _seed_canonical_parquet(
+            cli_env["data"], CanonicalType.OHLCV, _ready005_ohlcv_records()
+        )
+        _, con1 = _wiring.open_query_service(settings, meta)
+        assert missing_views(con1, str(settings.data_dir)) == set()
+
+        # 新增 NUMBER 数据（catalog 未重注册）→ 基础 + as-of 视图均检出
+        _seed_canonical_parquet(
+            cli_env["data"], CanonicalType.NUMBER, _ready005_number_records()
+        )
+        assert missing_views(con1, str(settings.data_dir)) == {
+            "number",
+            "number_asof",
+        }
+        con1.close()
+
+        # 重开 → 检测到缺失走写路径补注册 → 再探测为空集
+        _, con2 = _wiring.open_query_service(settings, meta)
+        assert missing_views(con2, str(settings.data_dir)) == set()
+        assert {"number", "number_asof"} <= get_registered_view_names(con2)
+        con2.close()
+
+    def test_concurrent_query_fresh_catalog_smoke(
+        self, cli_env: dict[str, Path], registered: str, meta: MetaStore
+    ) -> None:
+        """GWT-1 态 1（全新 query.duckdb）：两进程并发 query → 收敛无锁异常。"""
+        self._seed_queryable(cli_env, meta)
+        procs = [self._spawn_query_subprocess(cli_env) for _ in range(2)]
+        outs = [p.communicate(timeout=60) for p in procs]
+        for proc, (out, err) in zip(procs, outs, strict=True):
+            assert proc.returncode == 0, f"stdout={out}\nstderr={err}"
+            assert "Could not set lock" not in err
+            payload = json.loads(out)
+            assert payload["row_count"] == 5
+            assert payload["rows"][0]["close"] == 50500.0
+
+    def test_concurrent_query_registered_views_smoke(
+        self, cli_env: dict[str, Path], registered: str, meta: MetaStore
+    ) -> None:
+        """GWT-1 态 2（视图已注册）：预热后两进程并发 query → 双 fast path。"""
+        self._seed_queryable(cli_env, meta)
+        _, warm = _wiring.open_query_service(Settings.load(), meta)
+        warm.close()
+        procs = [self._spawn_query_subprocess(cli_env) for _ in range(2)]
+        outs = [p.communicate(timeout=60) for p in procs]
+        for proc, (out, err) in zip(procs, outs, strict=True):
+            assert proc.returncode == 0, f"stdout={out}\nstderr={err}"
+            assert "Could not set lock" not in err
+            payload = json.loads(out)
+            assert payload["row_count"] == 5
+            assert payload["dataset_version"] == "0.1.0+1.0"
+
+
+# ── 采集就绪审计回归（2026-09-22 R2-01/R2-02）────────────────────────
+
+
+class TestPipelineRunIsolation:
+    """R2-02：--all-due 逐 dataset 异常隔离（架构 08 §3「批量 run 中
+    单 dataset 失败不影响其余」）。"""
+
+    def test_run_all_due_isolates_per_dataset_failures(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        cli_env: dict[str, Path],
+        meta: MetaStore,
+        registered: str,
+    ) -> None:
+        """Given --all-due 且 ds_bad 装配抛 ConfigError When run
+        Then ds_ok 照常执行、汇总失败清单、退出码 1。"""
+        add_dataset(
+            meta,
+            dataset_id="ds_bad",
+            source_id="binance_spot",
+            canonical_type="OHLCV",
+            entity_id="BADUSDT",
+            params={},
+        )
+
+        def _build_connector(sid: str, s: Any, params: dict[str, Any]) -> object:
+            if not params:  # ds_bad（params={}）→ 装配失败
+                raise ConfigError("injected bad params", context={"source_id": sid})
+            return object()
+
+        stub = _StubRunner()
+        monkeypatch.setattr(_wiring, "build_connector", _build_connector)
+        monkeypatch.setattr(
+            _wiring, "build_runner", lambda s, m, c, sid, stack=None: stub
+        )
+
+        result = runner.invoke(app, ["pipeline", "run", "--all-due"])
+        assert result.exit_code == 1
+        assert [j.dataset_id for j in stub.jobs] == ["ds_ok"]  # 失败未阻塞队列
+        assert "ds_bad" in result.stderr
+        assert "error: 1/2 dataset(s) failed" in result.stderr
+
+
+class TestPipelineCircuitReset:
+    """R2-01：pipeline circuit-reset 运维恢复入口（幂等）。"""
+
+    def test_circuit_reset_reopens_dataset(
+        self, cli_env: dict[str, Path], meta: MetaStore, registered: str
+    ) -> None:
+        """Given 熔断打开 When circuit-reset Then 复位且输出 status=RESET。"""
+        for _ in range(3):
+            meta.record_circuit_failure("binance_spot", "ds_ok", threshold=3)
+        assert meta.is_circuit_open("binance_spot", "ds_ok")
+
+        result = runner.invoke(app, ["pipeline", "circuit-reset", "--dataset", "ds_ok"])
+        assert result.exit_code == 0, result.output
+        assert "status=RESET" in result.output
+        assert not meta.is_circuit_open("binance_spot", "ds_ok")
+
+        # 幂等：未打开时执行无副作用
+        result2 = runner.invoke(app, ["pipeline", "circuit-reset", "--dataset", "ds_ok"])
+        assert result2.exit_code == 0, result2.output
+
+    def test_circuit_reset_unknown_dataset_fails(
+        self, cli_env: dict[str, Path], meta: MetaStore
+    ) -> None:
+        result = runner.invoke(app, ["pipeline", "circuit-reset", "--dataset", "ghost"])
+        assert result.exit_code == 1
+        assert "error:" in result.stderr

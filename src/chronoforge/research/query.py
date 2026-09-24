@@ -10,6 +10,10 @@ query() 六规则（按序执行，生成单条 SQL）：
    值全部参数化（? 占位符）
 5. columns 投影；恒附加 dataset_version/schema_version 元信息到 QueryResult
 6. 默认排序：主时间列升序 + natural key 次列稳定排序；不可配置关闭（确定性/可复现）
+7. 行数上限（READY-003/SR-10）：恒附加 LIMIT ?（缺省 Settings 的
+   DEFAULT_QUERY_MAX_ROWS，可构造注入 max_rows）；用户显式 limit 可调低不可调高
+   （min(limit, max_rows)）；LIMIT effective+1 取数探测截断，超限截断返回并以
+   QueryResult.truncated 元信息标注（决策 A：截断 + 元信息，不抛错）
 
 只读契约：本服务持有的 DuckDB 连接由调用方以 read_only 模式打开（架构 02 规则 4
 的执行点），服务自身不产生任何写路径。
@@ -32,6 +36,7 @@ from typing import Any
 import duckdb
 import polars as pl
 
+from chronoforge.config.settings import DEFAULT_QUERY_MAX_ROWS
 from chronoforge.models.enums import CanonicalType
 from chronoforge.storage.base import natural_key, partition_time_field
 
@@ -42,7 +47,7 @@ _NO_TIME_FIELD_FALLBACK = "ingest_timestamp"
 
 @dataclass(frozen=True)
 class QueryResult:
-    """查询结果（D07 §1，元信息三字段恒附加）。"""
+    """查询结果（D07 §1，元信息恒附加；truncated 为 READY-003/SR-10 扩展）。"""
 
     frame: pl.DataFrame  # polars（批量语义）；.to_pandas() 惰性供研究
     dataset_id: str
@@ -50,6 +55,7 @@ class QueryResult:
     schema_version: str
     row_count: int
     elapsed_ms: int
+    truncated: bool = False  # True = 结果被 LIMIT 截断，可能存在更多行
 
 
 @dataclass(frozen=True)
@@ -123,14 +129,24 @@ def _naive_utc(dt: datetime) -> datetime:
 class DuckDBQueryService:
     """DuckDB 只读查询服务（研究者与 AI Agent 的唯一数据出口，D07 §1）。"""
 
-    def __init__(self, con: duckdb.DuckDBPyConnection, registry: DatasetRegistry):
+    def __init__(
+        self,
+        con: duckdb.DuckDBPyConnection,
+        registry: DatasetRegistry,
+        max_rows: int = DEFAULT_QUERY_MAX_ROWS,
+    ) -> None:
         """
         Args:
             con: read_only DuckDB 连接（视图经 STORAGE-004 register_views 预注册）。
             registry: DatasetRegistry 实例（dataset_registry 表只读查询接口）。
+            max_rows: 查询行数上限（READY-003/SR-10）；缺省取 Settings 的
+                DEFAULT_QUERY_MAX_ROWS。CLI 组合根（_wiring）未注入时即用缺省。
         """
+        if max_rows < 1:
+            raise ValueError(f"max_rows must be >= 1, got {max_rows}")
         self.con = con
         self.registry = registry
+        self._max_rows = max_rows
 
     def query(
         self,
@@ -140,8 +156,9 @@ class DuckDBQueryService:
         end: datetime | None = None,
         asof: datetime | None = None,
         filters: Mapping[str, Any] | None = None,
+        limit: int | None = None,
     ) -> QueryResult:
-        """查询入口（D07 §1 六规则按序执行）。
+        """查询入口（D07 §1 六规则 + READY-003 行数上限规则）。
 
         Args:
             dataset_id: 数据集 ID（dataset_registry 主键）。
@@ -150,14 +167,25 @@ class DuckDBQueryService:
             end: 主时间列上界（不含）。
             asof: 点时语义时刻；缺省 now()。仅 revision_supported 类型生效。
             filters: 相等过滤（列名白名单校验，值参数化）。
+            limit: 用户显式行数上限；可调低不可调高（有效上限 =
+                min(limit, max_rows)），超出 max_rows 不报错按上限截断。
 
         Returns:
-            QueryResult（frame + 恒附加的元信息）。
+            QueryResult（frame + 恒附加的元信息；truncated=True 表示结果被
+            LIMIT 截断、可能存在更多行）。
 
         Raises:
-            ValueError: dataset_id 不存在，或 columns/filters 含视图外列名。
+            ValueError: dataset_id 不存在；columns/filters 含视图外列名；
+                limit 非正整数。
         """
         start_ts = time.monotonic()
+
+        # 规则 7（READY-003）：行数上限——limit 参数校验 + 有效上限
+        if limit is not None and limit < 1:
+            raise ValueError(f"limit must be a positive integer, got {limit}")
+        effective_limit = (
+            self._max_rows if limit is None else min(limit, self._max_rows)
+        )
 
         # 规则 1：dataset_id → canonical_type → 视图名
         entry = self.registry.get(dataset_id)
@@ -193,6 +221,7 @@ class DuckDBQueryService:
                     raise ValueError(f"Unknown column: {col}")
 
         # 规则 5+6：投影/过滤（值参数化）+ 默认稳定排序
+        # 规则 7：LIMIT 取 effective+1 以探测截断（恰好等于上限时 truncated=False）
         sql, params = self._build_sql(
             view_name=view_name,
             time_col=time_col,
@@ -202,8 +231,12 @@ class DuckDBQueryService:
             start=start,
             end=end,
             filters=filters,
+            row_limit=effective_limit + 1,
         )
-        frame = self.con.execute(sql, params or None).pl()
+        frame = self.con.execute(sql, params).pl()
+        truncated = frame.height > effective_limit
+        if truncated:
+            frame = frame.head(effective_limit)
 
         elapsed_ms = int((time.monotonic() - start_ts) * 1000)
         return QueryResult(
@@ -213,6 +246,7 @@ class DuckDBQueryService:
             schema_version=self._get_schema_version(entry.dataset_id),
             row_count=frame.height,
             elapsed_ms=elapsed_ms,
+            truncated=truncated,
         )
 
     # ── 规则 2：时间列选择 ────────────────────────────────────────────
@@ -251,8 +285,9 @@ class DuckDBQueryService:
         start: datetime | None,
         end: datetime | None,
         filters: Mapping[str, Any] | None,
+        row_limit: int,
     ) -> tuple[str, list[Any]]:
-        """构建单条 SQL；列名经白名单+引号包裹，值全部 ? 参数化。"""
+        """构建单条 SQL；列名经白名单+引号包裹，值全部 ? 参数化（含 LIMIT）。"""
         projection = ", ".join(f'"{c}"' for c in columns) if columns else "*"
         sql = f'SELECT {projection} FROM "{view_name}"'
 
@@ -279,6 +314,9 @@ class DuckDBQueryService:
             if c != time_col and c in view_columns
         ]
         sql += " ORDER BY " + ", ".join(f'"{c}" ASC' for c in order_cols)
+        # 规则 7：LIMIT 参数化（DuckDB 支持 LIMIT ?）；TOP-K 排序内存随上限有界
+        sql += " LIMIT ?"
+        params.append(row_limit)
         return sql, params
 
     # ── 规则 5：恒附加元信息 ──────────────────────────────────────────

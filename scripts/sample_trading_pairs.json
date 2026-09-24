@@ -1,0 +1,47 @@
+{
+    "datasets": [
+        {
+            "source": "binance_spot",
+            "symbols": ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
+            "interval": "1h",
+            "canonical_type": "OHLCV",
+            "continuity_model": "ALWAYS_OPEN"
+        },
+        {
+            "source": "binance_spot",
+            "symbols": ["BTCUSDT", "ETHUSDT"],
+            "interval": "1m",
+            "canonical_type": "TRADE",
+            "continuity_model": "ALWAYS_OPEN"
+        },
+        {
+            "source": "binance_futures",
+            "symbols": ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
+            "interval": "1m",
+            "canonical_type": "OHLCV",
+            "continuity_model": "ALWAYS_OPEN"
+        },
+        {
+            "source": "binance_futures",
+            "symbols": ["BTCUSDT", "ETHUSDT"],
+            "interval": "8h",
+            "canonical_type": "FUNDING",
+            "continuity_model": "ALWAYS_OPEN"
+        },
+        {
+            "source": "binance_futures",
+            "symbols": ["BTCUSDT", "ETHUSDT"],
+            "interval": "1m",
+            "canonical_type": "OPEN_INTEREST",
+            "continuity_model": "ALWAYS_OPEN"
+        },
+        {
+            "source": "ccxt",
+            "exchange": "okx",
+            "symbols": ["BTC-USDT", "ETH-USDT"],
+            "interval": "1m",
+            "canonical_type": "OHLCV",
+            "continuity_model": "ALWAYS_OPEN"
+        }
+    ]
+}

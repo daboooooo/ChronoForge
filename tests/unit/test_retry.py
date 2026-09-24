@@ -120,7 +120,7 @@ class TestRetryBackoffSequence:
         def func():
             raise TransportError("test")
 
-        with patch("time.sleep", mock_sleep):
+        with patch("chronoforge.connectors.retry._sleep", mock_sleep):
             with pytest.raises(TransportError):
                 func()
 
@@ -146,7 +146,7 @@ class TestRetryBackoffSequence:
         def func():
             raise TransportError("test")
 
-        with patch("time.sleep", mock_sleep):
+        with patch("chronoforge.connectors.retry._sleep", mock_sleep):
             with patch("random.uniform", mock_uniform):
                 with pytest.raises(TransportError):
                     func()
@@ -240,7 +240,7 @@ class TestRetryRateLimitError:
         def func():
             raise RateLimitError("rate limited", retry_after=30)
 
-        with patch("time.sleep", mock_sleep):
+        with patch("chronoforge.connectors.retry._sleep", mock_sleep):
             with pytest.raises(RateLimitError):
                 func()
 
@@ -260,7 +260,7 @@ class TestRetryRateLimitError:
         def func():
             raise RateLimitError("rate limited", retry_after=1)
 
-        with patch("time.sleep", mock_sleep):
+        with patch("chronoforge.connectors.retry._sleep", mock_sleep):
             with pytest.raises(RateLimitError):
                 func()
 
@@ -284,7 +284,7 @@ class TestRetryStructlogEvents:
         def func():
             raise TransportError("test error")
 
-        with patch("time.sleep", mock_sleep):
+        with patch("chronoforge.connectors.retry._sleep", mock_sleep):
             with pytest.raises(TransportError):
                 func()
 

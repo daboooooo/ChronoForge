@@ -4,8 +4,10 @@
 - RunContext / StageResult 数据契约 + Stage 协议
 - 七个内置 Stage（fetch→raw_append→validate→normalize→canonical→quality→runlog），
   顺序固定，禁止跨阶段调用
-- PipelineRunner：数据集锁、熔断（3 连败）、终态判定、run_many 聚合、
-  run_log 全部观测列记账
+- PipelineRunner：数据集锁、熔断（3 连败 → 打开，冷却期 half-open 恢复，
+  R2-01）、终态判定、run_many 聚合、run_log 全部观测列记账
+- PipelineRunner.run_windowed：分窗口执行（READY-001 方案 B，SR-04
+  内存治理——单 run 内存 O(窗口)，不随 backfill 总跨度增长）
 - finish_failed_run / compose_run_row：异常路径记账辅助（replay 复用）
 
 异常映射（D05 §1 失败语义列 + D01 §3 错误层级）：
@@ -29,7 +31,7 @@ import json
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal, Protocol, cast, runtime_checkable
 
 import structlog
@@ -45,10 +47,19 @@ from chronoforge.connectors.errors import (
     StorageError,
     TransportError,
 )
+from chronoforge.connectors.retry import retry
 from chronoforge.models.enums import CanonicalType
 from chronoforge.pipeline.cursor import advance_chunks
 from chronoforge.pipeline.state import RunStatus
-from chronoforge.pipeline.windows import AcquisitionJob, Chunk, ChunkResult, plan_chunks
+from chronoforge.pipeline.windows import (
+    AcquisitionJob,
+    Chunk,
+    ChunkResult,
+    _parse_cursor,
+    plan_chunks,
+    resolve_window_span,
+    windowed_base,
+)
 from chronoforge.quality import rules as quality_rules
 from chronoforge.quality.report import GapContext, QualityFinding
 from chronoforge.storage.base import CanonicalStore, natural_key
@@ -63,6 +74,9 @@ _CIRCUIT_THRESHOLD = 3
 _CURSOR_TERMINAL = frozenset(
     {RunStatus.SUCCESS.value, RunStatus.PARTIAL_SUCCESS.value}
 )
+# 分窗口循环继续执行下一窗口的窗口终态集合（READY-001 DEC-W4）：
+# FAILED/CANCELLED 一律停止（FAILED 交熔断计数，CANCELLED 含熔断打开）
+_WINDOW_CONTINUE = _CURSOR_TERMINAL
 # 计数聚合键（run_log 观测列，审计 F-01/F-11）
 _COUNT_KEYS = (
     "input_count",
@@ -213,9 +227,15 @@ class FetchStage:
     - checkpoint 取自 meta.get_checkpoint → plan_chunks（now = job.end 或 utcnow）
     - 空 chunks 直接返回（空结果 = 正常 0 行）
     - 逐 chunk 调 connector.fetch 并即时缓冲（不积压 API 分页）
-    - (TransportError, RateLimitError, ProviderError) → chunk 计失败并停止后续
-      chunk；cursor 经 advance_chunks 停留在最后成功 chunk 右界
+    - R2-04（D05 §1「chunk 级重试耗尽」）：TransportError/RateLimitError 经
+      retry() 指数退避（消费 settings.retry_max，架构 08 §2 重试矩阵；
+      RateLimitError 的 Retry-After 由 retry() 尊重），耗尽才计 chunk 失败；
+      ProviderError 4xx 不重试直接穿透为 chunk 失败
+    - 可重试类耗尽 → 该 chunk 计失败并停止后续 chunk；cursor 经
+      advance_chunks 停留在最后成功 chunk 右界
     - AuthError/SchemaError/ConfigError → 直接 raise（run FAILED）
+    - R2-05：历史区间空 chunk（chunk 整体早于 now − 2×chunk 跨度且 0 行）
+      记 WARNING（可观测「HTTP 200 + 正常退出 + checkpoint 推进 + 数据缺失」）
     """
 
     name = "fetch"
@@ -244,16 +264,29 @@ class FetchStage:
         request_before = obs.request_count if obs is not None else 0
         retry_before = obs.retry_count if obs is not None else 0
 
+        retry_calls = 0
+
+        def _fetch_chunk(chunk: Chunk) -> int:
+            """单 chunk 重试单元：先缓冲本地，成功才并入 ctx（重试不残留半批）。"""
+            nonlocal retry_calls
+            retry_calls += 1
+            batches: list[RawBatch] = []
+            for batch in ctx.connector.fetch(chunk.request):
+                batches.append(batch)
+            ctx._batches.extend((chunk, b) for b in batches)
+            return len(batches)
+
+        fetch_with_retry = retry(max_retries=ctx.settings.retry_max)(_fetch_chunk)
+
         chunk_results: list[ChunkResult] = []
         for chunk in chunks:
+            calls_before = retry_calls
             batch_count = 0
             try:
-                for batch in ctx.connector.fetch(chunk.request):
-                    # 流式语义：每 chunk 即取即缓冲
-                    ctx._batches.append((chunk, batch))
-                    batch_count += 1
+                batch_count = fetch_with_retry(chunk)
             except (TransportError, RateLimitError, ProviderError) as exc:
                 # 可重试类耗尽：该 chunk 计失败，后续 chunk 跳过（D05 §1）
+                result.retry_count += retry_calls - calls_before - 1
                 result.chunk_failed += 1
                 result.errors.append(
                     f"chunk {chunk.chunk_id} fetch failed: "
@@ -270,15 +303,29 @@ class FetchStage:
                     error=type(exc).__name__,
                 )
                 break
+            result.retry_count += retry_calls - calls_before - 1
             result.chunk_success += 1
             result.output_count += batch_count
             chunk_results.append(
                 ChunkResult(chunk=chunk, success=True, record_count=batch_count)
             )
+            # R2-05：完全处于历史区间（早于 now − 2×chunk 跨度）且 0 行 →
+            # WARNING 计数 + 结构化日志（不改变 SUCCESS 语义与 cursor 推进）
+            if batch_count == 0 and chunk.end < now - 2 * (chunk.end - chunk.start):
+                result.warning_count += 1
+                logger.warning(
+                    "pipeline.empty_history_chunk",
+                    run_id=ctx.run_id,
+                    dataset_id=ctx.dataset_id,
+                    chunk_id=chunk.chunk_id,
+                    chunk_start=chunk.start.isoformat(),
+                    chunk_end=chunk.end.isoformat(),
+                )
 
         if obs is not None:
             result.request_count = obs.request_count - request_before
-            result.retry_count = obs.retry_count - retry_before
+            # 连接器内部重试与 stage 级重试（R2-04）累加入观测列
+            result.retry_count += obs.retry_count - retry_before
 
         final_cursor, updates = advance_chunks(result.checkpoint_before, chunk_results)
         ctx._final_cursor = final_cursor
@@ -721,9 +768,12 @@ class PipelineRunner:
         dataset_id = ctx.dataset_id
         source_id = ctx.connector.source_id
 
-        # 1. 熔断检查（SR-03：持久化状态，跨 job/进程生效）：
-        #    连续 FAILED ≥ 3 → 直接 CANCELLED，不执行 stages
-        if ctx.meta.is_circuit_open(source_id, dataset_id):
+        # 1. 熔断检查（SR-03：持久化状态，跨 job/进程生效；R2-01 冷却期）：
+        #    circuit_open=1 且打开时长 < circuit_cooldown_s → 直接 CANCELLED；
+        #    打开时长 ≥ 冷却期 → 放行本次探测 run（half-open）
+        if ctx.meta.is_circuit_open(
+            source_id, dataset_id, cooldown_seconds=ctx.settings.circuit_cooldown_s
+        ):
             lock = ctx.meta.try_lock_dataset(dataset_id, source_id=source_id)
             ctx.meta.finish_run(
                 lock.run_id,
@@ -750,6 +800,17 @@ class PipelineRunner:
         # SR-07：PENDING → RUNNING（D05 §3 状态机；区分「从未开始」与
         # 「执行中死亡」，crash 后由 startup_repair 按状态对账）
         ctx.meta.mark_run_running(ctx.run_id)
+
+        # R2-01（审计 2026-09-22）half-open 探测标记：上方硬拦截未触发而
+        # 打开标志仍置位（无 cooldown 查询）= 打开时长已超冷却期 → 本次为
+        # 探测 run；成功经 reset_circuit 解除，失败经 record_circuit_failure
+        # 刷新 circuit_opened_at 重新计时
+        if ctx.meta.is_circuit_open(source_id, dataset_id):
+            logger.warning(
+                "pipeline.circuit_half_open",
+                run_id=ctx.run_id,
+                dataset_id=dataset_id,
+            )
 
         stage_results: list[StageResult] = []
         try:
@@ -862,6 +923,89 @@ class PipelineRunner:
             succeeded=len(rows),
             aggregate_status=aggregate,
         )
+        return rows
+
+    def run_windowed(self, job: AcquisitionJob, *, window_seconds: int) -> list[RunRow]:
+        """分窗口执行（READY-001 方案 B：SR-04 内存治理，审计 2026-09-21）。
+
+        每次只回填一个时间窗（跨度 = window_seconds 向上对齐到
+        chunk_size 整数倍），外层循环经 checkpoint 推进窗口；单 run 内存
+        O(窗口)，不随 backfill 总跨度线性增长。七阶段数据流与单 run 语义
+        完全不变，全部约束逐条满足：
+
+        - DEC-W1 锁语义：窗口循环在锁外层——每个窗口是一次独立 run()
+          （一次 try_lock / 一个 run_id / 一次 finish_run）；SR-03 熔断
+          按 run 计数、SR-06 finish_run 写回均保持不变
+        - DEC-W2 全窗口 diff 类（fred/sec）不拆分（span=None → 直接 run(job)）
+        - DEC-W3 窗口统一以 mode="backfill" 的显式 [start, end) 子任务
+          执行：与全跨度 plan_chunks 的 chunk 序列逐 chunk 一致（窗口
+          边界对齐 chunk 边界，不重不漏；缝间仅标准 overlap 重复，
+          由 natural key upsert 幂等收敛）
+        - DEC-W4 续传与停止：窗口 SUCCESS/PARTIAL_SUCCESS 且 cursor 有
+          推进 → 下一窗口从新 checkpoint 起（PARTIAL 的失败 chunk 由
+          下一窗口自然重试）；FAILED/CANCELLED/无推进 → 停止；重入时
+          checkpoint 已覆盖请求跨度 → 幂等返回 []（剩余窗口可恢复）
+        - 失败恢复语义不变：单窗口失败 → 该窗口 FAILED + cursor 不推进
+          失败 chunk（既有 checkpoint 对齐）
+
+        一次逻辑 backfill 产生 N 行 run_log（方案 B 语义变化，任务单已列明）。
+
+        Args:
+            job: 获取任务（backfill 用 job.start；incremental 从 checkpoint 续传）
+            window_seconds: 窗口跨度上限（秒，>0）
+
+        Returns:
+            各窗口 RunRow（按执行顺序）；无可回填起点 → 单次 run(job)
+            （保持既有空 SUCCESS 语义）；checkpoint 已覆盖 → []
+
+        Raises:
+            ConfigError: window_seconds <= 0
+        """
+        if window_seconds <= 0:
+            raise ConfigError(
+                "window_seconds must be positive",
+                context={
+                    "window_seconds": window_seconds,
+                    "dataset_id": job.dataset_id,
+                },
+            )
+        span = resolve_window_span(job.dataset_id, window_seconds)
+        if span is None:
+            # DEC-W2：全窗口 diff 类不拆分（fred/sec 语义依赖全窗口 diff）
+            return [self.run(job)]
+
+        # 探针 ctx：读 meta/source（不执行任何 stage；每窗口由 run() 另建 ctx）
+        probe = self._ctx_factory(job)
+        meta = probe.meta
+        source_id = probe.source_id
+        dataset_id = probe.dataset_id
+        final_end = job.end or datetime.now(UTC).replace(tzinfo=None)
+
+        cursor = meta.get_checkpoint(source_id, dataset_id)
+        base = windowed_base(job, cursor)
+        if base is None:
+            # 空任务（无 cursor 且无 start）：退化为单 run，保持既有语义
+            return [self.run(job)]
+        if base >= final_end:
+            # DEC-W4 断点续传：checkpoint 已覆盖请求跨度 → 幂等跳过
+            return []
+
+        rows: list[RunRow] = []
+        while base < final_end:
+            window_end = min(base + timedelta(seconds=span), final_end)
+            sub_job = replace(job, start=base, end=window_end, mode="backfill")
+            row = self.run(sub_job)
+            rows.append(row)
+            if row.status not in _WINDOW_CONTINUE:
+                break
+            next_cursor = row.checkpoint_after
+            if next_cursor is None:
+                break
+            next_base = _parse_cursor(next_cursor)
+            if next_base <= base:
+                # 无推进（回退防护 SKIP 等）→ 停止，防死循环
+                break
+            base = next_base
         return rows
 
 

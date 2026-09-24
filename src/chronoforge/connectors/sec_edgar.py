@@ -139,9 +139,11 @@ class SECEdgarConnector(DataConnector):
         Yields:
             RawBatch 迭代器。
         """
-        cik = request.params.get("cik", "")
-        if not cik:
+        cik_raw = str(request.params.get("cik", "")).strip()
+        if not cik_raw:
             raise ValueError("sec_edgar: cik is required in request.params")
+        # SEC API 要求 10 位零填充 CIK（如 1652044 → CIK0001652044）
+        cik = re.sub(r"\D", "", cik_raw).zfill(10)
 
         data_type = request.params.get("data_type", "all")
 
@@ -271,6 +273,17 @@ class SECEdgarConnector(DataConnector):
         if not accepted_dt:
             return None
 
+        # 现代 data.sec.gov 格式：ISO 8601（如 "2026-09-22T20:12:40.000Z"）
+        try:
+            dt = datetime.fromisoformat(
+                accepted_dt.strip().replace("Z", "+00:00")
+            )
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(UTC).replace(tzinfo=None)
+            return dt
+        except ValueError:
+            pass
+
         # SEC 格式示例："2023-01-15 16:30:00 EDT"
         # 尝试带时区后缀的格式
         tz_pattern = re.compile(
@@ -330,7 +343,11 @@ class SECEdgarConnector(DataConnector):
 
         filing_dates = recent.get("filingDate", [])
         report_dates = recent.get("reportDate", [])
-        acceptance_dates = recent.get("acceptanceDate", [])
+        # SEC submissions 的实际字段名是 acceptanceDateTime（非 acceptanceDate）；
+        # 读错字段 → accepted_datetime=None → source_timestamp 空 → Q-PROV-001 阻断
+        acceptance_dates = (
+            recent.get("acceptanceDateTime") or recent.get("acceptanceDate") or []
+        )
         forms = recent.get("form", [])
 
         records: list[FILING] = []

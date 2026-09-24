@@ -3,6 +3,7 @@
 职责：
 - register_views：为所有 canonical type 注册 DuckDB 视图（read_parquet hive_partitioning）
 - as-of 视图：为 revision_supported 类型注册点时视图（row_number + release_time <= asof）
+- missing_views：只读探测「应注册未注册」视图集合（READY-005 方案 A 快路径判定）
 - get_registered_view_names：测试辅助，获取已注册视图名集合
 
 视图命名约定：
@@ -42,6 +43,43 @@ _PARTITION_TIME_FIELD_MAP: dict[CanonicalType, str] = {
 
 # ── 视图注册 ───────────────────────────────────────────────────────────
 
+def _base_view_sql(canonical_base: str, type_name: str) -> str:
+    """基础视图 SELECT 语句（注册与只读探测共用，单一事实源）。"""
+    parquet_path = f"{canonical_base}/{type_name}/**/*.parquet"
+    return f"SELECT * FROM read_parquet('{parquet_path}', hive_partitioning=1)"
+
+
+def _asof_view_sql(canonical_base: str, ct: CanonicalType) -> str:
+    """as-of 点时视图 SELECT 语句（注册与只读探测共用）。
+
+    SQL 模式（以 NUMBER 为例）：
+    ```sql
+    SELECT * EXCLUDE (rn) FROM (
+      SELECT *, row_number() OVER (
+        PARTITION BY source_id, observation_time
+        ORDER BY revision_time DESC) AS rn
+      FROM number
+      WHERE release_time <= getvariable('asof')
+    ) WHERE rn = 1;
+    ```
+
+    `release_time <= asof` 确保仅显示发布前可见的数据（防 look-ahead）；
+    getvariable 未 SET 时求值为 NULL（不报错，只读探测安全）。
+    """
+    partition_cols = _PARTITION_TIME_FIELD_MAP.get(ct, "source_id")
+    parquet_path = f"{canonical_base}/{ct.value}/**/*.parquet"
+    return (
+        f"SELECT * EXCLUDE (rn) FROM ("
+        f"  SELECT *, row_number() OVER ("
+        f"    PARTITION BY {partition_cols} "
+        f"    ORDER BY revision_time DESC"
+        f"  ) AS rn"
+        f"  FROM read_parquet('{parquet_path}', hive_partitioning=1)"
+        f"  WHERE release_time <= getvariable('asof')"
+        f") WHERE rn = 1"
+    )
+
+
 def register_views(con: duckdb.DuckDBPyConnection, data_dir: str) -> None:
     """注册全部 canonical type 的 DuckDB 视图（D03 §4）。
 
@@ -61,26 +99,20 @@ def register_views(con: duckdb.DuckDBPyConnection, data_dir: str) -> None:
 
     # 注册基础视图（所有 CanonicalType）
     for ct in CanonicalType:
-        _try_register_view(con, ct.value.lower(), canonical_base, ct.value)
+        _try_register_view(
+            con, ct.value.lower(), _base_view_sql(canonical_base, ct.value)
+        )
 
     # 注册 as-of 视图（revision_supported 类型）
     _register_asof_views(con, canonical_base)
 
 
 def _try_register_view(
-    con: duckdb.DuckDBPyConnection,
-    view_name: str,
-    canonical_base: str,
-    canonical_type_name: str,
+    con: duckdb.DuckDBPyConnection, view_name: str, select_sql: str
 ) -> None:
-    """尝试注册单个视图，找不到 parquet 文件时跳过（惰性加载）。"""
-    parquet_path = f"{canonical_base}/{canonical_type_name}/**/*.parquet"
-    sql = (
-        f"CREATE OR REPLACE VIEW {view_name} AS "
-        f"SELECT * FROM read_parquet('{parquet_path}', hive_partitioning=1)"
-    )
+    """尝试注册单个视图，绑定失败（分区目录不存在等）时跳过（惰性加载）。"""
     try:
-        con.execute(sql)
+        con.execute(f"CREATE OR REPLACE VIEW {view_name} AS {select_sql}")
     except duckdb.Error:
         # 找不到 parquet 文件 → 跳过（惰性，数据写入后重新注册）
         pass
@@ -89,43 +121,56 @@ def _try_register_view(
 def _register_asof_views(
     con: duckdb.DuckDBPyConnection, canonical_base: str
 ) -> None:
-    """注册 revision_supported 类型的 as-of 点时视图。
-
-    SQL 模式（以 NUMBER 为例）：
-    ```sql
-    CREATE OR REPLACE VIEW number_asof AS
-    SELECT * EXCLUDE (rn) FROM (
-      SELECT *, row_number() OVER (
-        PARTITION BY source_id, observation_time
-        ORDER BY revision_time DESC) AS rn
-      FROM number
-      WHERE release_time <= getvariable('asof')
-    ) WHERE rn = 1;
-    ```
-
-    使用 `SET VARIABLE asof = ?` 绑定参数。
-    `release_time <= asof` 确保仅显示发布前可见的数据（防 look-ahead）。
-    """
+    """注册 revision_supported 类型的 as-of 点时视图（SQL 见 _asof_view_sql）。"""
     for ct in REVISION_TYPES:
-        view_name = f"{ct.value.lower()}_asof"
-        partition_cols = _PARTITION_TIME_FIELD_MAP.get(ct, "source_id")
-        parquet_path = f"{canonical_base}/{ct.value}/**/*.parquet"
-
-        sql = (
-            f"CREATE OR REPLACE VIEW {view_name} AS "
-            f"SELECT * EXCLUDE (rn) FROM ("
-            f"  SELECT *, row_number() OVER ("
-            f"    PARTITION BY {partition_cols} "
-            f"    ORDER BY revision_time DESC"
-            f"  ) AS rn"
-            f"  FROM read_parquet('{parquet_path}', hive_partitioning=1)"
-            f"  WHERE release_time <= getvariable('asof')"
-            f") WHERE rn = 1"
+        _try_register_view(
+            con, f"{ct.value.lower()}_asof", _asof_view_sql(canonical_base, ct)
         )
-        try:
-            con.execute(sql)
-        except duckdb.Error:
-            pass
+
+
+def _view_bindable(con: duckdb.DuckDBPyConnection, select_sql: str) -> bool:
+    """只读探测视图 SELECT 能否绑定（与 CREATE VIEW 的绑定校验同源）。"""
+    try:
+        con.execute(f"SELECT * FROM ({select_sql}) LIMIT 0")
+    except duckdb.Error:
+        return False
+    return True
+
+
+def missing_views(con: duckdb.DuckDBPyConnection, data_dir: str) -> set[str]:
+    """只读探测：register_views 将注册而 catalog 尚缺的视图名（READY-005 方案 A）。
+
+    判定与 register_views 的惰性注册同源（共用 _base_view_sql/_asof_view_sql，
+    同一 read_parquet 绑定校验）：返回空集 ⇒ catalog 视图已齐全，
+    open_query_service 可跳过写模式注册，消除并发 CLI 的 query.duckdb
+    文件锁窗口（审计 SR-16）。
+
+    PROVISIONAL：视图定义由 (data_dir, type) 决定性生成，同名视图视作最新；
+    升级修改视图 SQL 模板后需删除 query.duckdb 重建（纯派生物，零成本）。
+
+    Args:
+        con: 只读 DuckDB 连接（探测不写 catalog）。
+        data_dir: canonical 数据目录路径（与 register_views 参数一致）。
+
+    Returns:
+        待注册视图名集合；空集表示无需写模式。
+    """
+    canonical_base = f"{data_dir}/canonical"
+    registered = get_registered_view_names(con)
+    missing: set[str] = set()
+    for ct in CanonicalType:
+        name = ct.value.lower()
+        if name not in registered and _view_bindable(
+            con, _base_view_sql(canonical_base, ct.value)
+        ):
+            missing.add(name)
+    for ct in REVISION_TYPES:
+        name = f"{ct.value.lower()}_asof"
+        if name not in registered and _view_bindable(
+            con, _asof_view_sql(canonical_base, ct)
+        ):
+            missing.add(name)
+    return missing
 
 
 def get_registered_view_names(con: duckdb.DuckDBPyConnection) -> set[str]:

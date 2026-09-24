@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from typing import Any
 
@@ -26,30 +27,31 @@ def research_reproduce(
 ) -> None:
     """重跑快照查询并比对 output_hash（架构 02 §5 复现契约）。"""
     try:
-        settings = Settings.load()
-        meta = _wiring.open_meta(settings)
-        record = get_snapshot(meta, snapshot)
-        if record is None:
-            raise ValueError(f"Snapshot not found: {snapshot}")
+        # 审计 SR-11：meta / DuckDB 连接一并纳入 ExitStack（LIFO：先 con 后 meta）
+        with contextlib.ExitStack() as stack:
+            settings = Settings.load()
+            meta = _wiring.open_meta(settings)
+            stack.callback(meta.close)
+            record = get_snapshot(meta, snapshot)
+            if record is None:
+                raise ValueError(f"Snapshot not found: {snapshot}")
 
-        service, con = _wiring.open_query_service(settings, meta)
-        try:
+            service, con = _wiring.open_query_service(settings, meta)
+            stack.callback(con.close)
             result = snapshot_reproduce(snapshot, meta, service, _query_func(record.params))
-        finally:
-            con.close()
 
-        typer.echo(
-            json.dumps(
-                {
-                    "snapshot_id": result.snapshot_id,
-                    "hash_match": result.hash_match,
-                    "original_hash": result.original_hash,
-                    "new_hash": result.new_hash,
-                    "version_changes": _wiring.to_jsonable(result.version_changes),
-                },
-                ensure_ascii=False,
+            typer.echo(
+                json.dumps(
+                    {
+                        "snapshot_id": result.snapshot_id,
+                        "hash_match": result.hash_match,
+                        "original_hash": result.original_hash,
+                        "new_hash": result.new_hash,
+                        "version_changes": _wiring.to_jsonable(result.version_changes),
+                    },
+                    ensure_ascii=False,
+                )
             )
-        )
     except (ChronoForgeError, ValueError) as exc:
         typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc

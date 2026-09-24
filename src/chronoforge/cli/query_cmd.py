@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sys
 
@@ -26,6 +27,9 @@ def query(
     columns: str | None = typer.Option(
         None, "--columns", help="投影列（逗号分隔；缺省全列）"
     ),
+    limit: int | None = typer.Option(
+        None, "--limit", help="最大返回行数（可低于服务上限；超上限按上限截断）"
+    ),
     as_json: bool = typer.Option(False, "--json", help="QueryResult 直序列化输出"),
     as_csv: bool = typer.Option(False, "--csv", help="CSV 输出（stdout）"),
 ) -> None:
@@ -44,10 +48,13 @@ def query(
     cols = [c.strip() for c in columns.split(",") if c.strip()] if columns else None
 
     try:
-        settings = Settings.load()
-        meta = _wiring.open_meta(settings)
-        service, con = _wiring.open_query_service(settings, meta)
-        try:
+        # 审计 SR-11：meta / DuckDB 连接一并纳入 ExitStack（LIFO：先 con 后 meta）
+        with contextlib.ExitStack() as stack:
+            settings = Settings.load()
+            meta = _wiring.open_meta(settings)
+            stack.callback(meta.close)
+            service, con = _wiring.open_query_service(settings, meta)
+            stack.callback(con.close)
             result = service.query(
                 dataset,
                 columns=cols,
@@ -55,32 +62,40 @@ def query(
                 end=_wiring.parse_dt(end),
                 asof=_wiring.parse_dt(asof),
                 filters=parsed_filters,
+                limit=limit,
             )
-        finally:
-            con.close()
 
-        if as_json:
-            # D07 §4：QueryResult 元信息 + 行数据（AI Agent 消费）
-            payload = {
-                "dataset_id": result.dataset_id,
-                "dataset_version": result.dataset_version,
-                "schema_version": result.schema_version,
-                "row_count": result.row_count,
-                "elapsed_ms": result.elapsed_ms,
-                "rows": _wiring.to_jsonable(result.frame.to_dicts()),
-            }
-            typer.echo(json.dumps(payload, ensure_ascii=False))
-        elif as_csv:
-            result.frame.write_csv(sys.stdout)
-        else:
-            typer.echo(
-                f"dataset={result.dataset_id} version={result.dataset_version} "
-                f"rows={result.row_count} elapsed_ms={result.elapsed_ms}"
-            )
-            if result.row_count == 0:
-                typer.echo("(empty result)")
+            if result.truncated:
+                # READY-003：截断提示走 stderr，不污染 stdout 的 JSON/CSV 数据流
+                typer.secho(
+                    f"warning: result truncated at {result.row_count} rows "
+                    "(row limit reached); narrow the time range or raise --limit",
+                    fg=typer.colors.YELLOW,
+                    err=True,
+                )
+            if as_json:
+                # D07 §4：QueryResult 元信息 + 行数据（AI Agent 消费）
+                payload = {
+                    "dataset_id": result.dataset_id,
+                    "dataset_version": result.dataset_version,
+                    "schema_version": result.schema_version,
+                    "row_count": result.row_count,
+                    "elapsed_ms": result.elapsed_ms,
+                    "truncated": result.truncated,
+                    "rows": _wiring.to_jsonable(result.frame.to_dicts()),
+                }
+                typer.echo(json.dumps(payload, ensure_ascii=False))
+            elif as_csv:
+                result.frame.write_csv(sys.stdout)
             else:
-                typer.echo(result.frame.head(20).to_pandas().to_string(index=False))
+                typer.echo(
+                    f"dataset={result.dataset_id} version={result.dataset_version} "
+                    f"rows={result.row_count} elapsed_ms={result.elapsed_ms}"
+                )
+                if result.row_count == 0:
+                    typer.echo("(empty result)")
+                else:
+                    typer.echo(result.frame.head(20).to_pandas().to_string(index=False))
     except (ChronoForgeError, ValueError) as exc:
         typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc

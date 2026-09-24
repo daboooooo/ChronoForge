@@ -101,7 +101,9 @@ class DeribitConnector(DataConnector):
 
         self._settings: Any = settings
         timeout = getattr(settings, "http_timeout_s", 30.0)
-        base_url = getattr(settings, "base_url", "https://www.deribit.com/api/v2")
+        base_url = getattr(settings, "base_url", "https://www.deribit.com")
+        # 请求路径已含 /api/v2 前缀；注册表 base_url 可能带同样后缀，剥掉防双重前缀
+        base_url = base_url.removesuffix("/api/v2").rstrip("/")
         self._client = httpx.Client(
             base_url=base_url,
             timeout=timeout,

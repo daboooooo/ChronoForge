@@ -12,6 +12,8 @@ import json
 import logging
 import shutil
 import sqlite3
+import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,7 +30,7 @@ logger = logging.getLogger(__name__)
 # ── cleanup_orphans（D03 §5.5）─────────────────────────────────────
 
 
-def cleanup_orphans(data_dir: str) -> list[str]:
+def cleanup_orphans(data_dir: str, *, min_age_seconds: float = 0.0) -> list[str]:
     """清理 canonical 层 temp/p.old 孤儿目录（D03 §5.5 原子性协议）。
 
     启动时调用。幂等：多次调用不报错，不删除正常的 part-*.parquet 文件。
@@ -37,8 +39,13 @@ def cleanup_orphans(data_dir: str) -> list[str]:
     year 层（canonical.py 中 part_path.parent / target.parent），
     即 month=* 分区目录的同级，因此扫描 year 目录的直接子目录。
 
+    R2-03①（审计 2026-09-22）年龄护栏：min_age_seconds > 0 时仅清理
+    mtime 距今超过该值的目录——并发 run 在途的新鲜 .tmp-* 不删，防止
+    startup_repair 与在途 merge-rewrite 重叠时误伤（rename-swap 失败）。
+
     Args:
         data_dir: 数据存储根目录。
+        min_age_seconds: 孤儿目录最小年龄（秒），0 = 立即清理（旧行为）。
 
     Returns:
         被清理的目录路径列表。
@@ -62,6 +69,13 @@ def cleanup_orphans(data_dir: str) -> list[str]:
                     if not subdir.is_dir():
                         continue
                     if subdir.name.startswith(".tmp-") or subdir.name.startswith(".old-"):
+                        if min_age_seconds > 0:
+                            try:
+                                age = time.time() - subdir.stat().st_mtime
+                            except OSError:
+                                age = float("inf")  # stat 失败视为足够老
+                            if age <= min_age_seconds:
+                                continue  # 新鲜目录：可能是在途 run 的临时分片
                         orphan_dirs.append(str(subdir))
                         shutil.rmtree(subdir, ignore_errors=True)
 
@@ -108,6 +122,8 @@ def reconcile(
     raw_store: RawStore,
     canonical_store: CanonicalStore,  # noqa: ARG001  # Protocol 引用，用于类型检查
     data_dir: str,  # noqa: ARG001  # 签名契约（STORAGE-005）保留
+    *,
+    stale_run_timeout_seconds: float = 0.0,
 ) -> list[dict[str, object]]:
     """对账：补记孤儿 run 的缺失终态（D03 §5.5，架构 08 §5）。
 
@@ -125,11 +141,16 @@ def reconcile(
        （UPDATE 原行，保留 source_id/dataset_id lineage，禁止伪造行）
     4. 更新涉及 dataset 的状态
 
+    R2-03②（审计 2026-09-22）租约护栏：stale_run_timeout_seconds > 0 时
+    仅对账 started_at 距今超过该值的行——并发活跃 run（租约内）不补记
+    中间假终态，防 run_log 审计痕迹被真实 finish_run 之外的写入污染。
+
     Args:
         meta: MetaStore 实例。
         raw_store: RawStore 实例。
         canonical_store: CanonicalStore 实例（Protocol 类型）。
         data_dir: 数据存储根目录（签名契约保留）。
+        stale_run_timeout_seconds: 孤儿租约下限（秒），0 = 全部对账（旧行为）。
 
     Returns:
         补记的 dict 列表（含 run_id, status, error_summary）。
@@ -139,10 +160,21 @@ def reconcile(
 
     reconciled: list[dict[str, object]] = []
 
-    cursor = meta._conn.execute(
+    sql = (
         "SELECT run_id, source_id, dataset_id, ingest_batch_id FROM run_log "
         "WHERE status IN ('PENDING', 'RUNNING')"
     )
+    params: list[object] = []
+    if stale_run_timeout_seconds > 0:
+        # started_at 为 ISO-8601 UTC 字符串（try_lock_dataset 写入），
+        # 同格式字典序即时间序（与 release_stale_locks 同一比较约定）
+        cutoff = (
+            datetime.now(UTC).replace(tzinfo=None)
+            - timedelta(seconds=stale_run_timeout_seconds)
+        ).isoformat() + "Z"
+        sql += " AND started_at <= ?"
+        params.append(cutoff)
+    cursor = meta._conn.execute(sql, params)
     orphan_runs = cursor.fetchall()
 
     for run_id, source_id, dataset_id, batch_id in orphan_runs:
@@ -229,6 +261,11 @@ def startup_repair(
     先释放超时孤儿锁（审计 H-7，解除数据集死锁），再清理 temp/.old 孤儿，
     最后对账补记缺失终态。
 
+    R2-03（审计 2026-09-22）：cleanup_orphans 与 reconcile 共用
+    stale_run_timeout_seconds 作为护栏——前者为孤儿目录最小年龄
+    （并发 run 在途的 .tmp-* 不删），后者为孤儿 run 租约下限
+    （活跃 run 不补记中间假终态）。
+
     Args:
         meta: MetaStore 实例。
         raw_store: RawStore 实例。
@@ -246,8 +283,8 @@ def startup_repair(
             released,
         )
 
-    # 1. 清理孤儿
-    orphans = cleanup_orphans(data_dir)
+    # 1. 清理孤儿（R2-03①：年龄护栏，在途 run 的临时目录不删）
+    orphans = cleanup_orphans(data_dir, min_age_seconds=stale_run_timeout_seconds)
     if orphans:
         logger.info(
             "storage.cleanup_orphans",
@@ -256,8 +293,14 @@ def startup_repair(
             orphans,
         )
 
-    # 2. 对账补记
-    reconciled = reconcile(meta, raw_store, canonical_store, data_dir)
+    # 2. 对账补记（R2-03②：租约护栏，活跃 run 不补记）
+    reconciled = reconcile(
+        meta,
+        raw_store,
+        canonical_store,
+        data_dir,
+        stale_run_timeout_seconds=stale_run_timeout_seconds,
+    )
     if reconciled:
         logger.info(
             "storage.reconcile",

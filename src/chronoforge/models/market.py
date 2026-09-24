@@ -70,11 +70,19 @@ class OHLCV(BaseRecord):
             raise ValueError("must be finite (not NaN/Inf)")
         return v
 
-    @field_validator("open", "high", "low", "close", "volume")
+    @field_validator("open", "high", "low", "close")
     @classmethod
     def _check_positive(cls, v: float) -> float:
         if v <= 0:
             raise ValueError("must be > 0")
+        return v
+
+    @field_validator("volume")
+    @classmethod
+    def _check_non_negative(cls, v: float) -> float:
+        # volume=0 合法：交易所停机维护/无成交时段 K 线（价格冻结、量为零）
+        if v < 0:
+            raise ValueError("must be >= 0")
         return v
 
     @model_validator(mode="after")

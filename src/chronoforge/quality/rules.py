@@ -17,7 +17,24 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal, cast
 
 from chronoforge.exceptions import StorageError
+from chronoforge.models.derivatives import (
+    GREEKS,
+    IMPLIED_VOLATILITY,
+    LIQUIDATION_AGGREGATE,
+    OPTION,
+)
 from chronoforge.models.enums import CanonicalType
+from chronoforge.models.fundamental import FILING
+from chronoforge.models.macro import NUMBER
+from chronoforge.models.market import (
+    FUNDING,
+    OHLCV,
+    OPEN_INTEREST,
+    TICKER,
+    TRADE,
+)
+from chronoforge.models.positioning import POSITION
+from chronoforge.models.prediction import PREDICTION_PRICE
 
 from .continuity import expected_grid
 from .report import GapContext, QualityFinding, QualityReport
@@ -218,6 +235,10 @@ class QSchema001Rule(QualityRule):
         *,
         context: GapContext | None = None,
     ) -> list[QualityFinding]:
+        # 无对应 Pydantic 模型的类型（如 ORDERBOOK/DOCUMENT 等）不做
+        # schema 校验——"不支持"不等于"校验失败"，跳过而非误报 ERROR
+        if canonical_type not in _SCHEMA_TYPE_MAP:
+            return []
         findings = []
         for rec in records:
             try:
@@ -1171,38 +1192,30 @@ class QRev001Rule(QualityRule):
 
 # ── 辅助函数 ──────────────────────────────────────────────────────────
 
+# Q-SCHEMA-001 可做 Pydantic 重建校验的类型（有模型即校验，无模型跳过）
+_SCHEMA_TYPE_MAP: dict[CanonicalType, type] = {
+    CanonicalType.OHLCV: OHLCV,
+    CanonicalType.TRADE: TRADE,
+    CanonicalType.TICKER: TICKER,
+    CanonicalType.FUNDING: FUNDING,
+    CanonicalType.OPEN_INTEREST: OPEN_INTEREST,
+    CanonicalType.OPTION: OPTION,
+    CanonicalType.IMPLIED_VOLATILITY: IMPLIED_VOLATILITY,
+    CanonicalType.GREEKS: GREEKS,
+    CanonicalType.NUMBER: NUMBER,
+    CanonicalType.PREDICTION_PRICE: PREDICTION_PRICE,
+    CanonicalType.POSITION: POSITION,
+    CanonicalType.FILING: FILING,
+    CanonicalType.LIQUIDATION_AGGREGATE: LIQUIDATION_AGGREGATE,
+}
+
 
 def _build_record(canonical_type: CanonicalType, data: dict[str, object]) -> object:
     """根据 CanonicalType 构建对应的 Pydantic 模型实例。
 
     仅传递模型实际接受的字段（过滤 open_time/close_time 等额外字段）。
     """
-    from chronoforge.models.base import BaseRecord
-    from chronoforge.models.derivatives import (
-        GREEKS,
-        IMPLIED_VOLATILITY,
-        LIQUIDATION_AGGREGATE,
-        OPTION,
-    )
-    from chronoforge.models.macro import NUMBER
-    from chronoforge.models.market import FUNDING, OHLCV, TICKER, TRADE
-    from chronoforge.models.positioning import POSITION
-    from chronoforge.models.prediction import PREDICTION_PRICE
-
-    _TYPE_MAP: dict[CanonicalType, type[BaseRecord]] = {
-        CanonicalType.OHLCV: OHLCV,
-        CanonicalType.TRADE: TRADE,
-        CanonicalType.TICKER: TICKER,
-        CanonicalType.FUNDING: FUNDING,
-        CanonicalType.OPTION: OPTION,
-        CanonicalType.IMPLIED_VOLATILITY: IMPLIED_VOLATILITY,
-        CanonicalType.GREEKS: GREEKS,
-        CanonicalType.NUMBER: NUMBER,
-        CanonicalType.PREDICTION_PRICE: PREDICTION_PRICE,
-        CanonicalType.POSITION: POSITION,
-        CanonicalType.LIQUIDATION_AGGREGATE: LIQUIDATION_AGGREGATE,
-    }
-    model_cls = _TYPE_MAP.get(canonical_type)
+    model_cls = _SCHEMA_TYPE_MAP.get(canonical_type)
     if model_cls is None:
         raise ValueError(f"Unknown canonical type for schema check: {canonical_type}")
     # 仅传递模型接受的字段（排除 open_time/close_time 等额外字段）

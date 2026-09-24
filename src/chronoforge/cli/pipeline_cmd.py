@@ -6,6 +6,7 @@ pipeline.runner / pipeline.replay / pipeline.windows（架构 02 规则 3）。
 
 from __future__ import annotations
 
+import contextlib
 import json
 import signal
 from typing import Any
@@ -38,6 +39,14 @@ def pipeline_run(
     all_due: bool = typer.Option(
         False, "--all-due", help="运行全部启用 dataset（due 语义 = enabled=1，见决策 D-6）"
     ),
+    window_seconds: int | None = typer.Option(
+        None,
+        "--window-seconds",
+        help=(
+            "分窗口回填（READY-001 内存治理）：单次 run 只处理一个时间窗"
+            "（秒，向上对齐 chunk 边界），循环推进 checkpoint；不传 = 整段单 run"
+        ),
+    ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="仅打印 job 计划，不执行、不落盘"
     ),
@@ -49,75 +58,117 @@ def pipeline_run(
         raise typer.BadParameter("--dataset and --all-due are mutually exclusive")
     if not all_due and dataset is None:
         raise typer.BadParameter("either --dataset or --all-due is required")
+    if window_seconds is not None and window_seconds <= 0:
+        raise typer.BadParameter("--window-seconds must be positive")
 
     try:
-        settings = Settings.load()
-        meta = _wiring.open_meta(settings)
-        targets = (
-            [r["dataset_id"] for r in list_datasets(meta, enabled_only=True)]
-            if all_due
-            else [dataset or ""]
-        )
-
-        jobs: list[AcquisitionJob] = []
-        for ds in targets:
-            params = _wiring.load_dataset_params(meta, ds)
-            jobs.append(
-                AcquisitionJob(
-                    dataset_id=ds,
-                    start=_wiring.parse_dt(start),
-                    end=_wiring.parse_dt(end),
-                    mode=mode,  # type: ignore[arg-type]
-                    params=params,
-                )
+        # 审计 SR-11：ExitStack 统一管理 open_meta / build_connector 资源，
+        # finally 语义覆盖异常路径与 typer.Exit（含 SIGTERM→KeyboardInterrupt）。
+        with contextlib.ExitStack() as stack:
+            settings = Settings.load()
+            # R2-03③：startup_repair 收敛到写入口（run/replay），读命令免修复
+            meta = _wiring.open_meta(settings, repair=True)
+            stack.callback(meta.close)
+            targets = (
+                [r["dataset_id"] for r in list_datasets(meta, enabled_only=True)]
+                if all_due
+                else [dataset or ""]
             )
 
-        if dry_run:
-            # GWT-3：仅打印 job 计划不落盘——不构造 runner、不 try_lock、不写存储
+            jobs: list[AcquisitionJob] = []
+            for ds in targets:
+                params = _wiring.load_dataset_params(meta, ds)
+                jobs.append(
+                    AcquisitionJob(
+                        dataset_id=ds,
+                        start=_wiring.parse_dt(start),
+                        end=_wiring.parse_dt(end),
+                        mode=mode,  # type: ignore[arg-type]
+                        params=params,
+                    )
+                )
+
+            if dry_run:
+                # GWT-3：仅打印 job 计划不落盘——不构造 runner、不 try_lock、不写存储
+                for job in jobs:
+                    row = get_dataset(meta, job.dataset_id)
+                    cursor = meta.get_checkpoint(
+                        str(row["source_id"]) if row else "", job.dataset_id
+                    )
+                    typer.echo(
+                        "job "
+                        f"dataset={job.dataset_id} mode={job.mode} "
+                        f"start={job.start.isoformat() if job.start else None} "
+                        f"end={job.end.isoformat() if job.end else None} "
+                        f"params={json.dumps(dict(job.params), sort_keys=True)} "
+                        f"cursor={cursor}"
+                    )
+                return
+
+            # 审计 SR-02：SIGTERM 默认直接终止进程（无异常），run_log 滞留
+            # PENDING、dataset 锁不释放。转换为 KeyboardInterrupt，由
+            # PipelineRunner 捕获写 CANCELLED 终态（D05 §3 用户取消）。
+            # SIGINT（Ctrl+C）默认即抛 KeyboardInterrupt，无需注册。
+            def _sigterm_to_interrupt(signum: int, frame: object) -> None:
+                raise KeyboardInterrupt(f"SIGTERM ({signum}) received")
+
+            signal.signal(signal.SIGTERM, _sigterm_to_interrupt)
+
+            # R2-02（审计 2026-09-22）：逐 dataset 异常隔离——单 dataset
+            # 失败（ConfigError/AuthError 等）不中断 --all-due 队列
+            # （架构 08 §3「批量 run 中单 dataset 失败不影响其余」）；
+            # 结束统一汇总并按是否有失败决定退出码。
+            failures: list[str] = []
             for job in jobs:
-                row = get_dataset(meta, job.dataset_id)
-                cursor = meta.get_checkpoint(
-                    str(row["source_id"]) if row else "", job.dataset_id
-                )
-                typer.echo(
-                    "job "
-                    f"dataset={job.dataset_id} mode={job.mode} "
-                    f"start={job.start.isoformat() if job.start else None} "
-                    f"end={job.end.isoformat() if job.end else None} "
-                    f"params={json.dumps(dict(job.params), sort_keys=True)} "
-                    f"cursor={cursor}"
-                )
-            return
+                try:
+                    row = get_dataset(meta, job.dataset_id)
+                    if row is None:
+                        raise ChronoForgeError(
+                            f"Dataset not found in registry: {job.dataset_id}",
+                            context={"dataset_id": job.dataset_id},
+                        )
+                    source_id = str(row["source_id"])
+                    # SR-11：connector 仅在本迭代存活，迭代结束即 close，
+                    # 避免 --all-due 时 N 个连接器同时存活。
+                    with contextlib.ExitStack() as job_stack:
+                        connector = _wiring.build_connector(
+                            source_id, settings, dict(job.params)
+                        )
+                        _wiring.enter_closeable(job_stack, connector)
+                        # R2-07：runner 内部 RawStore 常驻句柄随迭代关闭
+                        runner = _wiring.build_runner(
+                            settings, meta, connector, source_id, job_stack
+                        )
+                        bind_context(dataset=job.dataset_id)
+                        try:
+                            # READY-001：--window-seconds 走分窗口循环（每窗一次 run），
+                            # 不传保持单 run 语义；CLI 薄层，窗口规则在 runner 层。
+                            if window_seconds is not None:
+                                results = runner.run_windowed(
+                                    job, window_seconds=window_seconds
+                                )
+                            else:
+                                results = [runner.run(job)]
+                        finally:
+                            clear_context()
+                        for result in results:
+                            typer.echo(
+                                f"run {result.run_id} dataset={result.dataset_id} "
+                                f"status={result.status} output={result.output_count} "
+                                f"errors={result.error_count}"
+                            )
+                except ChronoForgeError as exc:
+                    typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
+                    failures.append(job.dataset_id)
 
-        # 审计 SR-02：SIGTERM 默认直接终止进程（无异常），run_log 滞留
-        # PENDING、dataset 锁不释放。转换为 KeyboardInterrupt，由
-        # PipelineRunner 捕获写 CANCELLED 终态（D05 §3 用户取消）。
-        # SIGINT（Ctrl+C）默认即抛 KeyboardInterrupt，无需注册。
-        def _sigterm_to_interrupt(signum: int, frame: object) -> None:
-            raise KeyboardInterrupt(f"SIGTERM ({signum}) received")
-
-        signal.signal(signal.SIGTERM, _sigterm_to_interrupt)
-
-        for job in jobs:
-            row = get_dataset(meta, job.dataset_id)
-            if row is None:
-                raise ChronoForgeError(
-                    f"Dataset not found in registry: {job.dataset_id}",
-                    context={"dataset_id": job.dataset_id},
+            if failures:
+                typer.secho(
+                    f"error: {len(failures)}/{len(jobs)} dataset(s) failed: "
+                    f"{', '.join(failures)}",
+                    fg=typer.colors.RED,
+                    err=True,
                 )
-            source_id = str(row["source_id"])
-            connector = _wiring.build_connector(source_id, settings, dict(job.params))
-            runner = _wiring.build_runner(settings, meta, connector, source_id)
-            bind_context(dataset=job.dataset_id)
-            try:
-                result = runner.run(job)
-            finally:
-                clear_context()
-            typer.echo(
-                f"run {result.run_id} dataset={result.dataset_id} "
-                f"status={result.status} output={result.output_count} "
-                f"errors={result.error_count}"
-            )
+                raise typer.Exit(code=1)
     except (ChronoForgeError, ValueError) as exc:
         typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
@@ -132,33 +183,69 @@ def pipeline_replay(
     if layer not in _LAYERS:
         raise typer.BadParameter(f"--layer must be one of {_LAYERS}")
     try:
-        settings = Settings.load()
-        meta = _wiring.open_meta(settings)
-        row = get_dataset(meta, dataset)
-        if row is None:
-            raise ChronoForgeError(
-                f"Dataset not found in registry: {dataset}",
-                context={"dataset_id": dataset},
+        with contextlib.ExitStack() as stack:
+            settings = Settings.load()
+            # R2-03③：startup_repair 收敛到写入口（run/replay），读命令免修复
+            meta = _wiring.open_meta(settings, repair=True)
+            stack.callback(meta.close)
+            row = get_dataset(meta, dataset)
+            if row is None:
+                raise ChronoForgeError(
+                    f"Dataset not found in registry: {dataset}",
+                    context={"dataset_id": dataset},
+                )
+            source_id = str(row["source_id"])
+            params = _wiring.load_dataset_params(meta, dataset)
+            connector = _wiring.build_connector(source_id, settings, params)
+            _wiring.enter_closeable(stack, connector)
+
+            from chronoforge.pipeline.replay import replay as replay_service
+
+            # R2-07：replay 直建的 RawStore 同样注册进 ExitStack
+            raw_store = RawStore(str(settings.data_dir))
+            _wiring.enter_closeable(stack, raw_store)
+            result = replay_service(
+                layer,  # type: ignore[arg-type]
+                dataset,
+                meta=meta,
+                raw_store=raw_store,
+                canonical_store=CanonicalStoreImpl(str(settings.data_dir)),
+                connector=connector,
+                settings=settings,
+                params=params,
             )
-        source_id = str(row["source_id"])
-        params = _wiring.load_dataset_params(meta, dataset)
-        connector = _wiring.build_connector(source_id, settings, params)
+            typer.echo(
+                f"replay {result.run_id} dataset={result.dataset_id} "
+                f"status={result.status} output={result.output_count}"
+            )
+    except (ChronoForgeError, ValueError) as exc:
+        typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
 
-        from chronoforge.pipeline.replay import replay as replay_service
 
-        result = replay_service(
-            layer,  # type: ignore[arg-type]
-            dataset,
-            meta=meta,
-            raw_store=RawStore(str(settings.data_dir)),
-            canonical_store=CanonicalStoreImpl(str(settings.data_dir)),
-            connector=connector,
-            settings=settings,
-        )
-        typer.echo(
-            f"replay {result.run_id} dataset={result.dataset_id} "
-            f"status={result.status} output={result.output_count}"
-        )
+@pipeline_app.command("circuit-reset")
+def pipeline_circuit_reset(
+    dataset: str = typer.Option(..., "--dataset", help="Dataset ID"),
+) -> None:
+    """复位指定 dataset 的熔断状态（R2-01 运维恢复入口，架构 08 §3）。
+
+    熔断冷却期 half-open 之外的即时恢复通道：数据源维护结束等场景下
+    免改库手工干预。幂等：未打开时执行无副作用。
+    """
+    try:
+        with contextlib.ExitStack() as stack:
+            settings = Settings.load()
+            meta = _wiring.open_meta(settings)
+            stack.callback(meta.close)
+            row = get_dataset(meta, dataset)
+            if row is None:
+                raise ChronoForgeError(
+                    f"Dataset not found in registry: {dataset}",
+                    context={"dataset_id": dataset},
+                )
+            source_id = str(row["source_id"])
+            meta.reset_circuit(source_id, dataset)
+            typer.echo(f"circuit-reset dataset={dataset} source={source_id} status=RESET")
     except (ChronoForgeError, ValueError) as exc:
         typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
@@ -172,21 +259,23 @@ def pipeline_status(
 ) -> None:
     """查看 run 状态（读 run_log，新→旧）。"""
     try:
-        settings = Settings.load()
-        meta = _wiring.open_meta(settings)
-        rows: list[dict[str, Any]] = _wiring.list_runs(meta, dataset, last)
-        if as_json:
-            typer.echo(json.dumps(_wiring.to_jsonable(rows), ensure_ascii=False))
-            return
-        if not rows:
-            typer.echo("(no runs)")
-            return
-        for r in rows:
-            typer.echo(
-                f"{r['run_id']} {r['status']:<16} {r['started_at']} "
-                f"dataset={r['dataset_id']} output={r['output_count']} "
-                f"errors={r['error_count']}"
-            )
+        with contextlib.ExitStack() as stack:
+            settings = Settings.load()
+            meta = _wiring.open_meta(settings)
+            stack.callback(meta.close)
+            rows: list[dict[str, Any]] = _wiring.list_runs(meta, dataset, last)
+            if as_json:
+                typer.echo(json.dumps(_wiring.to_jsonable(rows), ensure_ascii=False))
+                return
+            if not rows:
+                typer.echo("(no runs)")
+                return
+            for r in rows:
+                typer.echo(
+                    f"{r['run_id']} {r['status']:<16} {r['started_at']} "
+                    f"dataset={r['dataset_id']} output={r['output_count']} "
+                    f"errors={r['error_count']}"
+                )
     except ChronoForgeError as exc:
         typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc

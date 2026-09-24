@@ -22,6 +22,10 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from chronoforge.exceptions import ConfigError
 from chronoforge.security.secret import SecretStr
 
+# READY-003（SR-10）：查询默认行数上限——单一事实源，
+# research/query.py DuckDBQueryService 构造缺省值引用此常量。
+DEFAULT_QUERY_MAX_ROWS = 200_000
+
 
 # D08 §1: 运行时配置（非 Secret 分类）
 class Settings(BaseModel):
@@ -58,6 +62,14 @@ class Settings(BaseModel):
         default=5,
         description="重试上限（指数退避）",
     )
+    circuit_cooldown_s: float = Field(
+        default=1800.0,
+        ge=0,
+        description=(
+            "熔断冷却期（秒，R2-01）：circuit_open 持续超过该时长后"
+            "half-open 放行一次探测 run；探测失败重新计时"
+        ),
+    )
     quality_block_on: list[str] = Field(
         default=["Q-SCHEMA-001", "Q-PROV-001"],
         description="质量阻断规则（逗号分隔）",
@@ -65,6 +77,11 @@ class Settings(BaseModel):
     normalize_error_threshold: float = Field(
         default=0.10,
         description="标准化错误阈值",
+    )
+    query_max_rows: int = Field(
+        default=DEFAULT_QUERY_MAX_ROWS,
+        ge=1,
+        description="查询默认行数上限（READY-003/SR-10：query() 恒附加 LIMIT）",
     )
     version: str = Field(
         default="0.1.0",
@@ -225,6 +242,8 @@ class Settings(BaseModel):
             "log_level": self.log_level,
             "http_timeout_s": self.http_timeout_s,
             "retry_max": self.retry_max,
+            "circuit_cooldown_s": self.circuit_cooldown_s,
+            "query_max_rows": self.query_max_rows,
             "quality_block_on": self.quality_block_on,
             # Secret 字段（redact 会自动脱敏）
             "fred_api_key": self.fred_api_key,
@@ -300,8 +319,10 @@ def _read_env_fields(cls_model: type[BaseModel]) -> dict[str, Any]:
         "sec_contact_email": "CHRONOFORGE_SEC_CONTACT",
         "http_timeout_s": "CHRONOFORGE_HTTP_TIMEOUT",
         "retry_max": "CHRONOFORGE_RETRY_MAX",
+        "circuit_cooldown_s": "CHRONOFORGE_CIRCUIT_COOLDOWN_S",
         "quality_block_on": "CHRONOFORGE_QUALITY_BLOCK",
         "normalize_error_threshold": "CHRONOFORGE_NORMALIZE_ERROR_THRESHOLD",
+        "query_max_rows": "CHRONOFORGE_QUERY_MAX_ROWS",
         "version": "CHRONOFORGE_VERSION",
         # CCXT Bridge 凭证
         "ccxt_binance_api_key": "CCXT_BINANCE_API_KEY",

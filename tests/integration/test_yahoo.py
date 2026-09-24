@@ -222,7 +222,7 @@ class TestNormalizeHappy:
 
         # 逐条校验
         timestamps = chart_data["chart"]["result"][0]["timestamp"]
-        quote = chart_data["chart"]["result"][0]["quote"]
+        quote = chart_data["chart"]["result"][0]["indicators"]["quote"][0]
 
         for i, record in enumerate(records):
             # source 和 provenance

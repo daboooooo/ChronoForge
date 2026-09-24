@@ -3,6 +3,7 @@
 依据：
 - D07 §1 QueryService 六规则（视图选择/时间列/as-of/白名单/投影/稳定排序）
 - QUERY-001.md 测试要求（TC-R-001/002/003 + 边界 + 默认排序）
+- READY-003.md 测试要求（LIMIT 行数上限/截断元信息/参数校验，SR-10）
 
 测试环境：SQLite meta（STORAGE-001 MetaStore）登记 dataset_registry/run_log；
 canonical parquet 手工写入（同 test_views.py 惯例）；DuckDB catalog 文件先以
@@ -12,6 +13,7 @@ QueryService 使用（架构 02 规则 4 的执行点）。
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -22,6 +24,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from chronoforge.config.settings import DEFAULT_QUERY_MAX_ROWS
 from chronoforge.models.enums import CanonicalType
 from chronoforge.research import DatasetRegistry, DuckDBQueryService
 from chronoforge.storage.meta import MetaStore
@@ -441,6 +444,120 @@ class TestMetadata:
 
         assert result.dataset_version == ""
         assert result.schema_version == "1.0"
+
+
+# ── READY-003: LIMIT 行数上限与截断（SR-10） ────────────────────────────
+
+
+class TestRowLimit:
+    """READY-003 交付物：恒附加 LIMIT + 截断元信息（决策 A）+ 参数校验。"""
+
+    def _limited_service(self, env: QueryEnv, max_rows: int) -> DuckDBQueryService:
+        """同一 read_only 连接换装小上限服务（构造注入 max_rows）。"""
+        return DuckDBQueryService(
+            env.con, DatasetRegistry(env.meta.connection), max_rows=max_rows
+        )
+
+    def test_over_cap_truncated_with_stable_order(self, tmp_stores) -> None:
+        """GWT-1: Given 大表查询超上限 When 执行 Then 截断至上限、truncated=True、
+        且保留默认稳定排序前缀（截断非随机）。"""
+        env = _make_env(tmp_stores)
+        svc = self._limited_service(env, max_rows=2)
+        result = svc.query(DATASET_OHLCV)
+
+        assert result.row_count == 2
+        assert result.truncated is True
+        # 默认排序前缀：event_time 最早两行
+        assert result.frame["close"].to_list() == [50500.0, 50501.0]
+        # 元信息仍恒附加
+        assert result.dataset_id == DATASET_OHLCV
+
+    def test_exactly_at_cap_not_truncated(self, tmp_stores) -> None:
+        """边界：结果行数恰好等于上限 → 不截断（LIMIT cap+1 探测语义）。"""
+        env = _make_env(tmp_stores)
+        svc = self._limited_service(env, max_rows=5)
+        result = svc.query(DATASET_OHLCV)
+
+        assert result.row_count == 5
+        assert result.truncated is False
+
+    def test_explicit_limit_below_cap(self, tmp_stores) -> None:
+        """GWT-2: Given 显式 limit When 合法 Then 行数 ≤ limit 且截断标注。"""
+        env = _make_env(tmp_stores)
+        result = env.service.query(DATASET_OHLCV, limit=2)
+
+        assert result.row_count == 2
+        assert result.truncated is True
+
+    def test_explicit_limit_equal_row_count_not_truncated(self, tmp_stores) -> None:
+        """GWT-2 边界：limit == 结果行数 → truncated=False。"""
+        env = _make_env(tmp_stores)
+        result = env.service.query(DATASET_OHLCV, limit=5)
+
+        assert result.row_count == 5
+        assert result.truncated is False
+
+    def test_explicit_limit_above_cap_clamped(self, tmp_stores) -> None:
+        """调低不调高：limit > max_rows → 按 max_rows 截断（不报错）。"""
+        env = _make_env(tmp_stores)
+        svc = self._limited_service(env, max_rows=3)
+        result = svc.query(DATASET_OHLCV, limit=100)
+
+        assert result.row_count == 3
+        assert result.truncated is True
+
+    def test_limit_zero_and_negative_valueerror(self, tmp_stores) -> None:
+        """参数校验：limit=0 / 负数 → ValueError。"""
+        env = _make_env(tmp_stores)
+        with pytest.raises(ValueError, match="positive integer"):
+            env.service.query(DATASET_OHLCV, limit=0)
+        with pytest.raises(ValueError, match="positive integer"):
+            env.service.query(DATASET_OHLCV, limit=-1)
+
+    def test_max_rows_invalid_valueerror(self, tmp_stores) -> None:
+        """构造校验：max_rows < 1 → ValueError（与 Settings ge=1 同源约束）。"""
+        env = _make_env(tmp_stores)
+        with pytest.raises(ValueError, match="max_rows"):
+            self._limited_service(env, max_rows=0)
+
+    def test_asof_query_respects_limit(self, tmp_stores) -> None:
+        """点时视图同样受上限约束（as-of 全表物化缓解，SR-10）。"""
+        env = _make_env(tmp_stores)
+        svc = self._limited_service(env, max_rows=2)
+        result = svc.query(DATASET_NUMBER, asof=T1)
+
+        assert result.row_count == 2
+        assert result.truncated is True
+        # 截断保留稳定排序前缀：obs=BASE 的 GDP(100)、UNRATE(9)
+        assert result.frame["value"].to_list() == [100.0, 9.0]
+
+    def test_empty_result_not_truncated(self, tmp_stores) -> None:
+        """边界：空结果（时间范围无匹配）→ truncated=False。"""
+        env = _make_env(tmp_stores)
+        result = env.service.query(
+            DATASET_OHLCV, start=BASE_TIME + timedelta(days=365)
+        )
+        assert result.row_count == 0
+        assert result.truncated is False
+
+    def test_unregistered_view_not_truncated(self, tmp_stores) -> None:
+        """边界：视图未注册（惰性空结果路径）→ truncated=False。"""
+        env = _make_env(tmp_stores)
+        result = env.service.query(DATASET_NO_DATA)
+        assert result.row_count == 0
+        assert result.truncated is False
+
+    def test_default_max_rows_from_settings_constant(self, tmp_stores) -> None:
+        """缺省上限取 Settings 单一事实源（_wiring 不注入即生效），默认上限不误伤小结果。"""
+        default = inspect.signature(DuckDBQueryService.__init__).parameters[
+            "max_rows"
+        ].default
+        assert default == DEFAULT_QUERY_MAX_ROWS
+
+        env = _make_env(tmp_stores)
+        result = env.service.query(DATASET_OHLCV)
+        assert result.row_count == 5
+        assert result.truncated is False
 
 
 # ── 边界: 视图未注册（数据未写入） ──────────────────────────────────────

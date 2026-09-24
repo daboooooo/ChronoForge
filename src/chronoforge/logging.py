@@ -38,7 +38,9 @@ EVENT_VOCABULARY: frozenset[str] = frozenset({
     "pipeline.dataset_status",
     "pipeline.cursor_skip",
     "pipeline.circuit_open",
+    "pipeline.circuit_half_open",  # R2-01：冷却期届满 half-open 探测发射点
     "pipeline.chunk_failed",
+    "pipeline.empty_history_chunk",  # R2-05：历史区间空 chunk 可观测
     # connector 域
     "connector.retry",
     "connector.normalize_skip",

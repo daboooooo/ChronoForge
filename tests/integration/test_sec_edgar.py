@@ -456,6 +456,69 @@ class TestEmptyResults:
         conn.close()
 
 
+# ── 回归：CIK 零填充与 acceptanceDateTime 修复 ─────────────────────
+
+
+class TestRegressionFixes:
+    """回归：CIK 零填充 404 与 acceptanceDateTime 字段名/格式修复。"""
+
+    def test_fetch_pads_cik_to_10_digits(self) -> None:
+        """cik="320193" → 请求路径必须为 /CIK0000320193.json（10 位零填充）。"""
+        conn, mock_client = _create_mock_connector(_load_fixture("happy.json"))
+        req = FetchRequest(
+            dataset_id="test",
+            params={"cik": "320193", "data_type": "filing"},
+            start=None,
+            end=None,
+            cursor=None,
+        )
+        list(conn.fetch(req))
+
+        path = mock_client.get.call_args[0][0]
+        assert path == "/CIK0000320193.json"
+        conn.close()
+
+    def test_acceptance_datetime_iso8601_parses(self) -> None:
+        """真实 API 字段名 acceptanceDateTime（ISO 8601 Z）→ source_timestamp 正确。
+
+        回归：旧代码读 acceptanceDate（不存在）→ source_timestamp 全空
+        → Q-PROV-001 阻断 sec_submissions。
+        """
+        data = _load_fixture("happy.json")
+        recent = data["filings"]["recent"]
+        recent["acceptanceDateTime"] = [
+            "2026-09-22T20:12:40.000Z",
+            "2025-01-15T22:45:00.000Z",
+            "2024-12-31T20:00:00.000Z",
+        ]
+
+        conn, _ = _create_mock_connector(data)
+        raw = RawBatch(
+            endpoint="/CIK0000320193.json", payload=data, raw_meta={"cik": "0000320193"}
+        )
+        records = conn.normalize(raw)
+
+        assert len(records) == 3
+        # 2026-09-22T20:12:40Z → UTC naive 同值
+        assert records[0].source_timestamp == datetime(2026, 9, 22, 20, 12, 40)
+        assert all(r.source_id == "0000320193" for r in records)
+        conn.close()
+
+    def test_acceptance_date_legacy_format_still_supported(self) -> None:
+        """旧式 "2025-01-31 16:30:00 EDT"（fixture 原格式）仍可解析。"""
+        conn, _ = _create_mock_connector(_load_fixture("happy.json"))
+        raw = RawBatch(
+            endpoint="/CIK0000320193.json",
+            payload=_load_fixture("happy.json"),
+            raw_meta={"cik": "0000320193"},
+        )
+        records = conn.normalize(raw)
+
+        # EDT = UTC-4 → 16:30:00 EDT = 20:30:00 UTC
+        assert records[0].source_timestamp == datetime(2025, 1, 31, 20, 30, 0)
+        conn.close()
+
+
 # ── 错误路径 ────────────────────────────────────────────────────────
 
 

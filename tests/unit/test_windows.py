@@ -194,6 +194,10 @@ class TestSixDatasetsTwoModes:
         ("fred_series", "full_window", "full_window"),
         ("sec_submissions", 86400, "full_window"),
         ("yahoo_chart", 3600, 86400),
+        # 用户自定义数据集（klines 语义）
+        ("btcusdt-ohlcv-1h", 3600, 86400),
+        ("btcusdt-ohlcv-4h", 3600, 86400),
+        ("btcusd-yahoo-1h", 3600, 86400),
     ]
 
     @pytest.mark.parametrize(

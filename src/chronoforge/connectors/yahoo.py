@@ -57,11 +57,9 @@ class _YahooSettings:
     http_timeout_s: float = 30.0
     crumb: str = ""
     cookie: str = ""
-    user_agent: str = (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    )
+    # 短 UA：Yahoo getcrumb 对完整 Chrome UA 做机器人指纹拦截（429），
+    # 简化 UA 实测可稳定通过（完整 UA + 同 IP 同时刻对比验证）
+    user_agent: str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
 
 
 class YahooConnector(DataConnector):
@@ -85,11 +83,14 @@ class YahooConnector(DataConnector):
     @staticmethod
     def _init_client(settings: _YahooSettings) -> httpx.Client:
         """初始化 httpx Client。"""
+        # Settings 对象可能没有 user_agent 属性（用 sec_user_agent），
+        # 兼容处理：getattr 回退到 _YahooSettings 默认值
+        user_agent = getattr(settings, "user_agent", None) or _YahooSettings.user_agent
         return httpx.Client(
             base_url="https://query1.finance.yahoo.com",
             timeout=settings.http_timeout_s,
             headers={
-                "User-Agent": settings.user_agent,
+                "User-Agent": user_agent,
             },
         )
 
@@ -435,8 +436,13 @@ class YahooConnector(DataConnector):
             ) from e
 
         # 提取数据数组（D04 §4.5）
+        # 真实响应形状：OHLCV 数组在 indicators.quote[0]（result.quote 不存在）
         timestamps = result.get("timestamp", [])
         quote = result.get("quote", {})
+        if not quote and isinstance(result.get("indicators"), dict):
+            quote_list = result["indicators"].get("quote", [])
+            if quote_list and isinstance(quote_list[0], dict):
+                quote = quote_list[0]
         meta = result.get("meta", {})
         events = result.get("events", {})
         # splits/dividends 保留用于后续 adjustment 四元组（D04 §4.5）
@@ -449,8 +455,9 @@ class YahooConnector(DataConnector):
 
         for i, ts in enumerate(timestamps):
             try:
-                # ts 是 epoch 秒 → datetime UTC（审计 F-09）
-                event_time = datetime.utcfromtimestamp(ts)
+                # ts 是 epoch 秒 → datetime UTC（审计 F-09；R2-06：替换
+                # 已弃用的 utcfromtimestamp，Python 3.14 移除）
+                event_time = datetime.fromtimestamp(ts, UTC).replace(tzinfo=None)
 
                 open_list = quote.get("open", [])
                 high_list = quote.get("high", [])

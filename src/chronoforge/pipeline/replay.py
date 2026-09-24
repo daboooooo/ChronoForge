@@ -60,6 +60,7 @@ def replay(
     canonical_store: CanonicalStore,
     connector: DataConnector,
     settings: Settings,
+    params: dict[str, object] | None = None,
 ) -> RunRow:
     """重放指定层（D05 §4）。
 
@@ -72,6 +73,10 @@ def replay(
         canonical_store: Canonical 存储。
         connector: 连接器（仅用其 normalize；fetch 不会被调用）。
         settings: 全局配置。
+        params: dataset registry 中的参数。RawStore 不持久化 fetch 期的
+            raw_meta（symbol/timeframe 等），重放时由 dataset params 补齐，
+            供 connector normalize 使用（如 ccxt_bridge 需要 timeframe/
+            interval 才能解析 OHLCV）。
 
     Returns:
         终态 RunRow（SUCCESS / PARTIAL_SUCCESS）。
@@ -108,11 +113,13 @@ def replay(
     stage_results: list[StageResult] = []
     try:
         # 从 Raw 层重建批次（json 反序列化 payload；chunk=None 表示非拉取窗口）
+        # RawStore 不持久化 raw_meta，用 dataset params 补齐 connector 所需字段
+        extra_meta = dict(params) if params else {}
         for ref in raw_store.iter_refs(source_id, dataset_id):
             batch = RawBatch(
                 endpoint=ref.url,
                 payload=json.loads(ref.payload.decode("utf-8")),
-                raw_meta={"fetched_at": ref.fetched_at},
+                raw_meta={"fetched_at": ref.fetched_at, **extra_meta},
             )
             ctx._batches.append((None, batch))
             ctx._raw_refs.append((None, batch, ref))

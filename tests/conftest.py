@@ -52,6 +52,17 @@ def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(META_DIR_VAR, str(paths.meta_dir))
 
 
+@pytest.fixture(autouse=True)
+def _no_retry_backoff_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
+    """R2-04：屏蔽 chunk 级重试（FetchStage → connectors.retry）的真实退避。
+
+    生产退避 1→2→4→8→16s；测试注入失败场景下真实等待会使套件不可接受地
+    变慢。经 retry._sleep 间接层精准屏蔽（不影响被测代码的退避计算断言，
+    unit/test_retry.py 自行 patch time.sleep 的用例不受影响）。
+    """
+    monkeypatch.setattr("chronoforge.connectors.retry._sleep", lambda _s: None)
+
+
 @pytest.fixture
 def tmp_stores(tmp_path: Path) -> StorePaths:
     """返回已创建的 {data_dir, meta_dir}（与 _isolated_env 写入 env 的路径一致）。"""

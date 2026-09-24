@@ -29,6 +29,11 @@ logger = structlog.get_logger()
 F = TypeVar("F", bound=Callable[..., Any])
 
 
+def _sleep(seconds: float) -> None:
+    """退避睡眠（间接层：测试经 patch 本函数屏蔽真实等待，R2-04）。"""
+    time.sleep(seconds)
+
+
 def retry(
     max_retries: int = 5,
     base_delay: float = 1.0,
@@ -80,7 +85,7 @@ def retry(
                         error_type=type(exc).__name__,
                         retry_after=retry_after,
                     )
-                    time.sleep(delay)
+                    _sleep(delay)
             # 重试耗尽，抛出最后一次异常
             raise last_exc  # type: ignore[misc]
         return wrapper  # type: ignore[return-value]

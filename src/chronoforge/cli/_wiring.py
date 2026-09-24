@@ -2,7 +2,8 @@
 
 职责边界：仅做「构造 service 依赖 + 只读渲染投影」，不含任何业务规则：
 - wire_*：Settings → MetaStore/RawStore/CanonicalStore/connector/PipelineRunner
-- open_query_service：DuckDB 目录（meta_dir/query.duckdb）+ 视图注册 + read_only 重开
+- open_query_service：DuckDB 目录（meta_dir/query.duckdb）只读探测 +
+  惰性写模式注册（READY-005 方案 A，稳态零写窗口）+ read_only 查询
 - list_runs / list_quality_flags：run_log / quality_flags 的只读投影
   （渲染用 SELECT，经 MetaStore.connection 公共 API；偏差登记见 CLI-001.md）
 - build_connector：source_id → connector 工厂（fred 缺 key → ConfigError，TC-X-002）
@@ -12,9 +13,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import time
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -33,11 +37,12 @@ from chronoforge.storage.canonical import CanonicalStoreImpl
 from chronoforge.storage.consistency import startup_repair
 from chronoforge.storage.meta import MetaStore
 from chronoforge.storage.raw import RawStore
-from chronoforge.storage.views import register_views
+from chronoforge.storage.views import missing_views, register_views
 
 __all__ = [
     "build_connector",
     "build_runner",
+    "enter_closeable",
     "list_quality_flags",
     "list_runs",
     "open_meta",
@@ -47,25 +52,28 @@ __all__ = [
 ]
 
 
-def open_meta(settings: Settings) -> MetaStore:
-    """打开 MetaStore 并确保迁移 + 启动修复（CLI 各命令共用入口）。
+def open_meta(settings: Settings, *, repair: bool = False) -> MetaStore:
+    """打开 MetaStore 并确保迁移（CLI 各命令共用入口）；repair 时执行启动修复。
 
     审计 SR-01：startup_repair（release_stale_locks → cleanup_orphans →
     reconcile，D03 §5 顺序）实现完整但此前生产路径从未调用——进程 crash
-    后 dataset 锁永久滞留。接线于此，每次 CLI 打开元数据时执行启动修复。
+    后 dataset 锁永久滞留。
 
-    注：reconcile 无租约护栏，若另一进程正在运行长任务，本命令会将其
-    PENDING/RUNNING 行误判为孤儿并补记终态（单机单写者模型下的已知
-    权衡；finish_run 会以真实终态覆盖，数据层经幂等 upsert 收敛）。
+    R2-03③（审计 2026-09-22）：startup_repair 收敛到写入口（pipeline
+    run/replay 显式传 repair=True）——读命令（status/query/registry/
+    quality/research）默认免修复，避免 cron 重叠期间对账/清理误伤在途
+    run（此前 docstring 自认的「已知权衡」由此收敛）。护栏细节见
+    consistency.startup_repair（年龄护栏 + 租约下限，R2-03①②）。
     """
     meta = MetaStore(str(settings.meta_dir))
     meta.migrate()
-    startup_repair(
-        meta,
-        RawStore(str(settings.data_dir)),
-        CanonicalStoreImpl(str(settings.data_dir)),
-        str(settings.data_dir),
-    )
+    if repair:
+        startup_repair(
+            meta,
+            RawStore(str(settings.data_dir)),
+            CanonicalStoreImpl(str(settings.data_dir)),
+            str(settings.data_dir),
+        )
     return meta
 
 
@@ -119,10 +127,18 @@ def build_runner(
     meta: MetaStore,
     connector: DataConnector,
     source_id: str,
+    stack: contextlib.ExitStack | None = None,
 ) -> PipelineRunner:
-    """装配 PipelineRunner（ctx_factory 构造 RunContext，run_id 由 runner 回填）。"""
+    """装配 PipelineRunner（ctx_factory 构造 RunContext，run_id 由 runner 回填）。
+
+    R2-07（审计 2026-09-22）：stack 提供时把 runner 内部常驻句柄的
+    RawStore（READY-002，append 有 close()）注册进 ExitStack——CLI 每
+    dataset 迭代的 job_stack 关闭时释放，进程常驻化前不依赖退出兜底。
+    """
     raw = RawStore(str(settings.data_dir))
     canonical = CanonicalStoreImpl(str(settings.data_dir))
+    if stack is not None:
+        enter_closeable(stack, raw)
 
     def _ctx_factory(job: Any) -> RunContext:
         return RunContext(
@@ -140,23 +156,100 @@ def build_runner(
     return PipelineRunner(_ctx_factory)
 
 
+def enter_closeable(stack: contextlib.ExitStack, resource: Any) -> None:
+    """把 resource.close() 注册进 stack（审计 SR-11 资源统一管理）。
+
+    close() 是 DataConnector 协议外的可选能力（各实现均有、协议未声明），
+    经 getattr 防御注册：缺失则跳过（如测试以 object() 桩替换 connector）。
+    """
+    close = getattr(resource, "close", None)
+    if close is not None:
+        stack.callback(close)
+
+
+# READY-005（SR-16）：写模式注册窗口的文件锁冲突有界退避
+# （仅首次创建/新增类型才进入写路径；0.1s 起指数退避，最长 ~1.5s）
+_WRITE_OPEN_ATTEMPTS = 5
+_WRITE_OPEN_BACKOFF_S = 0.1
+
+
+def _register_and_reopen(
+    catalog_path: Path, data_dir: str
+) -> duckdb.DuckDBPyConnection:
+    """READY-005 写路径：幂等注册视图后 read_only 重开（SR-16）。
+
+    仅在快路径探测到视图缺失/文件缺失时进入。写打开遇文件锁冲突
+    （DuckDB 单文件单写连接）时按指数退避重试，且每次冲突后**只读复探**：
+    冲突持有者若已代为完成注册（并发首次创建的典型时序），直接复用其
+    成果返回，无需再抢写锁——注册幂等，收敛语义为「视图齐全即可用」。
+    重试耗尽仍无法注册/复探 → IOException 有界上抛。
+    """
+    delay = _WRITE_OPEN_BACKOFF_S
+    for attempt in range(1, _WRITE_OPEN_ATTEMPTS + 1):
+        try:
+            con_write = duckdb.connect(str(catalog_path))
+        except duckdb.IOException:
+            # 他进程持锁（注册中/查询中）→ 复探视图是否已被其注册齐全
+            con_ro = _open_ready_readonly(catalog_path, data_dir)
+            if con_ro is not None:
+                return con_ro
+            if attempt == _WRITE_OPEN_ATTEMPTS:
+                raise
+            time.sleep(delay)
+            delay *= 2
+        else:
+            register_views(con_write, data_dir)
+            con_write.close()
+            break
+    return duckdb.connect(str(catalog_path), read_only=True)
+
+
+def _open_ready_readonly(
+    catalog_path: Path, data_dir: str
+) -> duckdb.DuckDBPyConnection | None:
+    """READY-005 方案 A 快路径：只读打开 + 视图完备性探测（SR-16）。
+
+    返回可用的 read_only 连接（视图齐全，稳态零写窗口，多进程只读连接
+    天然并发安全）；文件缺失、打开遇锁冲突（他进程注册窗口）或视图缺失
+    时返回 None，由调用方进入写路径。
+    """
+    if not catalog_path.exists():
+        return None
+    con: duckdb.DuckDBPyConnection | None = None
+    try:
+        con = duckdb.connect(str(catalog_path), read_only=True)
+        if not missing_views(con, data_dir):
+            return con
+    except duckdb.IOException:
+        pass  # 他进程持写锁（注册窗口）→ 调用方走写路径退避
+    if con is not None:
+        con.close()
+    return None
+
+
 def open_query_service(
     settings: Settings, meta: MetaStore
 ) -> tuple[Any, duckdb.DuckDBPyConnection]:
     """构造只读 QueryService（D07 §1）。
 
-    DuckDB 目录文件位于 meta_dir/query.duckdb：首次（或文件缺失视图时）
-    write 模式注册视图后关闭，再以 read_only 重开供查询（架构 02 规则 4）。
+    DuckDB 目录文件位于 meta_dir/query.duckdb（架构 02 规则 4）。
+    READY-005（SR-16）方案 A——只读探测优先：视图已齐全时直接 read_only
+    使用（不进写模式）；仅 query.duckdb 缺失（首次创建）或新增 canonical
+    类型（视图缺失）时以写模式幂等注册，锁冲突经「退避 + 只读复探」收敛。
     """
     from chronoforge.research.query import DatasetRegistry, DuckDBQueryService
 
     catalog_path = settings.meta_dir / "query.duckdb"
-    con_write = duckdb.connect(str(catalog_path))
-    register_views(con_write, str(settings.data_dir))
-    con_write.close()
+    data_dir = str(settings.data_dir)
+    con_ro = _open_ready_readonly(catalog_path, data_dir)
+    if con_ro is None:
+        con_ro = _register_and_reopen(catalog_path, data_dir)
 
-    con_ro = duckdb.connect(str(catalog_path), read_only=True)
-    service = DuckDBQueryService(con_ro, DatasetRegistry(meta.connection))
+    # READY-003：query_max_rows 为可调项（env CHRONOFORGE_QUERY_MAX_ROWS），
+    # 组合根注入使其对 CLI 生效（偏差登记：file_ownership 外 1 行接线）
+    service = DuckDBQueryService(
+        con_ro, DatasetRegistry(meta.connection), max_rows=settings.query_max_rows
+    )
     return service, con_ro
 
 

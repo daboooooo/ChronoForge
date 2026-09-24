@@ -4,6 +4,8 @@
 - AcquisitionJob：获取任务（审计 F-01）
 - Chunk：单次窗口请求（含 FetchRequest）
 - plan_chunks：表驱动窗口计算
+- resolve_window_span / windowed_base：分窗口 run 辅助（READY-001 方案 B，
+  SR-04 内存治理：单 run 只回填一个时间窗，外层循环推进 checkpoint）
 
 窗口参数由 dataset_registry 中的 continuity_model 和 frequency 决定，
 按 D05 §5.2 语义表驱动，禁止硬编码。
@@ -11,6 +13,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -21,6 +24,10 @@ from chronoforge.connectors.base import FetchRequest
 
 if TYPE_CHECKING:
     pass
+
+
+# OHLCV/klines 类型词元（dataset_id 语义回退用，_get_config 引用）
+_TYPE_TOKEN_RE = re.compile(r"(?:^|[-_:])(ohlcv|klines)(?:[-_:]|$)", re.IGNORECASE)
 
 # ---------------------------------------------------------------------------
 # AcquisitionJob（D05 §2，审计 F-01）
@@ -168,6 +175,19 @@ WINDOW_CONFIG: dict[str, dict[str, int | str]] = {
         "overlap_seconds": 3600,
         "chunk_size_seconds": 86400,
     },
+    # BTC/USDT spot OHLCV（用户自定义数据集）
+    "btcusdt-ohlcv-1h": {
+        "overlap_seconds": 3600,
+        "chunk_size_seconds": 86400,
+    },
+    "btcusdt-ohlcv-4h": {
+        "overlap_seconds": 3600,
+        "chunk_size_seconds": 86400,
+    },
+    "btcusd-yahoo-1h": {
+        "overlap_seconds": 3600,
+        "chunk_size_seconds": 86400,
+    },
 }
 
 
@@ -202,6 +222,10 @@ def _format_cursor(dt: datetime) -> str:
 def _get_config(dataset_id: str) -> dict[str, int | str]:
     """获取数据集窗口配置。
 
+    显式表优先；表外 dataset_id 按 ID 中的类型词元做语义回退
+    （ohlcv/klines → klines 语义），与逐条显式注册的先例
+    （btcusdt-ohlcv-1h 等）语义完全一致；无词元可解析仍 ValueError。
+
     Args:
         dataset_id: 数据集标识
 
@@ -209,14 +233,17 @@ def _get_config(dataset_id: str) -> dict[str, int | str]:
         窗口配置字典
 
     Raises:
-        ValueError: 表外数据集
+        ValueError: 表外且无法按语义解析的数据集
     """
-    if dataset_id not in WINDOW_CONFIG:
-        raise ValueError(
-            f"unknown dataset_id: {dataset_id!r}. "
-            f"Registered: {sorted(WINDOW_CONFIG.keys())}"
-        )
-    return WINDOW_CONFIG[dataset_id]
+    if dataset_id in WINDOW_CONFIG:
+        return WINDOW_CONFIG[dataset_id]
+    if _TYPE_TOKEN_RE.search(dataset_id):
+        # klines 语义：overlap=1h，chunk=24h（同 binance_*_klines / ccxt_ohlcv）
+        return {"overlap_seconds": 3600, "chunk_size_seconds": 86400}
+    raise ValueError(
+        f"unknown dataset_id: {dataset_id!r}. "
+        f"Registered: {sorted(WINDOW_CONFIG.keys())}"
+    )
 
 
 def _is_full_window(config: dict[str, int | str]) -> bool:
@@ -406,3 +433,58 @@ def verify_interval_concatenation(
         combined_start == full_chunks[0].start
         and combined_end == full_chunks[-1].end
     )
+
+
+# ---------------------------------------------------------------------------
+# 分窗口 run 辅助（READY-001 方案 B：SR-04 内存治理）
+# ---------------------------------------------------------------------------
+
+
+def resolve_window_span(dataset_id: str, window_seconds: int) -> int | None:
+    """将窗口跨度对齐到 chunk_size 整数倍；全窗口 diff 类返回 None。
+
+    对齐后窗口边界与 chunk 边界重合：分窗口 plan 出的 chunk 序列与
+    全跨度 plan_chunks 完全一致（不重不漏），窗口缝不产生跨窗 chunk。
+    窗口跨度不可低于单 chunk（chunk 是原子拉取单位）。
+
+    Args:
+        dataset_id: 数据集标识
+        window_seconds: 期望窗口跨度上限（秒，>0）
+
+    Returns:
+        对齐后的窗口跨度（秒）；chunk_size 为 "full_window"（fred/sec）
+        时返回 None（不拆分，语义依赖全窗口 diff）
+
+    Raises:
+        ValueError: dataset_id 不在配置表中
+    """
+    config = _get_config(dataset_id)
+    chunk = config["chunk_size_seconds"]
+    if chunk == "full_window":
+        return None
+    assert isinstance(chunk, int)
+    k = max(1, -(-int(window_seconds) // chunk))  # ceil div
+    return k * chunk
+
+
+def windowed_base(job: AcquisitionJob, cursor: str | None) -> datetime | None:
+    """分窗口执行的起始基准（READY-001 方案 B）。
+
+    - cursor 存在：backfill 取 max(cursor, job.start)——checkpoint 已覆盖
+      的窗口在重入时幂等跳过（断点续传）；incremental 取 cursor
+      （无下限，与 plan_chunks 增量语义一致）
+    - cursor 为 None：job.start（两者皆 None → None，无事可做）
+
+    Args:
+        job: 获取任务
+        cursor: 当前 checkpoint（ISO datetime 字符串）
+
+    Returns:
+        起始基准（UTC naive）；无可回填起点时 None
+    """
+    if cursor is not None:
+        base = _parse_cursor(cursor)
+        if job.mode == "backfill" and job.start is not None and base < job.start:
+            base = job.start
+        return base
+    return job.start

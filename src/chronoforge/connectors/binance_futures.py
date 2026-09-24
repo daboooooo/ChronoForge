@@ -58,6 +58,17 @@ _SUPPORTED_INTERVALS = frozenset({
 })
 
 
+def _cursor_to_ms(cursor: str) -> int:
+    """cursor 字符串 → ms 时间戳。
+
+    兼容两种格式：纯数字（历史 ms 串）与 ISO datetime（pipeline checkpoint）。
+    """
+    try:
+        return int(cursor)
+    except ValueError:
+        return int(datetime.fromisoformat(cursor).timestamp() * 1000)
+
+
 @dataclass
 class _Settings:
     """Minimal settings for BinanceFuturesConnector."""
@@ -251,7 +262,8 @@ class BinanceFuturesConnector(DataConnector):
         if request.start is not None:
             params["startTime"] = int(request.start.timestamp() * 1000)
         if request.cursor is not None:
-            params["startTime"] = int(request.cursor)
+            # cursor 来自 pipeline checkpoint（ISO 格式）或历史 ms 数字串
+            params["startTime"] = _cursor_to_ms(request.cursor)
 
         while True:
             self._rate_limiter.acquire(_FUNDING_WEIGHT)

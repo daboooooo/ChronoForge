@@ -262,6 +262,33 @@ class TestNormalizeOHLCV:
         assert len(records) == 2
         conn.close()
 
+    def test_normalize_ohlcv_legacy_7_element_candle(self) -> None:
+        """Given 7-element candles (ts + datetime string) When normalize Then parsed.
+
+        ccxt 统一格式为 6 元素；部分交易所在 ts 后附带 datetime 字符串（7 元素），
+        两种格式都必须正确解析（回归：6 元素曾被静默丢弃导致 canonical 为空）。
+        """
+        payload = [
+            [1672444800000, "2023-01-01T00:00:00.000Z",
+             100.0, 110.0, 90.0, 105.0, 100.0],
+            [1672448400000, 100.0, 110.0, 90.0, 105.0, 100.0],  # 6-element
+        ]
+
+        conn, _ = _create_mock_connector()
+
+        records = conn.normalize(
+            RawBatch(
+                endpoint="fetchOHLCV",
+                payload=payload,
+                raw_meta={"symbol": "BTCUSDT", "timeframe": "1h"},
+            )
+        )
+
+        assert len(records) == 2
+        assert all(r.open == pytest.approx(100.0) for r in records)
+        assert all(r.close == pytest.approx(105.0) for r in records)
+        conn.close()
+
     def test_normalize_ohlcv_unknown_endpoint_raises(self) -> None:
         """Given unknown endpoint When normalize Then raises ValueError."""
         conn, _ = _create_mock_connector()
