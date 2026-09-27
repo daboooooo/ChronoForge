@@ -113,6 +113,7 @@ _TYPE_FIELDS: dict[CanonicalType, list[tuple[str, pa.DataType]]] = {
         ("underlying", _S), ("expiry", _DATE), ("strike", _F64),
         ("option_type", _S), ("settlement_asset", _S),
         ("mark_price", _F64), ("bid", _F64), ("ask", _F64),
+        ("open_interest", _F64),
     ],
     CanonicalType.IMPLIED_VOLATILITY: [
         ("instrument_id", _S), ("event_time", _TS), ("iv", _F64),

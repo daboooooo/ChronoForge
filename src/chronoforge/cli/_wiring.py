@@ -31,6 +31,7 @@ from chronoforge.connectors.deribit import DeribitConnector
 from chronoforge.connectors.errors import ConfigError
 from chronoforge.connectors.fred import FREDConnector
 from chronoforge.connectors.sec_edgar import SECEdgarConnector
+from chronoforge.connectors.sosovalue import SoSoValueConnector
 from chronoforge.pipeline.runner import PipelineRunner, RunContext
 from chronoforge.registry.service import get_dataset
 from chronoforge.storage.canonical import CanonicalStoreImpl
@@ -110,6 +111,14 @@ def build_connector(
                 context={"source": "fred"},
             )
         return FREDConnector(settings=settings)
+    if source_id == "sosovalue":
+        # D08 §1：缺失且启用 SoSoValue → ConfigError 启动失败
+        if settings.sosovalue_api_key.is_empty():
+            raise ConfigError(
+                "SOSOVALUE_API_KEY is required for source 'sosovalue' (D08 §1)",
+                context={"source": "sosovalue"},
+            )
+        return SoSoValueConnector(settings=settings)
     if source_id == "sec_edgar":
         # SECEdgarConnector 需要 str 型 sec_contact_email（_SECSettings 结构）
         sec_settings = SimpleNamespace(

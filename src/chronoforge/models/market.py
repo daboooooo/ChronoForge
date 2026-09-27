@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import math
+import re
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -44,6 +45,33 @@ class Interval(str, Enum):  # noqa: UP042
     _12H = "12h"
     _1D = "1d"
     _1W = "1w"
+
+
+_INTERVAL_UNIT_SECONDS: dict[str, int] = {
+    "m": 60,
+    "h": 3600,
+    "d": 86400,
+    "w": 604800,
+}
+
+
+def interval_seconds(interval: str | Interval) -> int:
+    """将 Interval 枚举值（如 "1h"/"4h"/"1d"）换算为秒数。
+
+    Args:
+        interval: Interval 枚举成员或其字符串值
+
+    Returns:
+        单根 K 线跨度（秒）
+
+    Raises:
+        ValueError: 格式不合法（数字 + m/h/d/w 之外的单位）
+    """
+    text = interval.value if isinstance(interval, Interval) else str(interval)
+    match = re.fullmatch(r"(\d+)([mhdw])", text)
+    if match is None:
+        raise ValueError(f"unsupported interval: {text!r}")
+    return int(match.group(1)) * _INTERVAL_UNIT_SECONDS[match.group(2)]
 
 
 class OHLCV(BaseRecord):

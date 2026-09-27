@@ -44,6 +44,7 @@ EVENT_VOCABULARY: frozenset[str] = frozenset({
     # connector 域
     "connector.retry",
     "connector.normalize_skip",
+    "connector.normalize_summary",  # 一批 normalize 结束后的跳过计数汇总
     # storage 域
     "storage.staleness_frequency_unparsed",
     "storage.release_stale_locks",

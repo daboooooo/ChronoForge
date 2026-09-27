@@ -22,6 +22,7 @@ from chronoforge.pipeline.windows import (
     AcquisitionJob,
     Chunk,
     plan_chunks,
+    resolve_window_span,
     verify_interval_concatenation,
 )
 
@@ -284,6 +285,26 @@ class TestSixDatasetsTwoModes:
         cursor = "2025-12-31T00:00:00"
         chunks_inc = plan_chunks(job_inc, cursor, datetime(2026, 1, 15))
         assert len(chunks_inc) == 1, "FRED incremental should also produce exactly 1 chunk"
+
+    def test_sosovalue_prefix_full_window_no_split(self) -> None:
+        """sosovalue_ 前缀回退 fred_series：全窗口 diff 不拆分。"""
+        # backfill：仅 1 个 chunk
+        job = AcquisitionJob(
+            dataset_id="sosovalue_etf_us_btc_IBIT_net_inflow",
+            start=datetime(2026, 1, 1),
+            end=datetime(2026, 1, 15),
+            mode="backfill",
+        )
+        chunks = plan_chunks(job, None, job.end)
+        assert len(chunks) == 1, "sosovalue full_window should produce exactly 1 chunk"
+        # incremental：同样仅 1 个 chunk
+        job_inc = AcquisitionJob(
+            dataset_id="sosovalue_etf_us_btc_IBIT_net_inflow",
+            mode="incremental",
+        )
+        cursor = "2025-12-31T00:00:00"
+        chunks_inc = plan_chunks(job_inc, cursor, datetime(2026, 1, 15))
+        assert len(chunks_inc) == 1, "sosovalue incremental should also produce exactly 1 chunk"
 
     def test_sec_full_window_no_split(self) -> None:
         """SEC filing-recent：全窗口不拆分。"""
@@ -601,3 +622,115 @@ class TestFetchRequestConstruction:
         assert registered == tested
         assert "binance_spot_funding" not in registered
         assert "binance_spot_open_interest" not in registered
+
+
+# ---------------------------------------------------------------------------
+# interval 感知 chunk 放大档位（1h/4h/1d）
+# ---------------------------------------------------------------------------
+
+
+class TestIntervalAwareChunkSize:
+    """1h/4h/1d interval 按「目标根数 × 单根秒数」放大 chunk（分钟级/缺省不变）。
+
+    默认 200 根（Settings.ohlcv_chunk_bars，env CHRONOFORGE_OHLCV_CHUNK_BARS
+    可调，经 plan_chunks / resolve_window_span 的 chunk_bars 参数贯穿）。
+    动机：OHLCV 表值 chunk=86400 对长周期 interval 会把单请求利用率压到
+    极低（OKX 单请求上限 100 根 → 1d 每请求仅 1 根）；放大后由 connector
+    内部分页适配各交易所上限，HTTP 请求数降低 1~2 个数量级。
+    """
+
+    @staticmethod
+    def _job(interval: str) -> AcquisitionJob:
+        return AcquisitionJob(
+            dataset_id="ccxt_ohlcv",
+            start=datetime(2026, 1, 1),
+            end=datetime(2026, 3, 1),  # 59 天跨度
+            mode="backfill",
+            params={"symbol": "BTC/USDT", "interval": interval},
+        )
+
+    def test_1d_chunk_covers_whole_span(self) -> None:
+        """1d → chunk=200 天：59 天跨度（含 1h overlap）单 chunk 覆盖。"""
+        job = self._job("1d")
+        chunks = plan_chunks(job, None, make_dt(12, 0))
+        assert len(chunks) == 1
+        assert chunks[0].start == job.start - timedelta(hours=1)  # overlap
+        assert chunks[0].end == job.end
+
+    def test_1h_chunk_is_200_hours(self) -> None:
+        """1h → chunk=200h：起点含 overlap 共 1417h → 8 chunks 无缝衔接。"""
+        job = self._job("1h")
+        chunks = plan_chunks(job, None, make_dt(12, 0))
+        assert len(chunks) == 8
+        assert chunks[0].start == job.start - timedelta(hours=1)
+        assert chunks[0].end - chunks[0].start == timedelta(hours=200)
+        for prev, nxt in zip(chunks, chunks[1:], strict=False):
+            assert nxt.start == prev.end  # 无缝衔接
+        assert chunks[-1].end == job.end
+
+    def test_4h_chunk_is_800_hours(self) -> None:
+        """4h → chunk=800h：起点含 overlap 共 1417h → 2 chunks 无缝衔接。"""
+        job = self._job("4h")
+        chunks = plan_chunks(job, None, make_dt(12, 0))
+        assert len(chunks) == 2
+        assert chunks[0].start == job.start - timedelta(hours=1)
+        assert chunks[0].end - chunks[0].start == timedelta(hours=800)
+        for prev, nxt in zip(chunks, chunks[1:], strict=False):
+            assert nxt.start == prev.end
+        assert chunks[-1].end == job.end
+
+    def test_minute_interval_keeps_table_value(self) -> None:
+        """1m 不命中档位：保持表值 86400（1417h → 60 chunks）。"""
+        job = self._job("1m")
+        chunks = plan_chunks(job, None, make_dt(12, 0))
+        assert len(chunks) == 60
+        assert chunks[0].end - chunks[0].start == timedelta(days=1)
+
+    def test_missing_interval_keeps_table_value(self) -> None:
+        """无 interval 参数：保持表值 86400（49h → 3 chunks）。"""
+        job = AcquisitionJob(
+            dataset_id="binance_spot_klines",
+            start=datetime(2026, 1, 1),
+            end=datetime(2026, 1, 3),
+            mode="backfill",
+        )
+        chunks = plan_chunks(job, None, make_dt(12, 0))
+        assert len(chunks) == 3
+        assert chunks[0].end - chunks[0].start == timedelta(days=1)
+
+    def test_resolve_window_span_with_interval(self) -> None:
+        """resolve_window_span 与 plan_chunks 同源应用档位。"""
+        # 1d：span 对齐到 200 天整数倍
+        assert resolve_window_span("ccxt_ohlcv", 86400, {"interval": "1d"}) == 200 * 86400
+        assert resolve_window_span("ccxt_ohlcv", 86400, {"interval": "1h"}) == 200 * 3600
+        # 分钟级 / 缺省 params：表值不变
+        assert resolve_window_span("ccxt_ohlcv", 86400, {"interval": "1m"}) == 86400
+        assert resolve_window_span("ccxt_ohlcv", 86400) == 86400
+
+    def test_chunk_bars_configurable(self) -> None:
+        """chunk_bars 可配：100 根 → 1h chunk=100h；600 根 → 1d chunk=600 天。"""
+        # plan_chunks 显式传参
+        chunks = plan_chunks(self._job("1h"), None, make_dt(12, 0), chunk_bars=100)
+        assert chunks[0].end - chunks[0].start == timedelta(hours=100)
+        # resolve_window_span 显式传参
+        assert (
+            resolve_window_span("ccxt_ohlcv", 86400, {"interval": "1d"}, chunk_bars=600)
+            == 600 * 86400
+        )
+        assert (
+            resolve_window_span("ccxt_ohlcv", 86400, {"interval": "1d"}, chunk_bars=100)
+            == 100 * 86400
+        )
+
+    def test_full_window_ignores_interval(self) -> None:
+        """fred/sec/sosovalue 全窗口 diff 不受 interval 档位影响。"""
+        assert (
+            resolve_window_span("fred_series_DGS10", 86400, {"interval": "1d"})
+            is None
+        )
+        assert (
+            resolve_window_span(
+                "sosovalue_etf_us_btc_summary_total_net_inflow", 86400, {"interval": "1d"}
+            )
+            is None
+        )

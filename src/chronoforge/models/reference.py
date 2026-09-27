@@ -223,8 +223,11 @@ _VALID_MONTH_CHARS = set(_DERIBIT_MONTH_CODES.keys())
 def _parse_deribit_month(date_str: str) -> tuple[int, int, int]:
     """从 Deribit 日期字符串解析 (day, month, year)。
 
-    date_str 格式：DDMYY（如 "26JAN26" 拆为 "26" + "J" + "26"，其中月份为 3 字符缩写）。
-    也支持简化格式 DMY（如 "26J26"，月份为单字符码）。
+    date_str 格式：
+    - DDMONYY（如 "26JAN26"，日为 2 位，月份为 3 字符缩写，共 7 位）
+    - DMONYY（如 "2OCT26"，单日日期日不补零，共 6 位——单日期权
+      instrument_name 实测格式）
+    - 简化格式 DDMYY（如 "26J26"，月份为单字符码，共 5 位）
 
     Returns:
         (day, month, year) 三元组。
@@ -232,11 +235,12 @@ def _parse_deribit_month(date_str: str) -> tuple[int, int, int]:
     Raises:
         ProviderError: 月份码非法。
     """
-    # 尝试 3 字符月份格式（如 "26SEP26"）
-    if len(date_str) == 7:
-        day_str = date_str[:2]
-        month_str = date_str[2:5].upper()
-        year_str = date_str[5:7]
+    # 3 字符月份格式：日宽随总长度变化（7 位=2 位日，6 位=1 位日）
+    if len(date_str) in (7, 6):
+        day_width = len(date_str) - 5  # 月份 3 + 年 2
+        day_str = date_str[:day_width]
+        month_str = date_str[day_width:day_width + 3].upper()
+        year_str = date_str[day_width + 3:]
         month = _long_month_to_int(month_str)
         if month is None:
             raise ProviderError(f"Deribit 非法月份码: {date_str}")
@@ -283,7 +287,8 @@ def parse_deribit(instrument_name: str) -> dict[str, object]:
     """解析 Deribit instrument_name 为结构化结果。
 
     输入格式：
-    - 期权/期货：{UNDERLYING}-{DD}{MON}{YY}-{STRIKE}-{C|P}
+    - 期权/期货：{UNDERLYING}-{D|DD}{MON}{YY}-{STRIKE}-{C|P}
+      （日不补零：单日到期为 1 位，如 BTC-2OCT26-100000-C）
       示例：BTC-26SEP26-100000-C
     - 永续合约：{UNDERLYING}-PERP
       示例：BTC-PERP

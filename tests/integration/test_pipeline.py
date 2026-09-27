@@ -1169,6 +1169,40 @@ def test_ready001_window_coverage_and_status(tmp_stores, monkeypatch) -> None:
         assert s2 >= s1 and e2 >= e1  # 单调推进，无整体回退
 
 
+def test_ready001_progress_callback(tmp_stores, monkeypatch) -> None:
+    """progress 回调：每窗口结束回传 (done, est, RunRow)；est 为
+    ceil((final_end - base) / span) 预估；回调异常中断窗口循环。"""
+    h = _harness(tmp_stores, monkeypatch, "ready001_progress")
+    calls: list[tuple[int, int, str]] = []
+    rows = h.runner.run_windowed(
+        _make_job(),
+        window_seconds=86400,
+        progress=lambda done, est, row: calls.append((done, est, row.status)),
+    )
+    assert [r.status for r in rows] == ["SUCCESS", "SUCCESS", "SUCCESS"]
+    # 71h 跨度 / 24h 窗口 → est=3；每窗口回调一次，done 单调递增
+    assert calls == [
+        (1, 3, "SUCCESS"),
+        (2, 3, "SUCCESS"),
+        (3, 3, "SUCCESS"),
+    ]
+
+    # 回调异常 → 循环中断，已完成窗口保留（checkpoint 可续传）
+    h2 = _harness(tmp_stores, monkeypatch, "ready001_progress_raise")
+    seen: list[int] = []
+
+    def _boom(done: int, est: int, row: object) -> None:
+        seen.append(done)
+        if done == 2:
+            raise RuntimeError("callback boom")
+
+    with pytest.raises(RuntimeError, match="callback boom"):
+        h2.runner.run_windowed(_make_job(), window_seconds=86400, progress=_boom)
+    assert seen == [1, 2]
+    # 回调在窗口 run 完成后触发：窗口 2 的 checkpoint 已落盘，可续传
+    assert h2.meta.get_checkpoint(SOURCE_ID, DS_ID) == "2024-01-03T00:00:00"
+
+
 def test_ready001_windowed_matches_single_run(tmp_stores, monkeypatch) -> None:
     """READY-001 GWT-1：分窗口（3×1 天）与全量单 run 的 canonical 值列
     逐字节一致、终态 cursor 一致；run_log 产生 N 行（方案 B 语义变化）。"""

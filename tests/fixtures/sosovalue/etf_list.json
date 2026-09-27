@@ -1,0 +1,8 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": [
+    {"ticker": "IBIT", "name": "iShares Bitcoin Trust", "exchange": "NASDAQ"},
+    {"ticker": "FBTC", "name": "Fidelity Wise Origin Bitcoin Fund", "exchange": "CBOE"}
+  ]
+}

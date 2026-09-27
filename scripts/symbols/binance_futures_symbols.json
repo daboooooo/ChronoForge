@@ -1,0 +1,312 @@
+{
+    "BTCUSDT:USDT": {
+        "ticker": "BTC/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #1）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 1.680e+10；累计占比 25.3%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 16802173012.29,
+        "rank": 1,
+        "cumulative_pct": 25.34
+    },
+    "ETHUSDT:USDT": {
+        "ticker": "ETH/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #2）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 1.015e+10；累计占比 40.6%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 10147527781.04,
+        "rank": 2,
+        "cumulative_pct": 40.65
+    },
+    "ZECUSDT:USDT": {
+        "ticker": "ZEC/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #3）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 2.784e+09；累计占比 44.8%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 2784156797.38,
+        "rank": 3,
+        "cumulative_pct": 44.85
+    },
+    "SOLUSDT:USDT": {
+        "ticker": "SOL/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #4）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 2.321e+09；累计占比 48.3%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 2321369693.2846,
+        "rank": 4,
+        "cumulative_pct": 48.35
+    },
+    "XAUUSDT:USDT": {
+        "ticker": "XAU/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #5）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 2.080e+09；累计占比 51.5%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 2080030927.15,
+        "rank": 5,
+        "cumulative_pct": 51.49
+    },
+    "SNDKUSDT:USDT": {
+        "ticker": "SNDK/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #6）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 1.938e+09；累计占比 54.4%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 1937579389.0575,
+        "rank": 6,
+        "cumulative_pct": 54.41
+    },
+    "XRPUSDT:USDT": {
+        "ticker": "XRP/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #7）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 1.760e+09；累计占比 57.1%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 1759929107.4118,
+        "rank": 7,
+        "cumulative_pct": 57.06
+    },
+    "SOXLUSDT:USDT": {
+        "ticker": "SOXL/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #8）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 1.756e+09；累计占比 59.7%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 1755511995.451,
+        "rank": 8,
+        "cumulative_pct": 59.71
+    },
+    "NEARUSDT:USDT": {
+        "ticker": "NEAR/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #9）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 1.225e+09；累计占比 61.6%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 1225255129.256,
+        "rank": 9,
+        "cumulative_pct": 61.56
+    },
+    "CLUSDT:USDT": {
+        "ticker": "CL/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #10）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 1.105e+09；累计占比 63.2%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 1104536010.2001,
+        "rank": 10,
+        "cumulative_pct": 63.23
+    },
+    "HYPEUSDT:USDT": {
+        "ticker": "HYPE/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #11）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 1.069e+09；累计占比 64.8%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 1069082131.52817,
+        "rank": 11,
+        "cumulative_pct": 64.84
+    },
+    "SPCXUSDT:USDT": {
+        "ticker": "SPCX/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #12）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 9.951e+08；累计占比 66.3%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 995127213.1756,
+        "rank": 12,
+        "cumulative_pct": 66.34
+    },
+    "XAGUSDT:USDT": {
+        "ticker": "XAG/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #13）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 7.262e+08；累计占比 67.4%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 726195918.8462,
+        "rank": 13,
+        "cumulative_pct": 67.43
+    },
+    "DOGEUSDT:USDT": {
+        "ticker": "DOGE/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #14）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 7.162e+08；累计占比 68.5%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 716175074.19592,
+        "rank": 14,
+        "cumulative_pct": 68.51
+    },
+    "MUUSDT:USDT": {
+        "ticker": "MU/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #15）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 6.786e+08；累计占比 69.5%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 678583765.5803,
+        "rank": 15,
+        "cumulative_pct": 69.54
+    },
+    "BZUSDT:USDT": {
+        "ticker": "BZ/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #16）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 6.755e+08；累计占比 70.6%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 675503457.7796,
+        "rank": 16,
+        "cumulative_pct": 70.56
+    },
+    "UNIUSDT:USDT": {
+        "ticker": "UNI/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #17）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 6.380e+08；累计占比 71.5%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 637965182.691,
+        "rank": 17,
+        "cumulative_pct": 71.52
+    },
+    "NILUSDT:USDT": {
+        "ticker": "NIL/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #18）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 5.923e+08；累计占比 72.4%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 592339971.907378,
+        "rank": 18,
+        "cumulative_pct": 72.41
+    },
+    "BCHUSDT:USDT": {
+        "ticker": "BCH/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #19）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 5.341e+08；累计占比 73.2%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 534052543.77,
+        "rank": 19,
+        "cumulative_pct": 73.22
+    },
+    "LTCUSDT:USDT": {
+        "ticker": "LTC/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #20）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 5.028e+08；累计占比 74.0%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 502799086.29,
+        "rank": 20,
+        "cumulative_pct": 73.98
+    },
+    "SUIUSDT:USDT": {
+        "ticker": "SUI/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #21）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 4.547e+08；累计占比 74.7%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 454723633.93595,
+        "rank": 21,
+        "cumulative_pct": 74.66
+    },
+    "BNBUSDT:USDT": {
+        "ticker": "BNB/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #22）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 4.519e+08；累计占比 75.3%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 451903711.813,
+        "rank": 22,
+        "cumulative_pct": 75.34
+    },
+    "1000PEPEUSDT:USDT": {
+        "ticker": "1000PEPE/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #23）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 4.437e+08；累计占比 76.0%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 443677186.8067233,
+        "rank": 23,
+        "cumulative_pct": 76.01
+    },
+    "ONDOUSDT:USDT": {
+        "ticker": "ONDO/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #24）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 4.235e+08；累计占比 76.7%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 423538018.35391,
+        "rank": 24,
+        "cumulative_pct": 76.65
+    },
+    "SKHYNIXUSDT:USDT": {
+        "ticker": "SKHYNIX/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #25）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 4.168e+08；累计占比 77.3%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 416804247.6509,
+        "rank": 25,
+        "cumulative_pct": 77.28
+    },
+    "SNXXUSDT:USDT": {
+        "ticker": "SNXX/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #26）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 3.947e+08；累计占比 77.9%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 394686649.3598,
+        "rank": 26,
+        "cumulative_pct": 77.88
+    },
+    "LSKUSDT:USDT": {
+        "ticker": "LSK/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #27）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 3.693e+08；累计占比 78.4%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 369303891.28048,
+        "rank": 27,
+        "cumulative_pct": 78.43
+    },
+    "TAKEUSDT:USDT": {
+        "ticker": "TAKE/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #28）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 3.309e+08；累计占比 78.9%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 330923648.79464,
+        "rank": 28,
+        "cumulative_pct": 78.93
+    },
+    "CRCLUSDT:USDT": {
+        "ticker": "CRCL/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #29）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 3.050e+08；累计占比 79.4%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 304975772.5907,
+        "rank": 29,
+        "cumulative_pct": 79.39
+    },
+    "ENAUSDT:USDT": {
+        "ticker": "ENA/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #30）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 3.045e+08；累计占比 79.9%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 304490908.74265,
+        "rank": 30,
+        "cumulative_pct": 79.85
+    },
+    "MSTRUSDT:USDT": {
+        "ticker": "MSTR/USDT:USDT",
+        "desc": "binance futures 交易对（24h 计价成交量排名 #31）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 3.019e+08；累计占比 80.3%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:14:52Z。",
+        "quote_volume_24h": 301907396.9799,
+        "rank": 31,
+        "cumulative_pct": 80.31
+    }
+}

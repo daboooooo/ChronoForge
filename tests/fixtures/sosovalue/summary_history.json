@@ -1,0 +1,27 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": [
+    {
+      "date": "2026-09-24",
+      "total_net_inflow": null,
+      "total_value_traded": 3860000000,
+      "total_net_assets": null,
+      "cum_net_inflow": null
+    },
+    {
+      "date": "2026-09-23",
+      "total_net_inflow": 346900000,
+      "total_value_traded": 3100000000,
+      "total_net_assets": 110270000000,
+      "cum_net_inflow": 57680000000
+    },
+    {
+      "date": "2026-09-22",
+      "total_net_inflow": "1,234,567.89",
+      "total_value_traded": 3000000000,
+      "total_net_assets": 109900000000,
+      "cum_net_inflow": "57,333,100,000"
+    }
+  ]
+}

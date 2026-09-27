@@ -42,11 +42,15 @@ class OPTION(BaseRecord):
     strike: float
     option_type: OptionType
     settlement_asset: str
-    mark_price: float
-    bid: float
-    ask: float
+    # 单侧/无价时源端显式返回 null（深虚值期权常见），null 表示无报价，
+    # 不可与 0.0 混淆（0.0 是真实价格）
+    mark_price: float | None
+    bid: float | None
+    ask: float | None
+    # 未平仓合约数（源端 open_interest，单位：张）
+    open_interest: float
 
-    @field_validator("strike", "mark_price", "bid", "ask", mode="before")
+    @field_validator("strike", "mark_price", "bid", "ask", "open_interest", mode="before")
     @classmethod
     def _check_finite(cls, v: Any) -> Any:
         if v is not None and not math.isfinite(v):
@@ -60,10 +64,10 @@ class OPTION(BaseRecord):
             raise ValueError("strike must be > 0")
         return v
 
-    @field_validator("mark_price", "bid", "ask")
+    @field_validator("mark_price", "bid", "ask", "open_interest")
     @classmethod
-    def _check_non_negative(cls, v: float) -> float:
-        if v < 0:
+    def _check_non_negative(cls, v: float | None) -> float | None:
+        if v is not None and v < 0:
             raise ValueError("must be >= 0")
         return v
 

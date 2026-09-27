@@ -352,6 +352,90 @@ class TestNormalizeOptions:
         assert first.mark_price == pytest.approx(1499.75, rel=1e-6)
         assert first.bid == pytest.approx(1499.0, rel=1e-6)
         assert first.ask == pytest.approx(1500.5, rel=1e-6)
+        assert first.open_interest == pytest.approx(200.0, rel=1e-6)
+        conn.close()
+
+    def test_normalize_options_null_quote_and_oi(self) -> None:
+        """Given bid_price=null 的深虚值期权 When normalize Then 入库且 bid=None。
+
+        回归：显式 null 曾触发 float(None) TypeError 导致整条丢失。
+        """
+        payload = {
+            "kind": "option",
+            "BTC": [
+                {
+                    "ask_price": 0.0001,
+                    "bid_price": None,
+                    "mark_price": 1e-08,
+                    "instrument_name": "BTC-24SEP26-85000-C",
+                    "open_interest": 192.9,
+                    "volume": 0.0,
+                },
+            ],
+        }
+
+        conn, _ = _create_mock_connector()
+        records = conn.normalize(
+            RawBatch(
+                endpoint="/public/get_book_summary_by_currency",
+                payload=payload,
+                raw_meta={"http_status": 200, "currency": "BTC"},
+            )
+        )
+
+        assert len(records) == 1
+        record = records[0]
+        assert record.bid is None
+        assert record.ask == pytest.approx(0.0001, rel=1e-9)
+        assert record.mark_price == pytest.approx(1e-08, rel=1e-9)
+        assert record.open_interest == pytest.approx(192.9, rel=1e-9)
+        conn.close()
+
+    def test_normalize_options_6char_date(self) -> None:
+        """Given 6 位不补零日期合约（2OCT26）When normalize Then 正常入库。
+
+        回归：len=6 曾落入 else 抛 ProviderError 被整条丢弃。
+        """
+        payload = {
+            "kind": "option",
+            "BTC": [
+                {
+                    "ask_price": 0.05,
+                    "bid_price": 0.01,
+                    "mark_price": 0.03,
+                    "instrument_name": "BTC-2OCT26-100000-C",
+                    "open_interest": 5.0,
+                },
+                {
+                    "ask_price": 0.05,
+                    "bid_price": None,
+                    "mark_price": 0.03,
+                    "instrument_name": "BTC-9OCT26-100000-P",
+                    "open_interest": 0.0,
+                },
+            ],
+        }
+
+        conn, _ = _create_mock_connector()
+        records = conn.normalize(
+            RawBatch(
+                endpoint="/public/get_book_summary_by_currency",
+                payload=payload,
+                raw_meta={"http_status": 200, "currency": "BTC"},
+            )
+        )
+
+        assert len(records) == 2
+        by_inst = {r.instrument_id: r for r in records}
+        from chronoforge.models.derivatives import OPTION as OptRecord
+        early = by_inst["BTC-2026-10-02-100000-C"]
+        late = by_inst["BTC-2026-10-09-100000-P"]
+        assert isinstance(early, OptRecord)
+        assert isinstance(late, OptRecord)
+        assert early.expiry == date(2026, 10, 2)
+        assert late.expiry == date(2026, 10, 9)
+        assert late.bid is None
+        assert late.open_interest == 0.0
         conn.close()
 
 
@@ -943,6 +1027,7 @@ class TestValidate:
             mark_price=100.0,
             bid=99.0,
             ask=101.0,
+            open_interest=10.0,
         )
 
         report = conn.validate([record])

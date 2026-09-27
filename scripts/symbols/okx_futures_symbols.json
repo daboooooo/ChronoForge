@@ -1,0 +1,112 @@
+{
+    "BTCUSDT:USDT": {
+        "ticker": "BTC/USDT:USDT",
+        "desc": "okx futures 交易对（24h 计价成交量排名 #1）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 8.284e+09；累计占比 30.1%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:20:09Z。",
+        "quote_volume_24h": 8284403684.251801,
+        "rank": 1,
+        "cumulative_pct": 30.11
+    },
+    "ETHUSDT:USDT": {
+        "ticker": "ETH/USDT:USDT",
+        "desc": "okx futures 交易对（24h 计价成交量排名 #2）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 7.466e+09；累计占比 57.2%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:20:09Z。",
+        "quote_volume_24h": 7466400638.620001,
+        "rank": 2,
+        "cumulative_pct": 57.25
+    },
+    "ZECUSDT:USDT": {
+        "ticker": "ZEC/USDT:USDT",
+        "desc": "okx futures 交易对（24h 计价成交量排名 #3）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 1.600e+09；累计占比 63.1%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:20:09Z。",
+        "quote_volume_24h": 1600353970.5663998,
+        "rank": 3,
+        "cumulative_pct": 63.06
+    },
+    "SOLUSDT:USDT": {
+        "ticker": "SOL/USDT:USDT",
+        "desc": "okx futures 交易对（24h 计价成交量排名 #4）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 1.201e+09；累计占比 67.4%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:20:09Z。",
+        "quote_volume_24h": 1200797317.526,
+        "rank": 4,
+        "cumulative_pct": 67.43
+    },
+    "SNDKUSDT:USDT": {
+        "ticker": "SNDK/USDT:USDT",
+        "desc": "okx futures 交易对（24h 计价成交量排名 #5）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 8.862e+08；累计占比 70.6%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:20:09Z。",
+        "quote_volume_24h": 886189610.2986,
+        "rank": 5,
+        "cumulative_pct": 70.65
+    },
+    "XRPUSDT:USDT": {
+        "ticker": "XRP/USDT:USDT",
+        "desc": "okx futures 交易对（24h 计价成交量排名 #6）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 7.254e+08；累计占比 73.3%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:20:09Z。",
+        "quote_volume_24h": 725364510.2459999,
+        "rank": 6,
+        "cumulative_pct": 73.28
+    },
+    "DOGEUSDT:USDT": {
+        "ticker": "DOGE/USDT:USDT",
+        "desc": "okx futures 交易对（24h 计价成交量排名 #7）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 5.377e+08；累计占比 75.2%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:20:09Z。",
+        "quote_volume_24h": 537675324.3108,
+        "rank": 7,
+        "cumulative_pct": 75.24
+    },
+    "NEARUSDT:USDT": {
+        "ticker": "NEAR/USDT:USDT",
+        "desc": "okx futures 交易对（24h 计价成交量排名 #8）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 3.891e+08；累计占比 76.7%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:20:09Z。",
+        "quote_volume_24h": 389092349.786,
+        "rank": 8,
+        "cumulative_pct": 76.65
+    },
+    "HYPEUSDT:USDT": {
+        "ticker": "HYPE/USDT:USDT",
+        "desc": "okx futures 交易对（24h 计价成交量排名 #9）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 3.836e+08；累计占比 78.0%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:20:09Z。",
+        "quote_volume_24h": 383582775.92120004,
+        "rank": 9,
+        "cumulative_pct": 78.05
+    },
+    "LTCUSDT:USDT": {
+        "ticker": "LTC/USDT:USDT",
+        "desc": "okx futures 交易对（24h 计价成交量排名 #10）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 3.120e+08；累计占比 79.2%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:20:09Z。",
+        "quote_volume_24h": 311977132.74,
+        "rank": 10,
+        "cumulative_pct": 79.18
+    },
+    "SOXLUSDT:USDT": {
+        "ticker": "SOXL/USDT:USDT",
+        "desc": "okx futures 交易对（24h 计价成交量排名 #11）",
+        "unit": "USDT:USDT",
+        "freq": "daily",
+        "comment": "24h 计价成交量 3.012e+08；累计占比 80.3%（帕累托头部 80% 筛选）。ccxt fetchTickers 抓取于 2026-09-24T14:20:09Z。",
+        "quote_volume_24h": 301163285.15119994,
+        "rank": 11,
+        "cumulative_pct": 80.28
+    }
+}

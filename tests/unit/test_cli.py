@@ -316,17 +316,17 @@ class TestPipelineReplayStatus:
 
 
 class TestRegistryCommands:
-    def test_sync_bootstraps_seven_sources_idempotent(
+    def test_sync_bootstraps_all_sources_idempotent(
         self, cli_env: dict[str, Path], meta: MetaStore
     ) -> None:
         """bootstrap_defaults 幂等（ON CONFLICT UPDATE，D04 §5）。"""
         for _ in range(2):
             result = runner.invoke(app, ["registry", "sync"])
             assert result.exit_code == 0, result.output
-            assert "7 sources" in result.output
+            assert "8 sources" in result.output
         assert meta.connection.execute(
             "SELECT COUNT(*) FROM source_registry"
-        ).fetchone()[0] == 7
+        ).fetchone()[0] == 8
 
     def test_sync_restores_edited_row(
         self, cli_env: dict[str, Path], meta: MetaStore
@@ -349,11 +349,15 @@ class TestRegistryCommands:
         rows = json.loads(result.output)
         assert {r["source_id"] for r in rows} == {
             "binance_spot", "binance_futures", "deribit", "ccxt",
-            "yahoo", "fred", "sec_edgar",
+            "yahoo", "fred", "sec_edgar", "sosovalue",
         }
         fred = next(r for r in rows if r["source_id"] == "fred")
         assert fred["access_type"] == "PUBLIC_WITH_KEY"
         assert json.loads(fred["rate_limit_json"]) == {"req_per_min": 120}
+        sosovalue = next(r for r in rows if r["source_id"] == "sosovalue")
+        assert sosovalue["access_type"] == "PUBLIC_WITH_KEY"
+        assert json.loads(sosovalue["rate_limit_json"]) == {"req_per_min": 20}
+        assert sosovalue["historical_limit_days"] == 30
 
     def test_list_sources_empty_hint(self, cli_env: dict[str, Path]) -> None:
         result = runner.invoke(app, ["registry", "list-sources"])
@@ -430,10 +434,10 @@ def _wiring_list_datasets_json() -> list[dict[str, Any]]:
     return list_datasets(store)
 
 
-def Settings_load() -> Any:  # noqa: N802  # 测试辅助，保持调用点简短
+def Settings_load(**kwargs: Any) -> Any:  # noqa: N802  # 测试辅助，保持调用点简短
     from chronoforge.config.settings import Settings
 
-    return Settings.load()
+    return Settings.load(**kwargs)
 
 
 # ── query（TC-X-004 + 边界）────────────────────────────────────────────
@@ -683,6 +687,24 @@ class TestBuildConnector:
         monkeypatch.setenv("FRED_API_KEY", "k-test")
         connector = _wiring.build_connector("fred", Settings_load(), {})
         assert type(connector).__name__ == "FREDConnector"
+
+    def test_sosovalue_without_key_raises_config_error(self) -> None:
+        """SoSoValue 无 key → ConfigError（D08 §1）。
+
+        kwargs 优先于 env/.env（load 顺序 defaults ← .env ← env ← kwargs），
+        避免开发者本地 .env 真实 key 泄漏进测试。
+        """
+        settings = Settings_load(sosovalue_api_key="")
+        with pytest.raises(ConfigError, match="SOSOVALUE_API_KEY"):
+            _wiring.build_connector("sosovalue", settings, {})
+
+    def test_sosovalue_with_key_constructs(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("SOSOVALUE_API_KEY", "k-test")
+        connector = _wiring.build_connector("sosovalue", Settings_load(), {})
+        assert type(connector).__name__ == "SoSoValueConnector"
+        connector.close()
 
     def test_unknown_source_raises(self) -> None:
         with pytest.raises(ConfigError, match="Unknown source_id"):

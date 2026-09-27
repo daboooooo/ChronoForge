@@ -25,6 +25,7 @@ REDACT_KEYS = frozenset({
     "set-cookie",
     "x-api-key",
     "fred_api_key",
+    "sosovalue_api_key",
     "secret",
     "secret_key",
     "password",

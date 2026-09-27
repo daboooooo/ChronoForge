@@ -25,6 +25,7 @@ _KNOWN_ENV_VARS = [
     "CHRONOFORGE_RETRY_MAX",
     "CHRONOFORGE_QUALITY_BLOCK",
     "CHRONOFORGE_NORMALIZE_ERROR_THRESHOLD",
+    "CHRONOFORGE_OHLCV_CHUNK_BARS",
     "CHRONOFORGE_RATE_OVERRIDES",
 ]
 
@@ -42,6 +43,13 @@ def _clean_env(
 
 class TestLoadPriorityMatrix:
     """TC-X-001：配置优先级矩阵（.env < 环境变量）。"""
+
+    def test_ohlcv_chunk_bars(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """ohlcv_chunk_bars：默认 200，env CHRONOFORGE_OHLCV_CHUNK_BARS 覆盖。"""
+        assert Settings.load().ohlcv_chunk_bars == 200  # 默认值
+
+        monkeypatch.setenv("CHRONOFORGE_OHLCV_CHUNK_BARS", "500")
+        assert Settings.load().ohlcv_chunk_bars == 500
 
     def test_env_beats_dotenv(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -147,6 +155,22 @@ class TestFieldParsing:
         assert "super-secret-key" not in repr(settings)
         assert "super-secret-key" not in str(settings.fred_api_key)
         assert settings.fred_api_key.get_secret_value() == "super-secret-key"
+
+    def test_sosovalue_key_secretstr_no_plaintext_repr(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """SoSoValue key：SecretStr 加载，repr/str/dict_for_logging 不泄露明文。"""
+        monkeypatch.setenv("SOSOVALUE_API_KEY", "soso-secret-key")
+        settings = Settings.load()
+        assert "soso-secret-key" not in repr(settings)
+        assert "soso-secret-key" not in str(settings.sosovalue_api_key)
+        assert settings.sosovalue_api_key.get_secret_value() == "soso-secret-key"
+        assert (
+            settings.dict_for_logging()["sosovalue_api_key"] == "***"
+        )
+        assert "soso-secret-key" in [  # 原始值只在 get_secret_value 可见
+            settings.sosovalue_api_key.get_secret_value()
+        ]
 
 
 class TestDerived:

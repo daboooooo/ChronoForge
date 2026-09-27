@@ -14,12 +14,14 @@
 from __future__ import annotations
 
 import math
+from collections import defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any, cast
 
 import httpx
+import structlog
 
 from chronoforge.connectors.base import (
     CapabilityMatrix,
@@ -76,6 +78,17 @@ _DERIBIT_RESOLUTION_MAP: dict[str, Interval] = {
 }
 # Reverse map for lookup
 _DERIBIT_INTERVALS: frozenset[Interval] = frozenset(_DERIBIT_RESOLUTION_MAP.values())
+
+logger = structlog.get_logger()
+
+
+def _quote_float(value: Any) -> float | None:
+    """报价字段（mark/bid/ask）转 float。
+
+    源端显式 null（或字段缺失）→ None，表示该侧无报价；不可降级为
+    0.0——0.0 是真实价格。
+    """
+    return None if value is None else float(value)
 
 
 @dataclass
@@ -427,6 +440,7 @@ class DeribitConnector(DataConnector):
         Each key maps to a list of option summaries.
         """
         records: list[OPTION] = []
+        skipped: dict[str, int] = defaultdict(int)
         now = datetime.now(UTC).replace(tzinfo=None)
 
         for currency, options in payload.items():
@@ -436,18 +450,20 @@ class DeribitConnector(DataConnector):
                 continue
 
             for opt in options:
+                instrument_name = opt.get("instrument_name", "<unknown>")
                 try:
-                    instrument_name = opt.get("instrument_name", "")
-                    if not instrument_name:
-                        continue
+                    if not instrument_name or instrument_name == "<unknown>":
+                        raise ProviderError("missing instrument_name")
 
                     parsed = parse_deribit(instrument_name)
                     market_id = cast(str, parsed["market_id"])
 
-                    # Deribit book summary fields
-                    mark_price = float(opt.get("mark_price", 0))
-                    bid = float(opt.get("bid_price", 0))
-                    ask = float(opt.get("ask_price", 0))
+                    # Deribit book summary fields（显式 null → None，不伪造 0）
+                    mark_price = _quote_float(opt.get("mark_price"))
+                    bid = _quote_float(opt.get("bid_price"))
+                    ask = _quote_float(opt.get("ask_price"))
+                    # 未平仓合约数：源端恒为数值；null/缺失按 0 处理
+                    open_interest = float(opt.get("open_interest") or 0.0)
 
                     # event_time: use last_update_time if available, else now
                     last_update_ms = opt.get("last_update_time")
@@ -485,10 +501,29 @@ class DeribitConnector(DataConnector):
                         mark_price=mark_price,
                         bid=bid,
                         ask=ask,
+                        open_interest=open_interest,
                     )
                     records.append(record)
-                except (KeyError, ValueError, TypeError, ProviderError):
+                except (KeyError, ValueError, TypeError, ProviderError) as exc:
+                    reason = f"{type(exc).__name__}: {exc}"
+                    logger.warning(
+                        "connector.normalize_skip",
+                        source="deribit",
+                        currency=currency,
+                        instrument_name=instrument_name,
+                        reason=reason,
+                    )
+                    skipped[reason] += 1
                     continue
+
+        if skipped:
+            logger.warning(
+                "connector.normalize_summary",
+                source="deribit",
+                kept=len(records),
+                skipped=sum(skipped.values()),
+                reasons=dict(skipped),
+            )
 
         return list[BaseRecord](records)
 

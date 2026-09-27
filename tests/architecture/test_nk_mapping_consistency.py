@@ -141,6 +141,7 @@ SAMPLES: dict[CanonicalType, tuple[type[BaseRecord], dict[str, Any]]] = {
             mark_price=1.0,
             bid=1.0,
             ask=2.0,
+            open_interest=0.0,
         ),
     ),
     CanonicalType.IMPLIED_VOLATILITY: (

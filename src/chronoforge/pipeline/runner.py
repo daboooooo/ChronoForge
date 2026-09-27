@@ -28,6 +28,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
@@ -252,7 +253,10 @@ class FetchStage:
         ctx._checkpoint_before = result.checkpoint_before
 
         now = job.end or datetime.now(UTC).replace(tzinfo=None)
-        chunks = plan_chunks(job, result.checkpoint_before, now)
+        chunks = plan_chunks(
+            job, result.checkpoint_before, now,
+            chunk_bars=ctx.settings.ohlcv_chunk_bars,
+        )
         result.input_count = len(chunks)
         if not chunks:
             # 空窗口：cursor 不推进（保持原值）
@@ -925,7 +929,13 @@ class PipelineRunner:
         )
         return rows
 
-    def run_windowed(self, job: AcquisitionJob, *, window_seconds: int) -> list[RunRow]:
+    def run_windowed(
+        self,
+        job: AcquisitionJob,
+        *,
+        window_seconds: int,
+        progress: Callable[[int, int, RunRow], None] | None = None,
+    ) -> list[RunRow]:
         """分窗口执行（READY-001 方案 B：SR-04 内存治理，审计 2026-09-21）。
 
         每次只回填一个时间窗（跨度 = window_seconds 向上对齐到
@@ -953,6 +963,13 @@ class PipelineRunner:
         Args:
             job: 获取任务（backfill 用 job.start；incremental 从 checkpoint 续传）
             window_seconds: 窗口跨度上限（秒，>0）
+            progress: 可选进度回调，每个窗口结束后以
+                (已完成窗口数, 预估总窗口数, 该窗口 RunRow) 调用一次。
+                预估总数 = ceil((final_end - base) / span)，cursor 推进小于
+                窗口跨度时实际窗口数可能超过预估（调用方展示时需容忍
+                done > total）；回调异常会中断窗口循环（checkpoint 逐窗口
+                持久化，重入可续传）。span=None（fred/sec 全窗口 diff）
+                路径不触发回调。
 
         Returns:
             各窗口 RunRow（按执行顺序）；无可回填起点 → 单次 run(job)
@@ -969,17 +986,20 @@ class PipelineRunner:
                     "dataset_id": job.dataset_id,
                 },
             )
-        span = resolve_window_span(job.dataset_id, window_seconds)
-        if span is None:
-            # DEC-W2：全窗口 diff 类不拆分（fred/sec 语义依赖全窗口 diff）
-            return [self.run(job)]
-
         # 探针 ctx：读 meta/source（不执行任何 stage；每窗口由 run() 另建 ctx）
         probe = self._ctx_factory(job)
         meta = probe.meta
         source_id = probe.source_id
         dataset_id = probe.dataset_id
         final_end = job.end or datetime.now(UTC).replace(tzinfo=None)
+
+        span = resolve_window_span(
+            job.dataset_id, window_seconds, job.params,
+            chunk_bars=probe.settings.ohlcv_chunk_bars,
+        )
+        if span is None:
+            # DEC-W2：全窗口 diff 类不拆分（fred/sec 语义依赖全窗口 diff）
+            return [self.run(job)]
 
         cursor = meta.get_checkpoint(source_id, dataset_id)
         base = windowed_base(job, cursor)
@@ -990,12 +1010,16 @@ class PipelineRunner:
             # DEC-W4 断点续传：checkpoint 已覆盖请求跨度 → 幂等跳过
             return []
 
+        # 预估总窗口数（cursor 推进小于窗口跨度时实际数可能超过预估）
+        total_estimate = max(1, math.ceil((final_end - base) / timedelta(seconds=span)))
         rows: list[RunRow] = []
         while base < final_end:
             window_end = min(base + timedelta(seconds=span), final_end)
             sub_job = replace(job, start=base, end=window_end, mode="backfill")
             row = self.run(sub_job)
             rows.append(row)
+            if progress is not None:
+                progress(len(rows), total_estimate, row)
             if row.status not in _WINDOW_CONTINUE:
                 break
             next_cursor = row.checkpoint_after

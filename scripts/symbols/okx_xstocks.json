@@ -1,0 +1,709 @@
+{
+    "XAAOI": {
+        "ticker": "XAAOI/USDT",
+        "desc": "代币化股票：Applied Optoelectronics（应用光电，光模块/数据中心）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 AAOI 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XAAPL": {
+        "ticker": "XAAPL/USDT",
+        "desc": "代币化股票：Apple（苹果）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 AAPL 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XADBE": {
+        "ticker": "XADBE/USDT",
+        "desc": "代币化股票：Adobe（创意软件）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 ADBE 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XALAB": {
+        "ticker": "XALAB/USDT",
+        "desc": "代币化股票：Astera Labs（互连芯片）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 ALAB 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XAMAT": {
+        "ticker": "XAMAT/USDT",
+        "desc": "代币化股票：Applied Materials（应用材料，半导体设备）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 AMAT 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XAMD": {
+        "ticker": "XAMD/USDT",
+        "desc": "代币化股票：AMD（超威半导体）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 AMD 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XAMZN": {
+        "ticker": "XAMZN/USDT",
+        "desc": "代币化股票：Amazon（亚马逊）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 AMZN 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XAPLD": {
+        "ticker": "XAPLD/USDT",
+        "desc": "OKX xStocks 代币化标的（APLD 关联变体代码，官方名称待确认）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化标的，7×24 交易。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。 XAPLD 为 APLD 关联变体代码，对应标的待确认。"
+    },
+    "XAPP": {
+        "ticker": "XAPP/USDT",
+        "desc": "代币化股票：AppLovin（移动广告平台）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 APP 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XARM": {
+        "ticker": "XARM/USDT",
+        "desc": "代币化股票：Arm Holdings（安谋，CPU IP 授权）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 ARM 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XASML": {
+        "ticker": "XASML/USDT",
+        "desc": "代币化股票：ASML（阿斯麦，光刻机龙头）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 ASML 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XASTS": {
+        "ticker": "XASTS/USDT",
+        "desc": "代币化股票：AST SpaceMobile（卫星直连手机通信）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 ASTS 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XAVGO": {
+        "ticker": "XAVGO/USDT",
+        "desc": "代币化股票：Broadcom（博通，AI 网络芯片/定制 ASIC）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 AVGO 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XBE": {
+        "ticker": "XBE/USDT",
+        "desc": "代币化股票：Bloom Energy（燃料电池发电）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 BE 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XBMNR": {
+        "ticker": "XBMNR/USDT",
+        "desc": "代币化股票：Bitmine Immersion（比特币矿企，ETH 财库公司）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 BMNR 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XBOT": {
+        "ticker": "XBOT/USDT",
+        "desc": "OKX xStocks 系列代币化标的（代码 BOT，官方名称待确认）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 BOT 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XBSP": {
+        "ticker": "XBSP/USDT",
+        "desc": "OKX xStocks 系列代币化标的（代码 BSP，官方名称待确认）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 BSP 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XBX": {
+        "ticker": "XBX/USDT",
+        "desc": "代币化股票：Blackstone（黑石，另类资产管理）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 BX 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XCBRS": {
+        "ticker": "XCBRS/USDT",
+        "desc": "OKX xStocks 系列代币化标的（代码 CBRS，官方名称待确认）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 CBRS 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XCIEN": {
+        "ticker": "XCIEN/USDT",
+        "desc": "代币化股票：Ciena（光网络设备）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 CIEN 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XCOHR": {
+        "ticker": "XCOHR/USDT",
+        "desc": "代币化股票：Coherent（高意，光器件/激光）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 COHR 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XCOIN": {
+        "ticker": "XCOIN/USDT",
+        "desc": "代币化股票：Coinbase（美国合规加密交易所）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 COIN 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XCRCL": {
+        "ticker": "XCRCL/USDT",
+        "desc": "代币化股票：Circle（USDC 发行方）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 CRCL 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XCRM": {
+        "ticker": "XCRM/USDT",
+        "desc": "代币化股票：Salesforce（赛富时，SaaS CRM）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 CRM 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XCRWD": {
+        "ticker": "XCRWD/USDT",
+        "desc": "代币化股票：CrowdStrike（云安全）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 CRWD 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XCRWV": {
+        "ticker": "XCRWV/USDT",
+        "desc": "代币化股票：CoreWeave（AI 算力云）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 CRWV 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XCSCO": {
+        "ticker": "XCSCO/USDT",
+        "desc": "代币化股票：Cisco（思科，网络设备）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 CSCO 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XDELL": {
+        "ticker": "XDELL/USDT",
+        "desc": "代币化股票：Dell（戴尔，AI 服务器）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 DELL 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XDKNG": {
+        "ticker": "XDKNG/USDT",
+        "desc": "代币化股票：DraftKings（在线体育博彩）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 DKNG 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XDRAM": {
+        "ticker": "XDRAM/USDT",
+        "desc": "OKX xStocks 系列代币化标的（代码 DRAM，官方名称待确认）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 DRAM 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XEWY": {
+        "ticker": "XEWY/USDT",
+        "desc": "代币化股票：iShares MSCI South Korea ETF（韩国市场 ETF）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 EWY 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XGEV": {
+        "ticker": "XGEV/USDT",
+        "desc": "代币化股票：GE Vernova（电力设备/电网）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 GEV 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XGLW": {
+        "ticker": "XGLW/USDT",
+        "desc": "代币化股票：Corning（康宁，光纤玻璃）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 GLW 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XGME": {
+        "ticker": "XGME/USDT",
+        "desc": "代币化股票：GameStop（游戏驿站，meme 股代表）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 GME 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XGOOGL": {
+        "ticker": "XGOOGL/USDT",
+        "desc": "代币化股票：Alphabet Class A（谷歌母公司）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 GOOGL 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XHIMS": {
+        "ticker": "XHIMS/USDT",
+        "desc": "代币化股票：Hims & Hers Health（在线医疗）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 HIMS 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XHOOD": {
+        "ticker": "XHOOD/USDT",
+        "desc": "代币化股票：Robinhood（零售券商）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 HOOD 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XHPE": {
+        "ticker": "XHPE/USDT",
+        "desc": "代币化股票：Hewlett Packard Enterprise（慧与，企业 IT/AI 服务器）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 HPE 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XIBM": {
+        "ticker": "XIBM/USDT",
+        "desc": "代币化股票：IBM（国际商业机器，混合云/量子计算）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 IBM 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XINTC": {
+        "ticker": "XINTC/USDT",
+        "desc": "代币化股票：Intel（英特尔）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 INTC 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。 与 scripts/symbols/yahoo_symbols.json 中 Intel (INTC) 对应。"
+    },
+    "XINTW": {
+        "ticker": "XINTW/USDT",
+        "desc": "OKX xStocks 代币化标的（INTW 关联变体代码，官方名称待确认）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化标的，7×24 交易。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。 XINTW 为 INTW 关联变体代码，对应标的待确认。"
+    },
+    "XIREN": {
+        "ticker": "XIREN/USDT",
+        "desc": "代币化股票：IREN（比特币矿企转型 AI 算力）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 IREN 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XISRG": {
+        "ticker": "XISRG/USDT",
+        "desc": "代币化股票：Intuitive Surgical（直觉外科，手术机器人）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 ISRG 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XIWM": {
+        "ticker": "XIWM/USDT",
+        "desc": "代币化股票：iShares Russell 2000 ETF（美国小盘股 ETF）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 IWM 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XJNJ": {
+        "ticker": "XJNJ/USDT",
+        "desc": "代币化股票：Johnson & Johnson（强生）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 JNJ 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XKLAC": {
+        "ticker": "XKLAC/USDT",
+        "desc": "代币化股票：KLA（半导体过程控制设备）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 KLAC 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XKO": {
+        "ticker": "XKO/USDT",
+        "desc": "代币化股票：Coca-Cola（可口可乐）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 KO 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XKORU": {
+        "ticker": "XKORU/USDT",
+        "desc": "OKX xStocks 系列代币化标的（代码 KORU，官方名称待确认）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 KORU 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XLITE": {
+        "ticker": "XLITE/USDT",
+        "desc": "代币化股票：Lumentum（光模块）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 LITE 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XLLY": {
+        "ticker": "XLLY/USDT",
+        "desc": "代币化股票：Eli Lilly（礼来，GLP-1 减重药）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 LLY 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XLRCX": {
+        "ticker": "XLRCX/USDT",
+        "desc": "代币化股票：Lam Research（泛林，半导体刻蚀设备）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 LRCX 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XMETA": {
+        "ticker": "XMETA/USDT",
+        "desc": "代币化股票：Meta Platforms（Facebook/Instagram 母公司）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 META 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XMRVL": {
+        "ticker": "XMRVL/USDT",
+        "desc": "代币化股票：Marvell（迈威尔，AI 互联芯片）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 MRVL 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XMSFT": {
+        "ticker": "XMSFT/USDT",
+        "desc": "代币化股票：Microsoft（微软）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 MSFT 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XMSTR": {
+        "ticker": "XMSTR/USDT",
+        "desc": "代币化股票：MicroStrategy（比特币财库公司）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 MSTR 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XMU": {
+        "ticker": "XMU/USDT",
+        "desc": "代币化股票：Micron（美光，DRAM/NAND 存储）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 MU 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。 与 scripts/symbols/yahoo_symbols.json 中 Micron (MU) 对应。"
+    },
+    "XMUU": {
+        "ticker": "XMUU/USDT",
+        "desc": "OKX xStocks 代币化标的（MUU 关联变体代码，官方名称待确认）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化标的，7×24 交易。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。 XMUU 为 MUU 关联变体代码，对应标的待确认。"
+    },
+    "XMVLL": {
+        "ticker": "XMVLL/USDT",
+        "desc": "OKX xStocks 代币化标的（MVLL 关联变体代码，官方名称待确认）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化标的，7×24 交易。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。 XMVLL 为 MVLL 关联变体代码，对应标的待确认。"
+    },
+    "XNBIS": {
+        "ticker": "XNBIS/USDT",
+        "desc": "代币化股票：Nebius（AI 云基础设施）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 NBIS 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XNFLX": {
+        "ticker": "XNFLX/USDT",
+        "desc": "代币化股票：Netflix（奈飞，流媒体）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 NFLX 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XNOW": {
+        "ticker": "XNOW/USDT",
+        "desc": "代币化股票：ServiceNow（企业工作流 SaaS）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 NOW 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XNVDA": {
+        "ticker": "XNVDA/USDT",
+        "desc": "代币化股票：NVIDIA（英伟达，AI 算力龙头）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 NVDA 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XOKTA": {
+        "ticker": "XOKTA/USDT",
+        "desc": "代币化股票：Okta（身份认证 SaaS）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 OKTA 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XON": {
+        "ticker": "XON/USDT",
+        "desc": "代币化股票：ON Semiconductor（安森美，功率/模拟芯片）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 ON 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XONDS": {
+        "ticker": "XONDS/USDT",
+        "desc": "代币化股票：Ondas Holdings（无人机/专用无线网络）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 ONDS 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XORCL": {
+        "ticker": "XORCL/USDT",
+        "desc": "代币化股票：Oracle（甲骨文，数据库/AI 云）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 ORCL 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XPLTR": {
+        "ticker": "XPLTR/USDT",
+        "desc": "代币化股票：Palantir（数据分析/AI 平台）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 PLTR 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XPOPMART": {
+        "ticker": "XPOPMART/USDT",
+        "desc": "代币化股票：泡泡玛特（港股 9992.HK 代币化）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化标的，7×24 交易。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。 非美股上市主体（港股/私募/优先股）的代币化版本。"
+    },
+    "XQCOM": {
+        "ticker": "XQCOM/USDT",
+        "desc": "代币化股票：Qualcomm（高通，手机 SoC）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 QCOM 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XQQQ": {
+        "ticker": "XQQQ/USDT",
+        "desc": "代币化股票：Invesco QQQ（纳斯达克 100 ETF）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 QQQ 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XRDDT": {
+        "ticker": "XRDDT/USDT",
+        "desc": "代币化股票：Reddit（社区平台）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 RDDT 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XRIVN": {
+        "ticker": "XRIVN/USDT",
+        "desc": "代币化股票：Rivian（电动车）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 RIVN 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XRKLB": {
+        "ticker": "XRKLB/USDT",
+        "desc": "代币化股票：Rocket Lab（商业航天）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 RKLB 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XROK": {
+        "ticker": "XROK/USDT",
+        "desc": "代币化股票：Rockwell Automation（罗克韦尔，工业自动化）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 ROK 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XSHAZ": {
+        "ticker": "XSHAZ/USDT",
+        "desc": "OKX xStocks 系列代币化标的（代码 SHAZ，官方名称待确认）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 SHAZ 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XSHEIN": {
+        "ticker": "XSHEIN/USDT",
+        "desc": "代币化股票：SHEIN（未上市公司私募份额代币化）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化标的，7×24 交易。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。 非美股上市主体（港股/私募/优先股）的代币化版本。"
+    },
+    "XSKHY": {
+        "ticker": "XSKHY/USDT",
+        "desc": "OKX xStocks 系列代币化标的（代码 SKHY，官方名称待确认）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 SKHY 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XSMCI": {
+        "ticker": "XSMCI/USDT",
+        "desc": "代币化股票：Super Micro Computer（超微电脑，AI 服务器）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 SMCI 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XSMH": {
+        "ticker": "XSMH/USDT",
+        "desc": "代币化股票：VanEck Semiconductor ETF（半导体行业 ETF）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 SMH 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XSNDK": {
+        "ticker": "XSNDK/USDT",
+        "desc": "代币化股票：SanDisk（NAND 存储独立后主体）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 SNDK 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XSNOW": {
+        "ticker": "XSNOW/USDT",
+        "desc": "代币化股票：Snowflake（云数据仓库）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 SNOW 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XSNXX": {
+        "ticker": "XSNXX/USDT",
+        "desc": "OKX xStocks 系列代币化标的（代码 SNXX，官方名称待确认）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 SNXX 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XSOXL": {
+        "ticker": "XSOXL/USDT",
+        "desc": "代币化股票：Direxion Semiconductor Bull 3X ETF（半导体 3 倍做多 ETF）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化标的，7×24 交易。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。 杠杆 ETF 波动放大，仅适合短线趋势观察。"
+    },
+    "XSOXS": {
+        "ticker": "XSOXS/USDT",
+        "desc": "代币化股票：Direxion Semiconductor Bear 3X ETF（半导体 3 倍做空 ETF）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化标的，7×24 交易。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。 杠杆 ETF 波动放大，仅适合短线趋势观察。"
+    },
+    "XSPCX": {
+        "ticker": "XSPCX/USDT",
+        "desc": "OKX xStocks 系列代币化标的（代码 SPCX，官方名称待确认）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 SPCX 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XSPY": {
+        "ticker": "XSPY/USDT",
+        "desc": "代币化股票：SPDR S&P 500 ETF（标普 500 ETF，全球最大 ETF）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 SPY 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XSTRC": {
+        "ticker": "XSTRC/USDT",
+        "desc": "代币化股票：Strategy (STRC) 可变利率优先股",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化标的，7×24 交易。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。 非美股上市主体（港股/私募/优先股）的代币化版本。"
+    },
+    "XTER": {
+        "ticker": "XTER/USDT",
+        "desc": "代币化股票：Teradyne（泰瑞达，半导体测试设备）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 TER 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XTESTA": {
+        "ticker": "XTESTA/USDT",
+        "desc": "OKX xStocks 代币化标的（TESTA 关联变体代码，官方名称待确认）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化标的，7×24 交易。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。 XTESTA 为 TESTA 关联变体代码，对应标的待确认。"
+    },
+    "XTQQQ": {
+        "ticker": "XTQQQ/USDT",
+        "desc": "代币化股票：ProShares UltraPro QQQ（纳指 100 三倍杠杆 ETF）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化标的，7×24 交易。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。 杠杆 ETF 波动放大，仅适合短线趋势观察。"
+    },
+    "XTSLA": {
+        "ticker": "XTSLA/USDT",
+        "desc": "OKX xStocks 系列代币化标的（代码 TSLA，官方名称待确认）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 TSLA 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XTSM": {
+        "ticker": "XTSM/USDT",
+        "desc": "代币化股票：TSMC（台积电，芯片代工龙头）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 TSM 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XTTWO": {
+        "ticker": "XTTWO/USDT",
+        "desc": "代币化股票：Take-Two Interactive（游戏发行商）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 TTWO 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XTWLO": {
+        "ticker": "XTWLO/USDT",
+        "desc": "代币化股票：Twilio（通信 API 平台）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 TWLO 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XUNH": {
+        "ticker": "XUNH/USDT",
+        "desc": "代币化股票：UnitedHealth（联合健康）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 UNH 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XUSAR": {
+        "ticker": "XUSAR/USDT",
+        "desc": "OKX xStocks 系列代币化标的（代码 USAR，官方名称待确认）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 USAR 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XVRT": {
+        "ticker": "XVRT/USDT",
+        "desc": "代币化股票：Vertiv（维谛，数据中心电源/散热）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 VRT 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XWDC": {
+        "ticker": "XWDC/USDT",
+        "desc": "代币化股票：Western Digital（西部数据，HDD）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 WDC 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XXIAOMI": {
+        "ticker": "XXIAOMI/USDT",
+        "desc": "代币化股票：小米集团（港股 1810.HK 代币化）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化标的，7×24 交易。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。 非美股上市主体（港股/私募/优先股）的代币化版本。"
+    },
+    "XXLE": {
+        "ticker": "XXLE/USDT",
+        "desc": "代币化股票：Energy Select Sector SPDR（标普能源行业 ETF）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 XLE 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    },
+    "XZM": {
+        "ticker": "XZM/USDT",
+        "desc": "代币化股票：Zoom（视频会议）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "OKX xStocks 代币化股票，7×24 交易，追踪 ZM 美股价格。ticker 为 ccxt unified symbol，可直接用于 ccxt okx fetchOHLCV。"
+    }
+}

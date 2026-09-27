@@ -39,7 +39,7 @@ from chronoforge.connectors.ratelimit import RateLimiter
 from chronoforge.models.base import BaseRecord
 from chronoforge.models.derivatives import Interval
 from chronoforge.models.enums import CanonicalType, QualityStatus
-from chronoforge.models.market import OHLCV, TICKER, TRADE, Side
+from chronoforge.models.market import OHLCV, TICKER, TRADE, Side, interval_seconds
 from chronoforge.models.quality import QualityFinding, QualityReport
 from chronoforge.models.reference import parse_binance
 
@@ -192,7 +192,12 @@ class BinanceSpotConnector(DataConnector):
         }
 
         if request.start is not None:
-            params["startTime"] = int(request.start.timestamp() * 1000)
+            # 起点回退一根 K 线：增量窗口按收线推进，当 K 线收线时刻落在
+            # 窗口内但 openTime 在窗口起点之前时，startTime 过滤会令其
+            # 永久漏采（1d K 线在小时级增量调度下必漏）。回退后未收盘
+            # K 线由 normalize 过滤，重复 K 线由 natural key upsert 幂等收敛。
+            rewind_ms = interval_seconds(interval) * 1000
+            params["startTime"] = int(request.start.timestamp() * 1000) - rewind_ms
         if request.end is not None:
             params["endTime"] = int(request.end.timestamp() * 1000)
 

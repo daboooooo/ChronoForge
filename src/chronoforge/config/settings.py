@@ -83,6 +83,15 @@ class Settings(BaseModel):
         ge=1,
         description="查询默认行数上限（READY-003/SR-10：query() 恒附加 LIMIT）",
     )
+    ohlcv_chunk_bars: int = Field(
+        default=200,
+        ge=1,
+        description=(
+            "OHLCV 长周期 interval（1h/4h/1d）单 chunk 目标 K 线根数"
+            "（chunk 跨度 = 根数 × 单根秒数；connector 内部分页适配"
+            "各交易所单请求上限）"
+        ),
+    )
     version: str = Field(
         default="0.1.0",
         description="ChronoForge 版本",
@@ -117,6 +126,10 @@ class Settings(BaseModel):
     ccxt_okx_passphrase: SecretStr = Field(
         default=SecretStr(""),
         description="CCXT OKX Passphrase",
+    )
+    sosovalue_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="SoSoValue API Key（启用 sosovalue 时必填）",
     )
 
     # ── 测试注入（不映射 env，pydantic 忽略 __ 前缀字段）──
@@ -171,6 +184,16 @@ class Settings(BaseModel):
     )
     @classmethod
     def _parse_ccxt_secret(cls, v: Any) -> SecretStr:
+        """将 str → SecretStr（env 加载时自动转换）。"""
+        if isinstance(v, SecretStr):
+            return v
+        if isinstance(v, str):
+            return SecretStr(v)
+        return SecretStr(str(v))
+
+    @field_validator("sosovalue_api_key", mode="before")
+    @classmethod
+    def _parse_sosovalue_api_key(cls, v: Any) -> SecretStr:
         """将 str → SecretStr（env 加载时自动转换）。"""
         if isinstance(v, SecretStr):
             return v
@@ -253,6 +276,7 @@ class Settings(BaseModel):
             "ccxt_okx_api_key": self.ccxt_okx_api_key,
             "ccxt_okx_secret": self.ccxt_okx_secret,
             "ccxt_okx_passphrase": self.ccxt_okx_passphrase,
+            "sosovalue_api_key": self.sosovalue_api_key,
         }
         return cast(dict[str, Any], redact(data))
 
@@ -323,6 +347,7 @@ def _read_env_fields(cls_model: type[BaseModel]) -> dict[str, Any]:
         "quality_block_on": "CHRONOFORGE_QUALITY_BLOCK",
         "normalize_error_threshold": "CHRONOFORGE_NORMALIZE_ERROR_THRESHOLD",
         "query_max_rows": "CHRONOFORGE_QUERY_MAX_ROWS",
+        "ohlcv_chunk_bars": "CHRONOFORGE_OHLCV_CHUNK_BARS",
         "version": "CHRONOFORGE_VERSION",
         # CCXT Bridge 凭证
         "ccxt_binance_api_key": "CCXT_BINANCE_API_KEY",
@@ -330,6 +355,7 @@ def _read_env_fields(cls_model: type[BaseModel]) -> dict[str, Any]:
         "ccxt_okx_api_key": "CCXT_OKX_API_KEY",
         "ccxt_okx_secret": "CCXT_OKX_SECRET",
         "ccxt_okx_passphrase": "CCXT_OKX_PASSPHRASE",
+        "sosovalue_api_key": "SOSOVALUE_API_KEY",
     }
 
     for field_name, env_name in env_mapping.items():

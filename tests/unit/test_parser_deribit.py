@@ -13,6 +13,7 @@ from chronoforge.models.reference import parse_deribit
 # ————————————————————————————————————————————————————————————————
 # GWT acceptance cases
 
+
 def test_gwt_btc_sep26_call() -> None:
     """GWT: BTC-26SEP26-100000-C → expiry=date(2026, 9, 26)。"""
     result = parse_deribit("BTC-26SEP26-100000-C")
@@ -87,6 +88,30 @@ def test_boundary_5char_short_date() -> None:
     # BTC-26S26-100000-C → 26S26 = day=26, month=S(Sep)=9, year=26
     result = parse_deribit("BTC-26S26-100000-C")
     assert result["expiry"] == date(2026, 9, 26)
+
+
+def test_boundary_6char_single_day_early() -> None:
+    """边界: 6 字符日期串（1位日+3字母月+2位年）：2OCT26 → 2026-10-02。
+
+    单日期权 instrument_name 实测不补零（raw 中真实丢弃样例）。
+    """
+    result = parse_deribit("BTC-2OCT26-100000-C")
+    assert result["expiry"] == date(2026, 10, 2)
+    assert result["instrument_id"] == "BTC-2026-10-02-100000-C"
+    assert result["market_id"] == "DERIBIT:BTC-2OCT26-100000-C:OPTION"
+
+
+def test_boundary_6char_single_day_late() -> None:
+    """边界: 9OCT26 → 2026-10-09。"""
+    result = parse_deribit("BTC-9OCT26-100000-P")
+    assert result["expiry"] == date(2026, 10, 9)
+    assert result["option_type"] == "PUT"
+
+
+def test_boundary_6char_invalid_month() -> None:
+    """边界: 6 字符但月份非法（2ZZZ26）→ ProviderError 非法月份码。"""
+    with pytest.raises(ProviderError, match="非法月份码"):
+        parse_deribit("BTC-2ZZZ26-100000-C")
 
 
 def test_boundary_may_contextual() -> None:

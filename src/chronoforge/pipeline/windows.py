@@ -195,6 +195,20 @@ WINDOW_CONFIG: dict[str, dict[str, int | str]] = {
 # 辅助函数
 # ---------------------------------------------------------------------------
 
+# interval 感知 chunk 放大（chunk ≈ 目标根数 × 单根 K 线秒数）：
+# 分钟级 K 线单日根数已超单请求上限，保持表值按日切合理；1h/4h/1d 若仍按
+# 1 天切会把单请求利用率压到极低（OKX 单请求上限 100 根 → 1d 每请求仅 1 根），
+# 按档位放大后由 ccxt 内部分页自然适配各交易所上限（OKX 100 根 /
+# Binance 1000 根），HTTP 请求数降低 1~2 个数量级，空区间浪费同步收敛。
+# 目标根数默认 200，可经 Settings.ohlcv_chunk_bars（env
+# CHRONOFORGE_OHLCV_CHUNK_BARS）调整。
+_DEFAULT_CHUNK_BARS = 200
+_INTERVAL_BAR_SECONDS: dict[str, int] = {
+    "1h": 3600,
+    "4h": 4 * 3600,
+    "1d": 86400,
+}
+
 
 def _parse_cursor(cursor: str) -> datetime:
     """将 cursor 字符串解析为 datetime（ISO 格式）。
@@ -223,8 +237,9 @@ def _get_config(dataset_id: str) -> dict[str, int | str]:
     """获取数据集窗口配置。
 
     显式表优先；表外 dataset_id 按 ID 中的类型词元做语义回退
-    （ohlcv/klines → klines 语义），与逐条显式注册的先例
-    （btcusdt-ohlcv-1h 等）语义完全一致；无词元可解析仍 ValueError。
+    （ohlcv/klines → klines 语义；fred_ 前缀 → 全窗口 diff 语义），
+    与逐条显式注册的先例（btcusdt-ohlcv-1h 等）语义完全一致；
+    无词元可解析仍 ValueError。
 
     Args:
         dataset_id: 数据集标识
@@ -237,6 +252,14 @@ def _get_config(dataset_id: str) -> dict[str, int | str]:
     """
     if dataset_id in WINDOW_CONFIG:
         return WINDOW_CONFIG[dataset_id]
+    if dataset_id.startswith("fred_"):
+        # FRED 序列数据集（fred_series_{ID}）：全窗口 diff（同 fred_series）
+        return WINDOW_CONFIG["fred_series"]
+    if dataset_id.startswith("sosovalue_"):
+        # SoSoValue ETF 数据集（sosovalue_etf_*）：全窗口 diff
+        # （同 fred_series；API 仅回看最近 1 个月，全窗口重拉 +
+        # natural key upsert 幂等收敛 T+1 结算修正）
+        return WINDOW_CONFIG["fred_series"]
     if _TYPE_TOKEN_RE.search(dataset_id):
         # klines 语义：overlap=1h，chunk=24h（同 binance_*_klines / ccxt_ohlcv）
         return {"overlap_seconds": 3600, "chunk_size_seconds": 86400}
@@ -251,6 +274,25 @@ def _is_full_window(config: dict[str, int | str]) -> bool:
     return config.get("chunk_size_seconds") == "full_window"
 
 
+def _effective_chunk_size(
+    config: dict[str, int | str],
+    params: Mapping[str, Any],
+    chunk_bars: int = _DEFAULT_CHUNK_BARS,
+) -> int | str:
+    """按 params.interval 应用 chunk 放大档位（interval 感知）。
+
+    命中 _INTERVAL_BAR_SECONDS 的 interval 覆盖表值为
+    chunk_bars × 单根秒数（chunk_bars 默认 200，来自
+    Settings.ohlcv_chunk_bars）；full_window、分钟级 / 缺省 interval
+    保持表值不变。
+    """
+    table_value = config["chunk_size_seconds"]
+    if table_value == "full_window":
+        return table_value
+    bar_seconds = _INTERVAL_BAR_SECONDS.get(str(params.get("interval", "")))
+    return chunk_bars * bar_seconds if bar_seconds is not None else table_value
+
+
 # ---------------------------------------------------------------------------
 # plan_chunks（D05 §5.2 核心算法）
 # ---------------------------------------------------------------------------
@@ -260,6 +302,8 @@ def plan_chunks(
     job: AcquisitionJob,
     cursor: str | None,
     now: datetime,
+    *,
+    chunk_bars: int = _DEFAULT_CHUNK_BARS,
 ) -> list[Chunk]:
     """计算窗口序列（D05 §5.2 语义表驱动）。
 
@@ -275,6 +319,8 @@ def plan_chunks(
         job: 获取任务
         cursor: 上次 checkpoint（ISO datetime 字符串），None = 首次/回填
         now: 当前时间（UTC naive）
+        chunk_bars: OHLCV 长周期 interval 的单 chunk 目标 K 线根数
+            （默认 200，调用方传 Settings.ohlcv_chunk_bars）
 
     Returns:
         Chunk 列表（空 = 无数据需获取）
@@ -284,7 +330,7 @@ def plan_chunks(
     """
     config = _get_config(job.dataset_id)
     overlap_seconds = config["overlap_seconds"]
-    chunk_size_seconds = config["chunk_size_seconds"]
+    chunk_size_seconds = _effective_chunk_size(config, job.params, chunk_bars)
 
     # 1. 确定窗口范围
     if job.mode == "incremental":
@@ -440,16 +486,26 @@ def verify_interval_concatenation(
 # ---------------------------------------------------------------------------
 
 
-def resolve_window_span(dataset_id: str, window_seconds: int) -> int | None:
+def resolve_window_span(
+    dataset_id: str,
+    window_seconds: int,
+    params: Mapping[str, Any] | None = None,
+    *,
+    chunk_bars: int = _DEFAULT_CHUNK_BARS,
+) -> int | None:
     """将窗口跨度对齐到 chunk_size 整数倍；全窗口 diff 类返回 None。
 
     对齐后窗口边界与 chunk 边界重合：分窗口 plan 出的 chunk 序列与
     全跨度 plan_chunks 完全一致（不重不漏），窗口缝不产生跨窗 chunk。
-    窗口跨度不可低于单 chunk（chunk 是原子拉取单位）。
+    窗口跨度不可低于单 chunk（chunk 是原子拉取单位）。chunk_size 经
+    params.interval 放大档位生效（与 plan_chunks 同源，chunk_bars 同参）。
 
     Args:
         dataset_id: 数据集标识
         window_seconds: 期望窗口跨度上限（秒，>0）
+        params: 源侧查询参数（interval 感知档位，与 plan_chunks 同源）
+        chunk_bars: OHLCV 长周期 interval 的单 chunk 目标 K 线根数
+            （默认 200，调用方传 Settings.ohlcv_chunk_bars）
 
     Returns:
         对齐后的窗口跨度（秒）；chunk_size 为 "full_window"（fred/sec）
@@ -459,7 +515,7 @@ def resolve_window_span(dataset_id: str, window_seconds: int) -> int | None:
         ValueError: dataset_id 不在配置表中
     """
     config = _get_config(dataset_id)
-    chunk = config["chunk_size_seconds"]
+    chunk = _effective_chunk_size(config, params or {}, chunk_bars)
     if chunk == "full_window":
         return None
     assert isinstance(chunk, int)

@@ -114,6 +114,7 @@ class TestOPTION:
             "mark_price": 5000.0,
             "bid": 4900.0,
             "ask": 5100.0,
+            "open_interest": 200.0,
             **_SampleFactory._base(),
         }
         base.update(overrides)
@@ -130,6 +131,31 @@ class TestOPTION:
         assert record.mark_price == 5000.0
         assert record.bid == 4900.0
         assert record.ask == 5100.0
+        assert record.open_interest == 200.0
+
+    def test_option_null_quotes_ok(self) -> None:
+        """源端显式 null：mark/bid/ask 全为 None 合法（表示无报价）。"""
+        record = OPTION(**self._sample(mark_price=None, bid=None, ask=None))
+        assert record.mark_price is None
+        assert record.bid is None
+        assert record.ask is None
+
+    def test_option_null_single_side_ok(self) -> None:
+        """单侧 null（如深虚值 bid_price=null）合法，其余价格保留。"""
+        record = OPTION(**self._sample(bid=None))
+        assert record.bid is None
+        assert record.ask == 5100.0
+        assert record.mark_price == 5000.0
+
+    def test_option_zero_open_interest_ok(self) -> None:
+        """open_interest=0 合法。"""
+        record = OPTION(**self._sample(open_interest=0.0))
+        assert record.open_interest == 0.0
+
+    def test_option_negative_open_interest_rejected(self) -> None:
+        """open_interest < 0 → ValidationError。"""
+        with pytest.raises(ValidationError):
+            OPTION(**self._sample(open_interest=-1.0))
 
     def test_option_put_type(self) -> None:
         """TC-M-005: OPTION PUT 类型。"""
@@ -649,6 +675,7 @@ class TestNaturalKeyCompleteness:
             mark_price=1.0,
             bid=0.5,
             ask=1.5,
+            open_interest=10.0,
             schema_version="1.0",
             source="s",
             source_id="sid",

@@ -1,0 +1,204 @@
+{
+    "ON_RRP_RATE": {
+        "id": "RRPONTSYAWARD", "freq": "daily", "data_type": "rate", "unit": "%",
+        "desc": "隔夜逆回购利率(ON RRP Award Rate)",
+        "role": "利率走廊地板",
+        "comment": "隔夜逆回购利率，利率走廊的'地板'。覆盖非银机构，设在目标区间下界。ON RRP(地板) < EFFR < IORB(天花板)"
+    },
+    "EFFR": {
+        "id": "EFFR", "freq": "daily", "data_type": "rate", "unit": "%",
+        "desc": "有效联邦基金利率(Effective Federal Funds Rate)",
+        "role": "走廊内市场基准",
+        "comment": "联邦基金有效利率，是美联储在每个工作日发布的利率，是市场中间值。ON RRP(地板) < EFFR < IORB(天花板)"
+    },
+    "IORB": {
+        "id": "IORB", "freq": "daily", "data_type": "rate", "unit": "%",
+        "desc": "准备金余额利率(Interest on Reserve Balances)",
+        "role": "利率走廊天花板",
+        "comment": "准备金利率，利率走廊的'天花板'。IORB设在目标区间上界。ON RRP(地板) < EFFR < IORB(天花板)"
+    },
+    "SOFR": {
+        "id": "SOFR", "freq": "daily", "data_type": "rate", "unit": "%",
+        "desc": "担保隔夜融资利率(Secured Overnight Financing Rate)",
+        "role": "回购市场基准",
+        "comment": "以国债作为抵押的回购市场利率。SOFR高于EFFR 0.17%时，相当于美元流动性'心肌梗塞'"
+    },
+    "DPCREDIT": {
+        "id": "DPCREDIT", "freq": "daily", "data_type": "rate", "unit": "%",
+        "desc": "贴现窗口主信贷利率(Discount Window Primary Credit Rate)",
+        "role": "走廊外安全阀"
+    },
+    "DFEDTARL": {
+        "id": "DFEDTARL", "freq": "daily", "data_type": "rate", "unit": "%",
+        "desc": "联邦基金目标区间下限",
+        "role": "FOMC政策利率下界"
+    },
+    "DFEDTARU": {
+        "id": "DFEDTARU", "freq": "daily", "data_type": "rate", "unit": "%",
+        "desc": "联邦基金目标区间上限",
+        "role": "FOMC政策利率上界"
+    },
+
+    "T-Bill_1M": {
+        "id": "DTB4WK", "freq": "daily", "data_type": "rate", "unit": "%",
+        "desc": "1个月国库券收益率", "role": "超短期安全资产收益率",
+        "comment": "1月国债收益率，是指在1月到期的国债的收益率"
+    },
+    "T-Bill_6M": {
+        "id": "DTB6", "freq": "daily", "data_type": "rate", "unit": "%",
+        "desc": "6个月国库券收益率", "role": "短期安全资产收益率",
+        "comment": "6月国债收益率，是指在6月到期的国债的收益率"
+    },
+    "T-Bill_1Y": {
+        "id": "DTB1YR", "freq": "daily", "data_type": "rate", "unit": "%",
+        "desc": "1年国库券收益率", "role": "短期安全资产收益率",
+        "comment": "1年国债收益率，是指在1年到期的国债的收益率"
+    },
+    "T-Note_2Y": {
+        "id": "DGS2", "freq": "daily", "data_type": "rate", "unit": "%",
+        "desc": "2年期国债收益率", "role": "中短期利率",
+        "comment": "2年国债收益率，是指在2年到期的国债的收益率"
+    },
+    "T-Note_10Y": {
+        "id": "DGS10", "freq": "daily", "data_type": "rate", "unit": "%",
+        "desc": "10年期国债收益率", "role": "长期利率基准",
+        "comment": "10年国债收益率，是指在10年到期的国债的收益率"
+    },
+    "T-Bond_20Y": {
+        "id": "DGS20", "freq": "daily", "data_type": "rate", "unit": "%",
+        "desc": "20年期国债收益率", "role": "超长期利率",
+        "comment": "20年国债收益率，是指在20年到期的国债的收益率"
+    },
+    "T-Bond_30Y": {
+        "id": "DGS30", "freq": "daily", "data_type": "rate", "unit": "%",
+        "desc": "30年期国债收益率", "role": "超长期利率",
+        "comment": "30年国债收益率，是指在30年到期的国债的收益率"
+    },
+
+    "EFFRVOL": {
+        "id": "EFFRVOL", "freq": "daily", "data_type": "volume", "unit": "M USD",
+        "desc": "联邦基金市场成交量", "role": "银行间市场活跃度",
+        "comment": "联邦基金市场成交量"
+    },
+    "SOFRVOL": {
+        "id": "SOFRVOL", "freq": "daily", "data_type": "volume", "unit": "M USD",
+        "desc": "回购市场成交量", "role": "回购市场深度",
+        "comment": "以国债作为抵押的回购市场交易的成交量"
+    },
+
+    "ON_RRP_BAL": {
+        "id": "RRPONTSYD", "freq": "daily", "data_type": "balance", "unit": "M USD",
+        "desc": "隔夜逆回购余额(ON RRP)", "role": "非银流动性缓冲垫",
+        "comment": "隔夜逆回购成交量"
+    },
+    "SRF_TS": {
+        "id": "RPONTSYD", "freq": "daily", "data_type": "balance", "unit": "M USD",
+        "desc": "常备回购便利(SRF)国债使用量", "role": "走廊外安全阀使用量",
+        "comment": "回购国债的常备回购便利成交量"
+    },
+    "SRF_MBS": {
+        "id": "RPMBSD", "freq": "daily", "data_type": "balance", "unit": "M USD",
+        "desc": "常备回购便利(SRF) MBS使用量", "role": "走廊外安全阀使用量",
+        "comment": "以住宅或商业抵押贷款为基础打包证券的常备回购便利成交量"
+    },
+    "SRF_Agency": {
+        "id": "RPAGYD", "freq": "daily", "data_type": "balance", "unit": "M USD",
+        "desc": "常备回购便利(SRF)机构债使用量", "role": "走廊外安全阀使用量",
+        "comment": "回购机构债券的常备回购便利成交量"
+    },
+
+    "WALCL": {
+        "id": "WALCL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "美联储总资产", "role": "资产负债表规模"
+    },
+    "WRESBAL": {
+        "id": "WRESBAL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "银行准备金余额(周均值)", "role": "银行体系流动性底线"
+    },
+    "WRBWFRBL": {
+        "id": "WRBWFRBL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "银行准备金余额(周三时点值)", "role": "银行体系流动性底线(时点)",
+        "comment": "准备金余额。接近 3,000,000 说明流动性紧张, 区域银行可能会暴雷。美联储官员认为的红线是 2,700,000, 会主动干预。"
+    },
+    "WSHOSHO": {
+        "id": "WSHOSHO", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "美联储持有美国国债", "role": "QE/QT操作主体"
+    },
+    "WSHOMCB": {
+        "id": "WSHOMCB", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "美联储持有机构MBS", "role": "QE/QT操作主体"
+    },
+    "WTREGEN": {
+        "id": "WTREGEN", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "财政部一般账户余额(TGA, 周均值)", "role": "财政-货币联动阀门"
+    },
+    "WDTGAL": {
+        "id": "WDTGAL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "财政部一般账户余额(TGA, 日频)", "role": "财政-货币联动阀门(日频)"
+    },
+    "WCURCIR": {
+        "id": "WCURCIR", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "流通中现金", "role": "净流动性组成部分"
+    },
+    "WLCFLL": {
+        "id": "WLCFLL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "央行互换线余额", "role": "离岸美元流动性供给"
+    },
+    "WPC": {
+        "id": "WPC", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "贴现窗口借款(主信贷)", "role": "最后贷款人工具使用量"
+    },
+
+    "GFDEBTN": {
+        "id": "GFDEGDQ188S", "freq": "quarterly", "data_type": "ratio", "unit": "% GDP",
+        "desc": "联邦债务占GDP比重", "role": "财政主导风险指标"
+    },
+    "FYFRI": {
+        "id": "FYOIGDA188S", "freq": "annual", "data_type": "ratio", "unit": "% GDP",
+        "desc": "联邦利息支出占GDP比重", "role": "财政可持续性指标"
+    },
+    "FYGFDPUN": {
+        "id": "FYGFDPUN", "freq": "quarterly", "data_type": "ratio", "unit": "% GDP",
+        "desc": "公众持有联邦债务占GDP比重", "role": "财政主导计算分母"
+    },
+
+    "TIPS_10Y": {
+        "id": "DFII10", "freq": "daily", "data_type": "rate", "unit": "%",
+        "desc": "10年期TIPS实际利率(通胀指数化国债收益率)",
+        "role": "长期实际利率基准",
+        "comment": "10年期TIPS收益率 = 名义10年国债收益率 - 10年盈亏平衡通胀率。负值意味着实际购买力缩水，利好黄金和加密货币"
+    },
+    "Breakeven_10Y": {
+        "id": "T10YIE", "freq": "daily", "data_type": "rate", "unit": "%",
+        "desc": "10年期盈亏平衡通胀率(10-Year Breakeven Inflation Rate)",
+        "role": "市场通胀预期",
+        "comment": "= DGS10(名义10年国债) - DFII10(10年TIPS)。反映市场对未来10年平均通胀的预期，2.5%以上通常引发紧缩预期"
+    },
+
+    "TED_Spread": {
+        "id": "TEDRATE", "freq": "daily", "data_type": "spread", "unit": "%",
+        "desc": "TED利差(3个月LIBOR - 3个月国库券)",
+        "role": "银行间信贷风险",
+        "comment": "TED = 3个月LIBOR - 3个月T-Bill。反映银行间无抵押借贷风险溢价。正常 0.2-0.5%，>1.0% 表明银行间信任紧张，2008危机时达4.6%。注意：LIBOR已停更，FRED 数据仅更新到2020-09-30，如需最新数据请参考 T10Y3M 或自行计算 SOFR-IORB"
+    },
+    "T10Y3M": {
+        "id": "T10Y3M", "freq": "daily", "data_type": "spread", "unit": "%",
+        "desc": "10年期国债 - 3个月国库券利差",
+        "role": "TED利差现代替代",
+        "comment": "10年国债收益率减3个月国库券收益率。由于LIBOR停更，作为TED利差的现代替代指标。负值（收益率曲线倒挂）通常预示经济衰退"
+    },
+
+    "CPI": {
+        "id": "CPIAUCSL", "freq": "monthly", "data_type": "index",
+        "unit": "Index 1982-84=100",
+        "desc": "CPI消费者物价指数(季调, 含食品能源)",
+        "role": "通胀衡量基准",
+        "comment": "BLS月度发布。需计算同比(CPI YoY)才可直接解读通胀水平。同比>3%通常被视为通胀过高"
+    },
+    "Core_CPI": {
+        "id": "CPILFESL", "freq": "monthly", "data_type": "index",
+        "unit": "Index 1982-84=100",
+        "desc": "核心CPI(季调, 剔除食品能源)", "role": "核心通胀趋势指标",
+        "comment": "剔除波动大的食品和能源，更能反映通胀趋势。美联储更关注PCE核心，但核心CPI也是重要参考"
+    }
+}

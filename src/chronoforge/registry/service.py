@@ -77,6 +77,13 @@ DEFAULT_SOURCES: tuple[SourceSpec, ...] = (
         "sec_edgar", "SEC EDGAR", "PUBLIC", "https://data.sec.gov/submissions",
         {"req_per_s": 10}, "SEC 公开数据（fair-access：UA 必填，≤10 req/s）",
     ),
+    SourceSpec(
+        "sosovalue", "SoSoValue", "PUBLIC_WITH_KEY",
+        "https://openapi.sosovalue.com/openapi/v1",
+        {"req_per_min": 20},
+        "SoSoValue OpenAPI（API key 必填，署名来源；ETF 流向等）",
+        historical_limit_days=30,
+    ),
 )
 
 _UPSERT_SOURCE_SQL = """

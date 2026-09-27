@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -844,6 +845,118 @@ class TestAggTradesWindowPagination:
         assert "startTime" not in params2
         assert "endTime" not in params2
         conn.close()
+
+
+# ── klines 起点回退（增量窗口边界防漏采） ──────────────────────────────
+
+
+class TestKlinesStartRewind:
+    """增量窗口起点回退：startTime 回退一根 K 线，防边界 K 线永久漏采。
+
+    背景：增量窗口按收线推进，K 线收线时刻落在窗口内但 openTime 在窗口
+    起点之前时（如 1d K 线在小时级增量调度下），startTime 过滤会令其
+    永久漏采。修复：fetch 起点按 interval 回退一根 K 线。
+    """
+
+    @staticmethod
+    def _fetch_once_with_start(
+        interval: str,
+        start: datetime | None,
+        rows: list | None = None,
+    ) -> tuple[list[RawBatch], MagicMock]:
+        """单次 fetch（空响应即停），返回 (batches, mock_client)。"""
+        resp = _mock_response(status_code=200, json_data=rows or [])
+        client = _mock_client(resp)
+        with patch.object(
+            BinanceSpotConnector, "__init__", lambda self, s: None
+        ):
+            conn = BinanceSpotConnector.__new__(BinanceSpotConnector)
+            conn._client = client
+            conn._rate_limiter = MagicMock()
+        req = FetchRequest(
+            dataset_id="test",
+            params={"symbol": "BTCUSDT", "interval": interval},
+            start=start,
+            end=None,
+            cursor=None,
+        )
+        batches = list(conn.fetch(req))
+        conn.close()
+        return batches, client
+
+    def test_start_rewinds_by_one_bar(self) -> None:
+        """Given start When interval=1d Then startTime = start - 86400000ms。"""
+        start_ms = (int(time.time() * 1000) // 86400000) * 86400000
+        start = datetime.fromtimestamp(start_ms / 1000).replace(tzinfo=None)
+        _, client = self._fetch_once_with_start("1d", start)
+        params = client.get.call_args[1]["params"]
+        assert params["startTime"] == start_ms - 86_400_000
+
+    def test_rewind_scales_with_interval(self) -> None:
+        """Given 同一 start When 1h/4h Then 回退量随 interval 缩放。"""
+        start_ms = 1_600_000_000_000
+        start = datetime.fromtimestamp(start_ms / 1000).replace(tzinfo=None)
+        _, client_1h = self._fetch_once_with_start("1h", start)
+        _, client_4h = self._fetch_once_with_start("4h", start)
+        assert client_1h.get.call_args[1]["params"]["startTime"] == start_ms - 3_600_000
+        assert client_4h.get.call_args[1]["params"]["startTime"] == start_ms - 14_400_000
+
+    def test_no_start_no_rewind(self) -> None:
+        """Given start=None（回填首页）Then 不设置 startTime。"""
+        _, client = self._fetch_once_with_start("1h", None)
+        params = client.get.call_args[1]["params"]
+        assert "startTime" not in params
+
+    def test_boundary_kline_recovered(self) -> None:
+        """GWT：openTime 在窗口起点前、收线在窗口内的 1d K 线不再漏采。
+
+        模拟 Binance 服务端 openTime >= startTime 过滤：回退后的起点
+        必须能取到「收线时刻=窗口起点」的边界 K 线，且 normalize 保留。
+        """
+        now_ms = int(time.time() * 1000)
+        start_ms = now_ms - 90 * 86_400_000  # 90 天前
+        start = datetime.fromtimestamp(start_ms / 1000).replace(tzinfo=None)
+        boundary = [
+            start_ms - 86_400_000,  # openTime = 窗口起点前一根
+            "1.0", "2.0", "0.5", "1.5", "10.0",
+            start_ms - 1,          # closeTime = 窗口起点（已收盘）
+            "10.0", "10", "10", "5", "0",
+        ]
+
+        # 服务端语义：只返回 openTime >= startTime 的行（记录参数副本，
+        # connector 复用同一 params 字典做分页，无法事后回看首次调用）
+        seen_params: list[dict] = []
+
+        def _server(*args: Any, **kwargs: Any) -> MagicMock:
+            seen_params.append(dict(kwargs["params"]))
+            st = int(kwargs["params"]["startTime"])
+            visible = [r for r in [boundary] if int(r[0]) >= st]
+            return _mock_response(200, visible, url="https://api.binance.com/api/v3/klines")
+
+        client = MagicMock()
+        client.get.side_effect = _server
+        with patch.object(
+            BinanceSpotConnector, "__init__", lambda self, s: None
+        ):
+            conn = BinanceSpotConnector.__new__(BinanceSpotConnector)
+            conn._client = client
+            conn._rate_limiter = MagicMock()
+        req = FetchRequest(
+            dataset_id="test",
+            params={"symbol": "BTCUSDT", "interval": "1d"},
+            start=start,
+            end=None,
+            cursor=None,
+        )
+        batches = list(conn.fetch(req))
+        conn.close()
+
+        # 首次调用的 startTime 回退一根 1d K 线，能命中边界 K 线
+        assert int(seen_params[0]["startTime"]) == start_ms - 86_400_000
+        assert len(batches) == 1
+        records = list(batches[0].payload)
+        assert len(records) == 1
+        assert records[0][0] == start_ms - 86_400_000
 
 
 # ── checkpoint_from ────────────────────────────────────────────────────

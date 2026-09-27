@@ -1,0 +1,50 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": [
+    {
+      "date": "2026-09-24",
+      "ticker": "IBIT",
+      "net_inflow": null,
+      "cum_inflow": null,
+      "net_assets": null,
+      "currency_share": null,
+      "prem_dsc": null,
+      "value_traded": 910925300,
+      "volume": "910925300"
+    },
+    {
+      "date": "2026-09-23",
+      "ticker": "IBIT",
+      "net_inflow": 50195600,
+      "cum_inflow": 61171454223.66,
+      "net_assets": 47337319120,
+      "currency_share": 0.8,
+      "prem_dsc": -0.0001,
+      "value_traded": 1810000000,
+      "volume": "1810000000"
+    },
+    {
+      "date": "bad-date",
+      "ticker": "IBIT",
+      "net_inflow": 100,
+      "cum_inflow": 100,
+      "net_assets": 100,
+      "currency_share": 0,
+      "prem_dsc": 0,
+      "value_traded": 1,
+      "volume": "1"
+    },
+    {
+      "date": "2026-09-19",
+      "ticker": "IBIT",
+      "net_inflow": "not-a-number",
+      "cum_inflow": 1,
+      "net_assets": 1,
+      "currency_share": 0,
+      "prem_dsc": 0,
+      "value_traded": 1,
+      "volume": "1"
+    }
+  ]
+}
