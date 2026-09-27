@@ -23,6 +23,8 @@ meta/
 tmp/
 *.duckdb
 *.db
+*.txt
+*.png
 
 # 秘密（Secret 分类，仅 env）
 .env
