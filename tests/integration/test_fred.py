@@ -277,6 +277,112 @@ class TestSeriesIdFallback:
         conn.close()
 
 
+# ── 快照折叠：单批次同日期多 vintage 仅保留最新（revision_supported=0）──
+
+
+class TestSnapshotVintageCollapse:
+    """快照语义：全 vintage 窗口响应内同 observation 多行 → 折叠当前值。"""
+
+    @staticmethod
+    def _normalize(payload: dict[str, Any], series: str = "CPIAUCSL") -> list:
+        conn, _ = _create_mock_connector(payload)
+        raw = RawBatch(
+            endpoint="/series/observations",
+            payload=payload,
+            raw_meta={"series_id": series},
+        )
+        records = conn.normalize(raw)
+        conn.close()
+        return records
+
+    def test_collapses_same_date_to_latest_vintage(self) -> None:
+        """同一 observation 两个 vintage → 1 条记录，取最新 vintage 的值。"""
+        payload = {
+            "series_id": "CPIAUCSL",
+            "units": "LIN1",
+            "seasonal_adjustment": "SA",
+            "observations": [
+                {"date": "2022-01-01", "value": "184.5", "realtime_start": "2022-02-10"},
+                {"date": "2022-01-01", "value": "184.2", "realtime_start": "2022-06-10"},
+                {"date": "2022-02-01", "value": "187.0", "realtime_start": "2022-03-11"},
+            ],
+        }
+        records = self._normalize(payload)
+
+        # 两个不同 observation 日期 → 恰 2 条（折叠掉 1 条旧 vintage）
+        assert len(records) == 2
+        jan, feb = records
+        assert jan.observation_time == datetime(2022, 1, 1)
+        assert jan.value == 184.2  # 最新 vintage（2022-06-10）的当前值
+        assert jan.vintage_date == "2022-06-10"
+        assert jan.revision_time == datetime(2022, 6, 10, 23, 59, 59)
+        assert jan.release_time == jan.revision_time
+        # 输出按 observation 日期升序
+        assert feb.observation_time == datetime(2022, 2, 1)
+        assert feb.value == 187.0
+
+    def test_collapse_input_order_independent(self) -> None:
+        """vintage 乱序到达时折叠结果一致（按 realtime_start 而非行序）。"""
+        payload = {
+            "series_id": "CPIAUCSL",
+            "observations": [
+                {"date": "2022-01-01", "value": "184.2", "realtime_start": "2022-06-10"},
+                {"date": "2022-01-01", "value": "184.5", "realtime_start": "2022-02-10"},
+            ],
+        }
+        records = self._normalize(payload)
+        assert len(records) == 1
+        assert records[0].value == 184.2
+        assert records[0].vintage_date == "2022-06-10"
+
+    def test_empty_vintage_loses_to_dated_vintage(self) -> None:
+        """后行 realtime_start 为空不覆盖已有真实 vintage。"""
+        payload = {
+            "series_id": "GDP",
+            "observations": [
+                {"date": "2023-01-01", "value": "21.5", "realtime_start": "2023-02-03"},
+                {"date": "2023-01-01", "value": "21.6", "realtime_start": ""},
+            ],
+        }
+        records = self._normalize(payload, series="GDP")
+        assert len(records) == 1
+        assert records[0].value == 21.5
+        assert records[0].vintage_date == "2023-02-03"
+
+    def test_natural_key_stable_across_reruns(self) -> None:
+        """同一全 vintage 响应两次 normalize → 自然键完全一致（重跑即 upsert）。"""
+        payload = {
+            "series_id": "CPIAUCSL",
+            "observations": [
+                {"date": "2022-01-01", "value": "184.2", "realtime_start": "2022-06-10"},
+                {"date": "2022-02-01", "value": "186.8", "realtime_start": "2022-07-12"},
+            ],
+        }
+        first = self._normalize(payload)
+        second = self._normalize(payload)
+        assert [r.natural_key() for r in first] == [r.natural_key() for r in second]
+        # revision_time 锚定真实 vintage，与采集日无关（不再漂移到当天）
+        assert first[0].natural_key()[2] == datetime(2022, 6, 10, 23, 59, 59)
+
+    def test_vintage_before_observation_clamped(self) -> None:
+        """IORB 式 ALFRED 预置：vintage 早于观测日 → 时间钳制为观测时点。"""
+        payload = {
+            "series_id": "IORB",
+            "observations": [
+                {"date": "2021-07-29", "value": "0.10", "realtime_start": "2021-07-28"},
+            ],
+        }
+        records = self._normalize(payload, series="IORB")
+        assert len(records) == 1
+        r = records[0]
+        assert r.observation_time == datetime(2021, 7, 29)
+        # release/revision 不早于观测时点
+        assert r.release_time == datetime(2021, 7, 29)
+        assert r.revision_time == datetime(2021, 7, 29)
+        # 真实 vintage 日保留在 vintage_date
+        assert r.vintage_date == "2021-07-28"
+
+
 # ── TC-M-007: 双 vintage 并存 ────────────────────────────────────────
 
 
@@ -840,6 +946,141 @@ class TestFetch:
         params = call_args.kwargs.get("params", call_args[1].get("params", {}))
         assert params["observation_start"] == "2023-01-01"
         assert params["observation_end"] == "2023-03-31"
+        conn.close()
+
+    def test_fetch_sets_realtime_floor(self) -> None:
+        """fetch 固定传 realtime_start=1776-07-04 以取回真实 vintage。"""
+        from chronoforge.connectors.fred import _REALTIME_START_FLOOR
+
+        obs_data = _load_fixture("happy.json")
+        mock_client = MagicMock()
+        mock_client.get.return_value = _mock_response_from_dict(obs_data)
+
+        conn, _ = _create_mock_connector(obs_data)
+        conn._client = mock_client
+
+        request = FetchRequest(
+            dataset_id="fred:UNRATE",
+            params={"series_id": "UNRATE"},
+            start=datetime(2023, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+            end=datetime(2023, 3, 31, tzinfo=UTC).replace(tzinfo=None),
+            cursor=None,
+        )
+        list(conn.fetch(request))
+
+        call_args = mock_client.get.call_args
+        params = call_args.kwargs.get("params", call_args[1].get("params", {}))
+        assert params["realtime_start"] == _REALTIME_START_FLOOR
+        conn.close()
+
+    def test_fetch_paginates_realtime_windows(self) -> None:
+        """vintage 日期 >2000 → 切互不相交 realtime 窗口，合并后折叠为当前值。"""
+        from datetime import timedelta
+
+        from chronoforge.connectors.fred import (
+            _OBS_VINTAGE_WINDOW,
+            _VINTAGEDATES_PAGE_SIZE,
+        )
+
+        base = datetime(2021, 1, 1)
+        vdates = [
+            (base + timedelta(days=i)).strftime("%Y-%m-%d")
+            for i in range(_OBS_VINTAGE_WINDOW + 1)
+        ]
+        window0_end = vdates[_OBS_VINTAGE_WINDOW - 1]
+        boundary = vdates[_OBS_VINTAGE_WINDOW]
+
+        def _dispatcher(endpoint: str, params: dict[str, Any] | None = None):
+            params = params or {}
+            if endpoint == "/series/vintagedates":
+                offset = int(params.get("offset", 0))
+                page = vdates[offset:offset + _VINTAGEDATES_PAGE_SIZE]
+                return _mock_response_from_dict(
+                    {"count": len(vdates), "vintage_dates": page}
+                )
+            # observations：两个窗口各回同一 observation 的不同 vintage 行
+            if params.get("realtime_end") == window0_end:
+                rows = [
+                    {"date": "2021-01-01", "value": "1.0", "realtime_start": vdates[0]},
+                    {"date": "2021-01-01", "value": "1.1", "realtime_start": vdates[1]},
+                ]
+            else:
+                assert params.get("realtime_start") == boundary
+                assert "realtime_end" not in params
+                rows = [
+                    {"date": "2021-01-01", "value": "1.2", "realtime_start": boundary},
+                    {"date": "2021-02-01", "value": "2.0", "realtime_start": boundary},
+                ]
+            return _mock_response_from_dict({"observations": rows})
+
+        mock_client = MagicMock()
+        mock_client.get.side_effect = _dispatcher
+        conn, _ = _create_mock_connector({})
+        conn._client = mock_client
+
+        request = FetchRequest(
+            dataset_id="fred:DGS10",
+            params={"series_id": "DGS10"},
+            start=datetime(2021, 1, 1),
+            end=datetime(2021, 3, 1),
+            cursor=None,
+        )
+        batches = list(conn.fetch(request))
+        assert len(batches) == 1
+        raw = batches[0]
+        assert raw.raw_meta["realtime_windows"] == 2
+
+        records = conn.normalize(raw)
+        assert len(records) == 2  # 两个 observation 日期
+        assert records[0].observation_time == datetime(2021, 1, 1)
+        assert records[0].value == 1.2  # 末窗口内最新 vintage
+        assert records[0].vintage_date == boundary
+        conn.close()
+
+    def test_fetch_dedupes_overlapping_window_rows(self) -> None:
+        """窗口边界返回的重复 (date,realtime_start) 行合并时只保留一份。"""
+        from datetime import timedelta
+
+        from chronoforge.connectors.fred import _OBS_VINTAGE_WINDOW
+
+        base = datetime(2021, 1, 1)
+        vdates = [
+            (base + timedelta(days=i)).strftime("%Y-%m-%d")
+            for i in range(_OBS_VINTAGE_WINDOW + 1)
+        ]
+
+        def _dispatcher(endpoint: str, params: dict[str, Any] | None = None):
+            params = params or {}
+            if endpoint == "/series/vintagedates":
+                return _mock_response_from_dict(
+                    {"count": len(vdates), "vintage_dates": vdates[:1000]}
+                    if params.get("offset", 0) == 0
+                    else {"count": len(vdates), "vintage_dates": vdates[1000:]}
+                )
+            # 同一行在两个窗口边界都出现
+            return _mock_response_from_dict(
+                {"observations": [
+                    {"date": "2021-01-01", "value": "1.0", "realtime_start": vdates[0]},
+                ]}
+            )
+
+        mock_client = MagicMock()
+        mock_client.get.side_effect = _dispatcher
+        conn, _ = _create_mock_connector({})
+        conn._client = mock_client
+
+        raw = list(
+            conn.fetch(
+                FetchRequest(
+                    dataset_id="fred:DGS10",
+                    params={"series_id": "DGS10"},
+                    start=datetime(2021, 1, 1),
+                    end=datetime(2021, 3, 1),
+                    cursor=None,
+                )
+            )
+        )[0]
+        assert len(raw.payload["observations"]) == 1
         conn.close()
 
 

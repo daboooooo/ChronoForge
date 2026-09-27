@@ -2,14 +2,22 @@
 
 通过 FRED REST API 获取宏观经济指标：
 - `/series/observations` — 系列观测值（NUMBER 类型）
-- `/release/dates` — 发布日历（用于 release_time）
-- 支持修订追踪（revision_supported=true）
+- `/release/dates` — 发布日历（备用，当前快照语义直接用观测 vintage）
 - 保守限流：120 req/min（FRED 官方限制）
+
+快照语义（revision_supported=0，2026-09-26 修订）：
+- observations 固定以 realtime_start=1776-07-04 请求全 vintage 历史；
+  默认 realtime 窗口（=采集日）会把每条观测的 realtime_start 钳制成
+  采集日，导致 revision_time 随跑批漂移、自然键永不撞键 → 全量复制
+- normalize 对同一 observation 日期仅保留 vintage（realtime_start）
+  最新的一行（= 当前值），revision_time 取该真实 vintage 日：
+  跨重跑稳定，重跑即 upsert；真实修订发生时才产生新版本行
+- FRED 真实修订稀少，历史旧版本由 number_asof 视图（rn=1）屏蔽
 
 时间语义（审计 F-09）：
 - observation `date` 日期型 → T00:00:00Z
-- release 日期无时刻 → T23:59:59Z（防 look-ahead）
-- vintage = realtime_date
+- vintage 日期无时刻 → T23:59:59Z（防 look-ahead）
+- vintage = realtime_date；无 vintage → 观察日次日
 - continuity_model: RELEASE_SCHEDULE
 
 """
@@ -47,6 +55,16 @@ from chronoforge.security import SecretStr
 # FRED 官方限流：120 req/min
 _DEFAULT_RATE = 120.0  # requests per minute
 _DEFAULT_BURST = 120
+
+# FRED realtime 窗口最早允许日（ALFRED vintage 下界）。固定下限请求
+# observations，使每条观测回传其真实 vintage（realtime_start），
+# 而非被钳制成采集日——快照语义下 revision_time 必须跨重跑稳定。
+_REALTIME_START_FLOOR = "1776-07-04"
+
+# FRED 限制：单个 realtime 窗口内 vintage 日期 ≤2000（超出 HTTP 400）；
+# /series/vintagedates 单页 ≤1000。长历史序列按前者切窗分页。
+_OBS_VINTAGE_WINDOW = 2000
+_VINTAGEDATES_PAGE_SIZE = 1000
 
 
 @dataclass(frozen=True)
@@ -116,8 +134,12 @@ class FREDConnector(DataConnector):
 
         start = time.monotonic()
         try:
-            # 简单检查：用已知 series_id 查询
-            self._fetch_observations("UNRATE", obs_start=None, obs_end=None)
+            # 简单检查：用已知 series_id 查询近 60 天（月频，响应轻量）。
+            # 不传 realtime 下限 → 默认窗口（=今天）的当前快照即可。
+            recent_start = (
+                datetime.now(UTC).date() - timedelta(days=60)
+            ).strftime("%Y-%m-%d")
+            self._fetch_observations("UNRATE", obs_start=recent_start)
             elapsed_ms = int((time.monotonic() - start) * 1000)
             return HealthStatus(ok=True, latency_ms=elapsed_ms)
         except Exception as exc:
@@ -150,46 +172,151 @@ class FREDConnector(DataConnector):
             request.end.strftime("%Y-%m-%d") if request.end else None
         )
 
-        yield self._fetch_observations(series_id, obs_start, obs_end)
+        yield self._fetch_observations(
+            series_id,
+            obs_start,
+            obs_end,
+            realtime_start=_REALTIME_START_FLOOR,
+        )
 
     def _fetch_observations(
         self,
         series_id: str,
         obs_start: str | None = None,
         obs_end: str | None = None,
+        realtime_start: str | None = None,
     ) -> RawBatch:
         """请求 FRED observations 端点（D04 §4.6）。
+
+        全 vintage 模式（realtime_start 非空）下，FRED observations 端点
+        限制单个 realtime 窗口内 vintage 日期数 ≤ _OBS_VINTAGE_WINDOW（否则
+        HTTP 400；该端点会把非 vintage 日的右端也计一个隐式 vintage，故右端
+        必须正好落在 vintage 日上）。先取系列 vintage 日期，按上限切窗：
+        每窗 [v[i], v[i+N-1]] 含恰 N 个 vintage 日，末窗口右端不封。逐页
+        拉取后合并为单个 RawBatch，合并按 (date, realtime_start) 去重，
+        交给 normalize 做快照折叠。
 
         Args:
             series_id: FRED 系列 ID（如 CPIAUCSL, UNRATE）。
             obs_start: 观测起始日期（YYYY-MM-DD）。
             obs_end: 观测结束日期（YYYY-MM-DD）。
+            realtime_start: vintage 窗口下界（YYYY-MM-DD）。生产路径固定
+                传 _REALTIME_START_FLOOR 以取回每条观测的真实 vintage；
+                None 时用 FRED 默认（=采集日，仅健康检查等轻量场景）。
 
         Returns:
-            RawBatch 原始响应。
+            RawBatch 合并后的原始响应。
         """
-        params: dict[str, Any] = {
-            "series_id": series_id,
-            "api_key": self._api_key,
-            "file_type": "json",
-        }
-        if obs_start:
-            params["observation_start"] = obs_start
-        if obs_end:
-            params["observation_end"] = obs_end
+        windows: list[tuple[str | None, str | None]]
+        if realtime_start:
+            vintage_dates = self._fetch_vintage_dates(
+                series_id, realtime_start
+            )
+            if len(vintage_dates) <= _OBS_VINTAGE_WINDOW:
+                windows = [(realtime_start, None)]
+            else:
+                windows = []
+                for i in range(0, len(vintage_dates), _OBS_VINTAGE_WINDOW):
+                    rt_start = vintage_dates[i]
+                    last_idx = min(
+                        i + _OBS_VINTAGE_WINDOW, len(vintage_dates)
+                    ) - 1
+                    # 右端取本窗最后一个 vintage 日（端点隐式 vintage 计数）
+                    rt_end = (
+                        vintage_dates[last_idx]
+                        if last_idx + 1 < len(vintage_dates)
+                        else None
+                    )
+                    windows.append((rt_start, rt_end))
+        else:
+            windows = [(None, None)]
 
+        merged_payload: dict[str, Any] | None = None
+        seen_rows: set[tuple[str, str]] = set()
+        merged_rows: list[dict[str, Any]] = []
+
+        for rt_start, rt_end in windows:
+            params: dict[str, Any] = {
+                "series_id": series_id,
+                "api_key": self._api_key,
+                "file_type": "json",
+            }
+            if obs_start:
+                params["observation_start"] = obs_start
+            if obs_end:
+                params["observation_end"] = obs_end
+            if rt_start:
+                # 全 vintage 历史：同 observation 日期可回多行（每次修订一行），
+                # normalize 折叠为当前值快照
+                params["realtime_start"] = rt_start
+            if rt_end:
+                params["realtime_end"] = rt_end
+
+            data = self._get_json("/series/observations", params, series_id)
+            if merged_payload is None:
+                merged_payload = data
+            for row in data.get("observations") or []:
+                key = (str(row.get("date", "")), str(row.get("realtime_start", "")))
+                if key not in seen_rows:
+                    seen_rows.add(key)
+                    merged_rows.append(row)
+
+        assert merged_payload is not None  # 至少一个窗口
+        merged_payload["observations"] = merged_rows
+        return RawBatch(
+            endpoint="/series/observations",
+            payload=merged_payload,
+            raw_meta={
+                "http_status": 200,
+                "series_id": series_id,
+                "realtime_windows": len(windows),
+            },
+        )
+
+    def _fetch_vintage_dates(
+        self, series_id: str, realtime_start: str
+    ) -> list[str]:
+        """分页取回系列在 realtime_start 之后的全部 vintage 日期（升序）。
+
+        /series/vintagedates 单页最多 1000 条，用 offset 翻页。
+        """
+        dates: list[str] = []
+        offset = 0
+        while True:
+            data = self._get_json(
+                "/series/vintagedates",
+                {
+                    "series_id": series_id,
+                    "api_key": self._api_key,
+                    "file_type": "json",
+                    "realtime_start": realtime_start,
+                    "limit": _VINTAGEDATES_PAGE_SIZE,
+                    "offset": offset,
+                },
+                series_id,
+            )
+            page = data.get("vintage_dates") or []
+            dates.extend(page)
+            total = int(data.get("count", len(dates)))
+            offset += _VINTAGEDATES_PAGE_SIZE
+            if not page or offset >= total:
+                break
+        return dates
+
+    def _get_json(
+        self, endpoint: str, params: dict[str, Any], series_id: str = ""
+    ) -> dict[str, Any]:
+        """执行单次 FRED GET：统一限流、错误映射，返回 JSON dict。"""
         self._rate_limiter.acquire(1)
 
         try:
-            response = self._client.get(
-                "/series/observations", params=params
-            )
+            response = self._client.get(endpoint, params=params)
         except httpx.TransportError as e:
             raise TransportError(
-                f"fred: observations request failed: {e}",
+                f"fred: {endpoint} request failed: {e}",
                 context={
                     "source": "fred",
-                    "endpoint": "/series/observations",
+                    "endpoint": endpoint,
                     "series_id": series_id,
                 },
             ) from e
@@ -199,44 +326,36 @@ class FREDConnector(DataConnector):
         # 错误映射（D04 §3）
         if status_code == 429:
             raise RateLimitError(
-                f"fred: rate limited on /series/observations/{series_id}",
+                f"fred: rate limited on {endpoint}/{series_id}",
                 context={
                     "source": "fred",
-                    "endpoint": "/series/observations",
+                    "endpoint": endpoint,
                     "series_id": series_id,
                 },
                 retry_after=1,
             )
         if status_code in (401, 403):
             raise ProviderError(
-                f"fred: auth failed for series {series_id}",
+                f"fred: auth failed on {endpoint} series {series_id}",
                 context={
                     "source": "fred",
-                    "endpoint": "/series/observations",
+                    "endpoint": endpoint,
                     "status": status_code,
                     "series_id": series_id,
                 },
             )
         if status_code >= 400:
             raise ProviderError(
-                f"fred: HTTP {status_code} on observations endpoint",
+                f"fred: HTTP {status_code} on {endpoint}",
                 context={
                     "source": "fred",
-                    "endpoint": "/series/observations",
+                    "endpoint": endpoint,
                     "status": status_code,
                     "series_id": series_id,
                 },
             )
 
-        data = response.json()
-        return RawBatch(
-            endpoint="/series/observations",
-            payload=data,
-            raw_meta={
-                "http_status": status_code,
-                "series_id": series_id,
-            },
-        )
+        return response.json()
 
     def _fetch_release_dates(self) -> list[dict[str, Any]]:
         """获取 FRED 发布日历（D04 §4.6）。
@@ -269,16 +388,22 @@ class FREDConnector(DataConnector):
     def normalize(self, raw: RawBatch) -> list[BaseRecord]:
         """将 FRED observations 响应转为 NUMBER 记录（D04 §4.6）。
 
+        快照语义（revision_supported=0）：全 vintage 窗口响应中同一
+        observation 日期可能有多行，仅归一化 realtime_start 最新的一行；
+        输出按 observation 日期升序。
+
         时间语义（审计 F-09）：
         - observation date → T00:00:00Z
-        - release 日期 → T23:59:59Z（保守，防 look-ahead）
-        - vintage = realtime_date
+        - vintage 日期 → T23:59:59Z（保守，防 look-ahead）
+        - vintage = realtime_date；无 vintage → 观察日次日
+        - 个别序列（如 IORB）ALFRED 预置的 realtime_start 可早于观测日，
+          此时 release/revision 钳制为 observation_time（vintage_date 保留真值）
 
         Args:
             raw: RawBatch from fetch().
 
         Returns:
-            list of NUMBER records.
+            list of NUMBER records（每 observation 日期恰一条）。
         """
         if raw.endpoint != "/series/observations":
             raise ValueError(f"fred: unknown endpoint: {raw.endpoint}")
@@ -296,13 +421,26 @@ class FREDConnector(DataConnector):
         units = payload.get("units", "")
         seasonal_adjustment = payload.get("seasonal_adjustment", "")
 
+        # 快照折叠（revision_supported=0）：全 vintage 窗口下同一 observation
+        # 日期会返回多行（每次修订一行），仅保留 realtime_start 最新的当前值。
+        # 空 realtime_start 视为最低优先；同日期同 vintage 保留先出现的行。
+        # 折叠后 revision_time=真实 vintage 日 → 跨重跑自然键稳定。
+        latest_by_date: dict[str, dict[str, Any]] = {}
+        for obs in observations:
+            date_key = str(obs.get("date", ""))
+            if not date_key:
+                continue
+            incumbent = latest_by_date.get(date_key)
+            if incumbent is None or str(obs.get("realtime_start", "")) > str(
+                incumbent.get("realtime_start", "")
+            ):
+                latest_by_date[date_key] = obs
+
         records: list[NUMBER] = []
         now = datetime.now(UTC).replace(tzinfo=None)
 
-        for obs in observations:
-            date_str = obs.get("date", "")
-            if not date_str:
-                continue
+        for date_str in sorted(latest_by_date):
+            obs = latest_by_date[date_str]
 
             value_str = obs.get("value", "")
             realtime_date = obs.get("realtime_start", "")
@@ -334,6 +472,10 @@ class FREDConnector(DataConnector):
             else:
                 # 无 realtime_date → 观察日次日
                 release_time = observation_time + timedelta(days=1)
+
+            # vintage 早于观测日（ALFRED 预置历史）→ 最早可用于观测时点
+            if release_time < observation_time:
+                release_time = observation_time
 
             revision_time = release_time
 
