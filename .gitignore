@@ -20,6 +20,7 @@ venv/
 # 运行时状态（D08 §1 四分类之 State，禁入 git）
 data/
 meta/
+var/
 tmp/
 *.duckdb
 *.db

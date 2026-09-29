@@ -57,6 +57,9 @@ TEXT = "#c9d4e3"
 # 分析参数
 MOM_WINDOW = 30  # 动量观察窗（交易日）
 
+# 显示参数
+SHOW_EFFR = False  # 是否在主图中叠加显示 EFFR
+
 
 # ── 数据读取 ─────────────────────────────────────────────────────────
 def load_btc(data_dir: Path, start: datetime | None) -> pd.Series:
@@ -136,10 +139,11 @@ def build_frame(start: datetime | None) -> pd.DataFrame:
         frame = frame.dropna()
         frame.index = pd.DatetimeIndex(frame.index).normalize()
 
-        # 可选：EFFR（若存在）
-        effr = load_effr(service, start)
-        if not effr.empty:
-            frame["effr"] = effr.reindex(frame.index).ffill()
+        # 可选：在主图中叠加显示 EFFR
+        if SHOW_EFFR:
+            effr = load_effr(service, start)
+            if not effr.empty:
+                frame["effr"] = effr.reindex(frame.index).ffill()
 
     return frame
 
@@ -213,24 +217,14 @@ def plot(frame: pd.DataFrame, stats: dict, corr: dict, output: Path) -> None:
     plt.rcParams["axes.unicode_minus"] = False
 
     has_effr = "effr" in frame.columns
-    if has_effr:
-        fig, (ax1, ax2, ax3) = plt.subplots(
-            3, 1, figsize=(14, 11), height_ratios=[3.2, 1.3, 1.3], sharex=True,
-            gridspec_kw={"hspace": 0.05},
-        )
-    else:
-        fig, (ax1, ax2) = plt.subplots(
-            2, 1, figsize=(14, 8), height_ratios=[3.2, 1.3], sharex=True,
-            gridspec_kw={"hspace": 0.05},
-        )
-        ax3 = None
+
+    fig, (ax1, ax2, ax3) = plt.subplots(
+        3, 1, figsize=(14, 11), height_ratios=[3.2, 1.3, 1.3], sharex=True,
+        gridspec_kw={"hspace": 0.05},
+    )
 
     fig.patch.set_facecolor(BG)
-    axes = [ax1]
-    if has_effr:
-        axes.extend([ax2, ax3])
-    else:
-        axes.append(ax2)
+    axes = [ax1, ax2, ax3]
 
     for a in axes:
         a.set_facecolor(BG)
@@ -296,14 +290,13 @@ def plot(frame: pd.DataFrame, stats: dict, corr: dict, output: Path) -> None:
     large_outflow = frame.index[frame["etf_flow"] < OUTFLOW_THRESHOLD]
 
     # 高亮所有子图（先设置背景再添加高亮）
-    if has_effr:
-        ax1.set_facecolor(BG)
-        ax2.set_facecolor(BG)
-        ax3.set_facecolor(BG)
-        for sp in ax2.spines.values():
-            sp.set_color(GRID)
-        ax2.tick_params(colors=TEXT, labelsize=10)
-        ax2.grid(color=GRID, lw=0.7, alpha=0.7)
+    ax1.set_facecolor(BG)
+    ax2.set_facecolor(BG)
+    ax3.set_facecolor(BG)
+    for sp in ax2.spines.values():
+        sp.set_color(GRID)
+    ax2.tick_params(colors=TEXT, labelsize=10)
+    ax2.grid(color=GRID, lw=0.7, alpha=0.7)
     highlight_extreme(ax1, large_inflow, large_outflow)
     highlight_extreme(ax2, large_inflow, large_outflow)
     highlight_extreme(ax3, large_inflow, large_outflow)
