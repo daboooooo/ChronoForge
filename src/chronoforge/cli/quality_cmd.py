@@ -12,6 +12,7 @@ import json
 
 import typer
 
+from chronoforge import ui
 from chronoforge.cli import _wiring
 from chronoforge.config.settings import Settings
 from chronoforge.connectors.errors import ChronoForgeError
@@ -35,19 +36,24 @@ def quality_report(
                 typer.echo(json.dumps(_wiring.to_jsonable(rows), ensure_ascii=False))
                 return
             if not rows:
-                typer.echo("(no findings)")
+                ui.print_hint("(no findings)")
                 return
             by_severity: dict[str, int] = {}
             for r in rows:
                 sev = str(r["severity"])
                 by_severity[sev] = by_severity.get(sev, 0) + 1
             summary = " ".join(f"{k}={v}" for k, v in sorted(by_severity.items()))
-            typer.echo(f"findings={len(rows)} {summary}")
+            ui.get_console().print(f"findings={len(rows)} {summary}")
+            table = ui.make_table("severity", "rule_id", "dataset", "record_key", "run")
             for r in rows:
-                typer.echo(
-                    f"{r['severity']:<8} {r['rule_id']} dataset={r['dataset_id']} "
-                    f"record_key={r['record_key']} run={r['run_id']}"
+                table.add_row(
+                    ui.severity_text(r["severity"]),
+                    str(r["rule_id"]),
+                    str(r["dataset_id"]),
+                    str(r["record_key"]),
+                    str(r["run_id"]),
                 )
+            ui.print_table(table)
     except ChronoForgeError as exc:
-        typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
+        ui.print_error(str(exc))
         raise typer.Exit(code=1) from exc

@@ -51,6 +51,7 @@ POLICY_STEP_BP = 25.0  # 一次标准议息动作 = 25bp
 MOVE_MIN_BP = 20.0  # |EFFR 日变动| >= 20bp 计为一次政策动作（过滤 ±1bp 噪声）
 MOM_WINDOW = 30  # 短期动量观察窗（交易日）
 LEAD_MAX_LAG = 60  # 领先-滞后相关最大滞后（交易日）
+LEAD_WINDOWS = (15, 30, 60, 90)  # 历次政策动作前 DGS2 提前走向的观察窗（交易日）
 
 BG = "#0b0e14"
 GRID = "#1f2733"
@@ -168,7 +169,12 @@ def best_lead_lag(frame: pd.DataFrame) -> tuple[int, float]:
 
 
 def historical_lead_check(moves: pd.DataFrame, frame: pd.DataFrame) -> pd.DataFrame:
-    """历次政策动作前 60 个交易日 DGS2 的提前变动，验证「白线先动」。"""
+    """历次政策动作前 N 个交易日 DGS2 的提前变动，验证「白线先动」。
+
+    对 LEAD_WINDOWS 中每个窗口（15/30/60/90 交易日），统计动作生效前一日
+    相对窗口起点的 DGS2 变动（bp）以及方向是否与政策动作同向，全部列
+    编入同一张表（lead{w}_bp / ok{w}）。样本起点不足时窗口自动钳制。
+    """
     rows = []
     dgs2 = frame["dgs2"]
     for _, m in moves.iterrows():
@@ -177,16 +183,20 @@ def historical_lead_check(moves: pd.DataFrame, frame: pd.DataFrame) -> pd.DataFr
         if pos < 1:
             continue
         now = dgs2.iloc[pos - 1]  # 动作生效前一日
-        prev = dgs2.iloc[max(0, pos - 61)]
-        lead_bp = round((now - prev) * BP, 0)
-        rows.append(
-            {
-                "date": d.strftime("%Y-%m-%d"),
-                "effr_bp": int(m["delta_bp"]),
-                "dgs2_lead60_bp": int(lead_bp),
-                "direction_ok": (m["delta_bp"] > 0) == (lead_bp > 0),
-            }
-        )
+        row: dict = {
+            "date": d.strftime("%Y-%m-%d"),
+            "effr_bp": int(m["delta_bp"]),
+        }
+        for w in LEAD_WINDOWS:
+            prev = dgs2.iloc[max(0, pos - w - 1)]
+            lead_bp = round((now - prev) * BP, 0)
+            row[f"lead{w}_bp"] = int(lead_bp)
+            # 持平（0bp）记为不可判定，不计入同向率
+            row[f"ok{w}"] = (
+                (m["delta_bp"] > 0) == (lead_bp > 0) if lead_bp != 0 else False
+            )
+            row[f"flat{w}"] = lead_bp == 0
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -323,6 +333,18 @@ def plot(frame: pd.DataFrame, moves: pd.DataFrame, probs: dict, output: Path) ->
 
 
 # ── 终端报告 ─────────────────────────────────────────────────────────
+def _lead_cell(lead_bp: int, aligned: bool, flat: bool) -> str:
+    """单窗口统计单元格：↗️涨 / ↘️跌 / ↔️持平，✅同向 / ❌背离 / ⚪不可判定。
+
+    固定 11 个终端显示列，配合 3 空格分隔形成 14 列等宽槽位。
+    """
+    if flat:
+        return "↔️   0bp ⚪"
+    trend = "↗️" if lead_bp > 0 else "↘️"
+    mark = "✅" if aligned else "❌"
+    return f"{trend}{lead_bp:>+4}bp {mark}"
+
+
 def report(frame: pd.DataFrame, lead: tuple[int, float],
            hist: pd.DataFrame, probs: dict, output: Path) -> None:
     last = frame.iloc[-1]
@@ -333,9 +355,11 @@ def report(frame: pd.DataFrame, lead: tuple[int, float],
           f"   利差 = {last['spread']:+.2f}%")
     btc_30d = (last["btc"] / frame["btc"].iloc[-1 - MOM_WINDOW] - 1)
     print(f"  BTC = ${last['btc']:,.0f}（近{MOM_WINDOW}个交易日 {btc_30d:+.1%}）")
+    signal_icon = ("↗️" if probs["signal_bp"] > 0
+                   else "↘️" if probs["signal_bp"] < 0 else "↔️")
     print(f"  近{MOM_WINDOW}个交易日 2Y 变动 = {probs['s_mom_bp']:+.0f}bp"
           f" | 上次动作后未兑现部分 = {probs['s_gap_bp']:+.0f}bp"
-          f" | 综合信号 = {probs['signal_bp']:+.0f}bp")
+          f" | 综合信号 {signal_icon} {probs['signal_bp']:+.0f}bp")
     # BTC 日收益率与 DGS2 日变动的相关性（理论上利率上行压制风险资产 → 负相关）
     chg = frame[["dgs2", "btc"]].pct_change().dropna()
     corr_30 = chg.iloc[-MOM_WINDOW:].corr().iloc[0, 1]
@@ -345,20 +369,47 @@ def report(frame: pd.DataFrame, lead: tuple[int, float],
     print(f"  BTC 日收益 vs DGS2 日变动相关：近窗 {corr_30:+.2f}"
           f" | 全样本 {corr_all:+.2f}")
 
-    print(f"\n{line}\n历史验证：政策动作前 60 个交易日 DGS2 的提前走向\n{line}")
+    win_label = "/".join(str(w) for w in LEAD_WINDOWS)
+    print(f"\n{line}\n历史验证：政策动作前 DGS2 的提前走向"
+          f"（{win_label} 个交易日）\n{line}")
     if not hist.empty:
+        # 统一表格：每个观察窗占 14 个显示列（单元格 11 列 + 3 列间距）
+        head_slots = "".join("    " + f"前{w}日" + "    " for w in LEAD_WINDOWS)
+        print("  日期" + " " * 9 + "政策动作" + " " * 8 + "│" + head_slots)
+        print("  " + "─" * 70)
         for _, r in hist.iterrows():
-            arrow = "加息" if r["effr_bp"] > 0 else "降息"
-            mark = "✓ 同向" if r["direction_ok"] else "✗ 背离"
-            print(f"  {r['date']}  EFFR {arrow} {abs(r['effr_bp']):>3}bp"
-                  f"  | 此前60日 DGS2 {r['dgs2_lead60_bp']:>+4}bp  {mark}")
-        hit = hist["direction_ok"].mean()
-        print(f"  同向率 {hit:.0%}（{int(hist['direction_ok'].sum())}/{len(hist)}）")
+            hike = r["effr_bp"] > 0
+            action = f"{' + 加息' if hike else ' - 降息'} {abs(r['effr_bp']):>3}bp"
+            cells = "   ".join(
+                _lead_cell(r[f"lead{w}_bp"], r[f"ok{w}"], r[f"flat{w}"])
+                for w in LEAD_WINDOWS
+            )
+            print(f"  {r['date']}   {action}   │ {cells}")
+        # 各窗口同向率（0bp 持平不可判定，剔除出分母）
+        rate_slots = []
+        for w in LEAD_WINDOWS:
+            valid = ~hist[f"flat{w}"]
+            if valid.any():
+                ok = int(hist.loc[valid, f"ok{w}"].sum())
+                n = int(valid.sum())
+                rate_slots.append(f"{ok / n:.0%}({ok}/{n})")
+            else:
+                rate_slots.append("—")
+        print("  同向率" + " " * 23 + "│ "
+              + "   ".join(f"{s:<11}" for s in rate_slots))
+        print("  图例：↗️ DGS2 上行  ↘️ 下行  ↔️ 持平  "
+              "✅ 与政策动作同向  ❌ 背离  ⚪ 不可判定")
 
     print(f"\n{line}\n下次议息会议概率（启发式，非利率期货隐含）\n{line}")
-    print(f"  按兵不动 : {probs['hold']:.1%}")
-    print(f"  加息     : {probs['hike']:.1%}")
-    print(f"  降息     : {probs['cut']:.1%}")
+    outcomes = [
+        (" ✋", "不变    ", "hold"),
+        (" + ", "加息    ", "hike"),
+        (" - ", "降息    ", "cut"),
+    ]
+    top_key = max(("hold", "hike", "cut"), key=lambda k: probs[k])
+    for icon, label, key in outcomes:
+        star = "⭐" if key == top_key else "  "
+        print(f"  {star} {icon} {label}: {probs[key]:.1%}")
     print(f"\n图表已保存：{output.resolve()}\n")
 
 

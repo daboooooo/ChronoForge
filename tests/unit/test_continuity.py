@@ -22,6 +22,7 @@ from chronoforge.quality.continuity import (
     ContinuityModel,
     _interval_delta,
     expected_grid,
+    parse_frequency_seconds,
 )
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -446,3 +447,54 @@ class TestGWTAcceptance:
             d = date(2026, 9, wd)
             if d <= date(2026, 9, 16):
                 assert d in gap_dates, f"Expected weekend {d} in EXPECTED_GAP"
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# parse_frequency_seconds — registry frequency 简写统一口径
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+class TestParseFrequencySeconds:
+    """dataset_registry.frequency → 秒（调度到期判定 / gap 规则共用）。"""
+
+    @pytest.mark.parametrize(
+        "freq,expected",
+        [
+            ("1m", 60),
+            ("5m", 300),
+            ("15m", 900),
+            ("30m", 1800),
+            ("1h", 3600),
+            ("2h", 7200),
+            ("4h", 14400),
+            ("1d", 86400),
+            ("1w", 604800),
+            # 长周期：固定日数近似
+            ("1M", 2592000),       # 30d
+            ("1Q", 7862400),       # 91d
+            ("1Y", 31536000),      # 365d
+            # pandas 风格 / 大小写别名
+            ("1H", 3600),
+            ("4H", 14400),
+            ("1D", 86400),
+            ("1W", 604800),
+            (" 1d ", 86400),       # 容忍首尾空白
+        ],
+    )
+    def test_known_frequencies(self, freq: str, expected: int):
+        assert parse_frequency_seconds(freq) == expected
+
+    def test_case_sensitive_minute_vs_month(self):
+        """1m=分钟（60s），1M=月（30d），大小写语义不同。"""
+        assert parse_frequency_seconds("1m") == 60
+        assert parse_frequency_seconds("1M") == 2592000
+
+    @pytest.mark.parametrize("freq", [None, "", "tick", "2h30m", "weird"])
+    def test_unknown_returns_none(self, freq: str | None):
+        """空值/事件型/未知写法 → None（调用方 fail-open，如每轮到期）。"""
+        assert parse_frequency_seconds(freq) is None
+
+    def test_interval_delta_rejects_unknown(self):
+        """严格语义辅助仍对未知频率抛 ValueError。"""
+        with pytest.raises(ValueError, match="Unsupported frequency"):
+            _interval_delta("tick")

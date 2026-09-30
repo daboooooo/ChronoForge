@@ -464,6 +464,7 @@ dependencies = [
     { name = "pyarrow" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "rich" },
     { name = "structlog" },
     { name = "typer" },
 ]
@@ -495,6 +496,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.3,<3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5" },
+    { name = "rich", specifier = ">=15,<16" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "structlog", specifier = ">=24.1" },
     { name = "typer", specifier = ">=0.12,<1" },

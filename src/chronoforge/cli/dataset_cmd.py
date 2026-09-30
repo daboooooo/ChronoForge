@@ -7,6 +7,7 @@ import sqlite3
 
 import typer
 
+from chronoforge import ui
 from chronoforge.cli import _wiring
 from chronoforge.config.settings import Settings
 from chronoforge.connectors.errors import ChronoForgeError
@@ -59,7 +60,7 @@ def dataset_add(
             continuity_model=continuity_model,
             revision_supported=revision_supported,
         )
-        typer.echo(f"dataset {dataset_id} registered (source={source})")
+        ui.get_console().print(f"dataset {dataset_id} registered (source={source})")
     except (ChronoForgeError, ValueError, sqlite3.Error) as exc:
-        typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
+        ui.print_error(str(exc))
         raise typer.Exit(code=1) from exc

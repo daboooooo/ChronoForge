@@ -13,6 +13,7 @@ from typing import Any
 
 import typer
 
+from chronoforge import ui
 from chronoforge.cli import _wiring
 from chronoforge.config.settings import Settings
 from chronoforge.connectors.errors import ChronoForgeError
@@ -95,13 +96,16 @@ def pipeline_run(
                     cursor = meta.get_checkpoint(
                         str(row["source_id"]) if row else "", job.dataset_id
                     )
-                    typer.echo(
-                        "job "
-                        f"dataset={job.dataset_id} mode={job.mode} "
-                        f"start={job.start.isoformat() if job.start else None} "
-                        f"end={job.end.isoformat() if job.end else None} "
-                        f"params={json.dumps(dict(job.params), sort_keys=True)} "
-                        f"cursor={cursor}"
+                    ui.kv_line(
+                        "job",
+                        [
+                            ("dataset", job.dataset_id),
+                            ("mode", job.mode),
+                            ("start", job.start.isoformat() if job.start else None),
+                            ("end", job.end.isoformat() if job.end else None),
+                            ("params", json.dumps(dict(job.params), sort_keys=True)),
+                            ("cursor", cursor),
+                        ],
                     )
                 return
 
@@ -152,25 +156,28 @@ def pipeline_run(
                         finally:
                             clear_context()
                         for result in results:
-                            typer.echo(
-                                f"run {result.run_id} dataset={result.dataset_id} "
-                                f"status={result.status} output={result.output_count} "
-                                f"errors={result.error_count}"
+                            ui.kv_line(
+                                f"run {result.run_id}",
+                                [
+                                    ("dataset", result.dataset_id),
+                                    ("status", result.status),
+                                    ("output", result.output_count),
+                                    ("errors", result.error_count),
+                                ],
+                                value_styles={"status": ui.status_text(result.status)},
                             )
                 except ChronoForgeError as exc:
-                    typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
+                    ui.print_error(str(exc))
                     failures.append(job.dataset_id)
 
             if failures:
-                typer.secho(
-                    f"error: {len(failures)}/{len(jobs)} dataset(s) failed: "
-                    f"{', '.join(failures)}",
-                    fg=typer.colors.RED,
-                    err=True,
+                ui.print_error(
+                    f"{len(failures)}/{len(jobs)} dataset(s) failed: "
+                    f"{', '.join(failures)}"
                 )
                 raise typer.Exit(code=1)
     except (ChronoForgeError, ValueError) as exc:
-        typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
+        ui.print_error(str(exc))
         raise typer.Exit(code=1) from exc
 
 
@@ -214,12 +221,17 @@ def pipeline_replay(
                 settings=settings,
                 params=params,
             )
-            typer.echo(
-                f"replay {result.run_id} dataset={result.dataset_id} "
-                f"status={result.status} output={result.output_count}"
+            ui.kv_line(
+                f"replay {result.run_id}",
+                [
+                    ("dataset", result.dataset_id),
+                    ("status", result.status),
+                    ("output", result.output_count),
+                ],
+                value_styles={"status": ui.status_text(result.status)},
             )
     except (ChronoForgeError, ValueError) as exc:
-        typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
+        ui.print_error(str(exc))
         raise typer.Exit(code=1) from exc
 
 
@@ -245,9 +257,17 @@ def pipeline_circuit_reset(
                 )
             source_id = str(row["source_id"])
             meta.reset_circuit(source_id, dataset)
-            typer.echo(f"circuit-reset dataset={dataset} source={source_id} status=RESET")
+            ui.kv_line(
+                "circuit-reset",
+                [
+                    ("dataset", dataset),
+                    ("source", source_id),
+                    ("status", "RESET"),
+                ],
+                value_styles={"status": ui.status_text("RESET")},
+            )
     except (ChronoForgeError, ValueError) as exc:
-        typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
+        ui.print_error(str(exc))
         raise typer.Exit(code=1) from exc
 
 
@@ -268,14 +288,21 @@ def pipeline_status(
                 typer.echo(json.dumps(_wiring.to_jsonable(rows), ensure_ascii=False))
                 return
             if not rows:
-                typer.echo("(no runs)")
+                ui.print_hint("(no runs)")
                 return
+            table = ui.make_table(
+                "run_id", "status", "started_at", "dataset", "output", "errors"
+            )
             for r in rows:
-                typer.echo(
-                    f"{r['run_id']} {r['status']:<16} {r['started_at']} "
-                    f"dataset={r['dataset_id']} output={r['output_count']} "
-                    f"errors={r['error_count']}"
+                table.add_row(
+                    str(r["run_id"]),
+                    ui.status_text(r["status"]),
+                    str(r["started_at"]),
+                    str(r["dataset_id"]),
+                    str(r["output_count"]),
+                    str(r["error_count"]),
                 )
+            ui.print_table(table)
     except ChronoForgeError as exc:
-        typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
+        ui.print_error(str(exc))
         raise typer.Exit(code=1) from exc

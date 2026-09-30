@@ -35,10 +35,15 @@ app = typer.Typer(
 
 @app.callback()
 def _main() -> None:
-    """全局入口：按 Settings.log_level 配置结构化日志（D08 §3）。"""
+    """全局入口：按 Settings 配置结构化日志（D08 §3，profile + 可选文件 sink）。"""
     from chronoforge.config.settings import Settings
 
-    setup_logging(Settings.load().log_level)
+    settings = Settings.load()
+    setup_logging(
+        settings.log_level,
+        profile=settings.log_format,
+        log_file=settings.log_file,
+    )
 
 
 app.add_typer(pipeline_app, name="pipeline")

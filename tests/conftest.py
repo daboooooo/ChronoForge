@@ -53,6 +53,22 @@ def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _test_logging_profile() -> None:
+    """统一测试日志（区别运行日志）：JSON 渲染、固定 WARNING、无文件 sink。
+
+    - setup_logging(profile="test") 会摘除并关闭任何运行态 stdlib handler
+      （防止个别用例配置的 rich/文件 sink 跨用例泄漏）；
+    - teardown 清空 contextvars，避免 run_id/dataset 绑定跨用例串扰。
+    需 INFO/特定 profile 的用例（如 test_logging）在体内自行重配置。
+    """
+    from chronoforge.logging import clear_context, setup_logging
+
+    setup_logging(profile="test")
+    yield
+    clear_context()
+
+
+@pytest.fixture(autouse=True)
 def _no_retry_backoff_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
     """R2-04：屏蔽 chunk 级重试（FetchStage → connectors.retry）的真实退避。
 

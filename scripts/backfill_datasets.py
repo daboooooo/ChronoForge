@@ -27,6 +27,9 @@ OHLCV/FLOW/NUMBER 等），逐个执行 pipeline backfill，并对执行结果�
     # 回填前重置熔断器（连续失败触发 dataset 熔断 CANCELLED 后恢复用）
     python scripts/backfill_datasets.py --reset-circuit
 
+    # 到期增量：仅更新到达更新周期的 dataset（hourly_update.sh 每轮轮询使用）
+    python scripts/backfill_datasets.py --due-only
+
     # 预览不执行
     python scripts/backfill_datasets.py --dry-run
 
@@ -35,6 +38,21 @@ OHLCV/FLOW/NUMBER 等），逐个执行 pipeline backfill，并对执行结果�
     已用 / 预估剩余）；pipeline JSON 日志默认 WARNING+ 走 stderr，
     --verbose 恢复 INFO 全量日志。Ctrl+C 中断安全（当前窗口记
     CANCELLED，已完成数据已落盘，重跑自动续传）。
+
+到期增量（--due-only）:
+    - 更新周期取 dataset_registry.frequency（1h/4h/1d/1W/1M/1Q/1Y 简写，
+      统一由 quality.continuity.parse_frequency_seconds 解析）；
+    - 更新时间取 checkpoints.last_success_time（仅 SUCCESS/PARTIAL 更新）；
+    - 数据源日内发布时刻取 config.update_schedule（FRED 北京 16:10、
+      Binance 北京 08:00、其余北京 00:00）：日频及以上 dataset 的下次
+      到期时刻对齐到该发布时刻，避免源未发布时抓取导致数据滞后一天；
+    - 小时级（1h/4h 等）按以 UTC 00:00 为原点的周期网格对齐（1h 每小时
+      整点、4h 每 4 小时：00/04/08/12/16/20 时），与整点调度同拍；
+    - 到期 = 从未成功（补历史）或 frequency 未知/tick（每轮到期，fail-open）
+      或 now ≥ 下次到期时刻；失败/熔断 dataset 因 last_success 不推进
+      而保持到期，熔断冷却期内仍由 runner 快速 CANCELLED，不打源。
+    - 报告同时列出【已更新】与【未更新（未到期，含下次到期时刻）】两段，
+      而非只提示哪些更新了。
 
 依赖:
     - 多数数据源连接器为公开接口；SoSoValue 需 .env 中配置
@@ -48,20 +66,23 @@ import json
 import sys
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from chronoforge.cli._wiring import build_connector, open_meta
 from chronoforge.config.settings import Settings
+from chronoforge.config.update_schedule import publish_time_utc
 from chronoforge.logging import setup_logging
 from chronoforge.pipeline.runner import PipelineRunner, RunContext
 from chronoforge.pipeline.windows import AcquisitionJob
+from chronoforge.quality.continuity import parse_frequency_seconds
 from chronoforge.registry.service import list_datasets
 
 DEFAULT_START = datetime(2021, 1, 1)
 DEFAULT_INTERVALS = ["1h", "4h", "1d"]
 
 _OK_STATUSES = ("SUCCESS", "PARTIAL_SUCCESS")
+_DAY_SECONDS = 86400
 
 
 def _default_end() -> datetime:
@@ -104,6 +125,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--reset-circuit", action="store_true",
         help="回填前重置每个 dataset 的熔断器（恢复 CANCELLED 状态）",
+    )
+    parser.add_argument(
+        "--due-only", action="store_true",
+        help=(
+            "到期增量：仅更新到达更新周期的 dataset（周期取 frequency，"
+            "更新时间取 checkpoints.last_success_time，日频及以上对齐源发布"
+            "时刻 config.update_schedule；从未成功/周期未知的 dataset 仍到期）"
+        ),
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="仅列出将回填的 dataset，不执行",
@@ -186,10 +215,120 @@ def load_backfill_datasets(meta: Any, args: argparse.Namespace) -> list[dict[str
                 "source_id": str(row["source_id"]),
                 "entity_id": str(row.get("entity_id") or ""),
                 "canonical_type": str(row.get("canonical_type") or ""),
+                "frequency": row.get("frequency"),
                 "params": params,
             }
         )
     return results
+
+
+def _parse_utc(value: str | None) -> datetime | None:
+    """解析 SQLite datetime('now') / ISO（含 Z）时间为 UTC naive；坏值 None。"""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(UTC).replace(tzinfo=None)
+    return dt
+
+
+def load_last_success_times(meta: Any) -> dict[str, str | None]:
+    """批量读取各 dataset 最近成功时间（checkpoints.last_success_time）。
+
+    一个 dataset_id 理论上可能因 lineage 断裂存在多行 checkpoint，
+    MAX 取最新值，与 STALE/到期判定语义一致。
+    """
+    rows = meta.connection.execute(
+        "SELECT dataset_id, MAX(last_success_time) "
+        "FROM checkpoints GROUP BY dataset_id"
+    ).fetchall()
+    return {str(r[0]): (r[1] if r[1] else None) for r in rows}
+
+
+def _next_due_at(last: datetime, cadence: int, source_id: str | None) -> datetime:
+    """计算下次到期时刻（UTC）。
+
+    - cadence < 1 天（1m/1h/4h 等）：对齐到以 UTC 00:00 为原点的周期网格，
+      取严格晚于 last 的下一个网格点——1h 每小时整点、4h 每 4 小时
+      （00/04/08/12/16/20 时）。若按"last + cadence"滚动，成功时刻会被
+      上一轮的秒级耗时带偏，与整点调度错位后变成隔轮才触发；
+    - cadence ≥ 1 天（1d/1W/1M/1Q/1Y）：对齐到数据源发布时刻
+      （config.update_schedule，日频/长周期一律按发布时刻的时:分）。
+      日频取"严格晚于 last 的下一个发布时刻"，故在发布时刻前抓取的轮次
+      当天仍会再抓一次，不会漏掉当日新数据；更长周期取 last 日期 + N 天
+      的发布时刻（N = 周期天数，30/91/365 为近似值）。
+    """
+    if cadence < _DAY_SECONDS:
+        # 网格原点 = epoch 0 = UTC 00:00（本函数内 last 为 UTC naive）
+        secs_of_day = last.hour * 3600 + last.minute * 60 + last.second
+        base = (secs_of_day // cadence + 1) * cadence
+        day_start = last.replace(hour=0, minute=0, second=0, microsecond=0)
+        return day_start + timedelta(seconds=base)
+    pub = publish_time_utc(source_id)
+    days = cadence // _DAY_SECONDS
+    if days <= 1:
+        candidate = datetime.combine(last.date(), pub)
+        if candidate <= last:
+            candidate = datetime.combine(last.date() + timedelta(days=1), pub)
+        return candidate
+    return datetime.combine(last.date() + timedelta(days=days), pub)
+
+
+def select_due_datasets(
+    datasets: list[dict[str, Any]],
+    last_success: dict[str, str | None],
+    *,
+    now: datetime | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """按更新周期（+ 数据源发布时刻）与最近成功时间划分到期/未到期 dataset。
+
+    到期条件（fail-open：宁多勿漏，避免 dataset 被长期饿死）：
+      - 从未成功（无 last_success_time 或不可解析）→ 到期（补历史）；
+      - frequency 无法解析（空值/未知/tick 事件型）→ 每轮到期；
+      - now ≥ 下次到期时刻（见 _next_due_at，日频及以上对齐源发布时刻）。
+    失败/熔断 dataset 的 last_success_time 不推进，故天然保持到期；
+    熔断冷却期内由 runner 快速 CANCELLED，不打源。
+
+    Returns:
+        (due, skipped)；skipped 元素含 dataset_id / frequency / next_due_at。
+    """
+    now = now or datetime.now(UTC).replace(tzinfo=None)
+    due: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for ds in datasets:
+        cadence = parse_frequency_seconds(ds.get("frequency"))
+        last = _parse_utc(last_success.get(ds["dataset_id"]))
+        if cadence is None or last is None:
+            due.append(ds)
+            continue
+        next_due = _next_due_at(last, cadence, ds.get("source_id"))
+        if now >= next_due:
+            due.append(ds)
+        else:
+            skipped.append(
+                {
+                    "dataset_id": ds["dataset_id"],
+                    "frequency": ds.get("frequency"),
+                    "next_due_at": next_due,
+                }
+            )
+    return due, skipped
+
+
+def print_skipped(skipped: list[dict[str, Any]]) -> None:
+    """输出未更新（未到期跳过）明细，与已更新列表对照。"""
+    if not skipped:
+        return
+    ordered = sorted(skipped, key=lambda s: (s["next_due_at"], s["dataset_id"]))
+    print(f"\n未更新（未到期）{len(ordered)} 个:")
+    for s in ordered:
+        print(
+            f"  [未更新] {s['dataset_id']} ({s['frequency']})"
+            f" 下次到期 {s['next_due_at'].strftime('%Y-%m-%d %H:%M:%S')}"
+        )
 
 
 def classify_results(results: list[Any]) -> str:
@@ -291,8 +430,17 @@ def backfill_one(
     return record
 
 
-def print_report(records: list[dict[str, Any]], args: argparse.Namespace) -> int:
-    """输出分组统计报告，返回退出码。"""
+def print_report(
+    records: list[dict[str, Any]],
+    args: argparse.Namespace,
+    skipped: list[dict[str, Any]] | None = None,
+) -> int:
+    """输出分组统计报告（已更新 + 未更新两段），返回退出码。
+
+    skipped 为本轮未更新的 dataset（--due-only 下未到期者），在报告中
+    同样逐条列出，避免只提示"哪些更新了"。
+    """
+    skipped = skipped or []
     print(f"\n{'=' * 70}\n回填报告\n{'=' * 70}")
 
     by_source: dict[str, list[dict[str, Any]]] = {}
@@ -304,6 +452,8 @@ def print_report(records: list[dict[str, Any]], args: argparse.Namespace) -> int
     total_elapsed = 0.0
     failed_records: list[dict[str, Any]] = []
 
+    if records:
+        print("── 已更新 ──")
     for source_id in sorted(by_source):
         group = by_source[source_id]
         print(f"\n[{source_id}] {len(group)} 个 dataset")
@@ -316,7 +466,7 @@ def print_report(records: list[dict[str, Any]], args: argparse.Namespace) -> int
             total_elapsed += r["elapsed"]
             mark = "" if r["status"] in _OK_STATUSES or r["status"] == "COVERED" else "  <--"
             print(
-                f"  {r['status']:<9} {r['dataset_id']:<34}"
+                f"  [已更新] {r['status']:<9} {r['dataset_id']:<34}"
                 f" 窗口 {r['windows_ok']}/{r['windows_total']}"
                 f" 输出 {r['output_count']:<4} 错误 {r['error_count']:<3}"
                 f" {r['elapsed']:>7.1f}s{mark}"
@@ -331,9 +481,10 @@ def print_report(records: list[dict[str, Any]], args: argparse.Namespace) -> int
 
     print(f"\n{'-' * 70}")
     print("汇总:")
-    print(f"  dataset: {len(records)} 个 | " + " | ".join(
+    print(f"  dataset: 已更新 {len(records)} 个 | " + " | ".join(
         f"{k} {v}" for k, v in sorted(status_counter.items())
     ))
+    print(f"          未更新（未到期）{len(skipped)} 个")
     print(
         f"  窗口: {windows_ok}/{total_windows} 成功"
         f" | 输出 chunk {total_output} | 错误 {total_errors}"
@@ -348,6 +499,7 @@ def print_report(records: list[dict[str, Any]], args: argparse.Namespace) -> int
                 else ""
             )
             print(f"  {r['dataset_id']}: {r['status']} {hint}{r['detail']}")
+    print_skipped(skipped)
     return 1 if failed_records else 0
 
 
@@ -365,12 +517,21 @@ def run_backfill(args: argparse.Namespace) -> int:
     settings = Settings.load()
     meta = open_meta(settings)
     datasets: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
     try:
         datasets = load_backfill_datasets(meta, args)
+        if args.due_only:
+            success_map = load_last_success_times(meta)
+            datasets, skipped = select_due_datasets(datasets, success_map)
     finally:
         meta.close()
 
-    print(f"匹配到 {len(datasets)} 个已注册 dataset")
+    matched = len(datasets) + len(skipped)
+    due_summary = (
+        f" | 到期更新 {len(datasets)} | 未到期跳过 {len(skipped)}"
+        if args.due_only else ""
+    )
+    print(f"匹配到 {matched} 个已注册 dataset{due_summary}")
     print(f"数据源: {sorted({d['source_id'] for d in datasets}) or '-'}")
     print(
         f"类型: {sorted({d['canonical_type'] for d in datasets}) or '-'}"
@@ -381,10 +542,15 @@ def run_backfill(args: argparse.Namespace) -> int:
     if args.dry_run:
         for ds in datasets:
             print(f"  [DRY RUN] 将回填: {ds['dataset_id']} ({ds['canonical_type']})")
+        print_skipped(skipped)
         return 0
-    if not datasets:
+    if matched == 0:
         print("错误: 没有匹配的 dataset，请先用注册脚本注册", file=sys.stderr)
         return 1
+    if not datasets:
+        print(f"本轮无到期 dataset（{len(skipped)} 个未到期跳过）")
+        print_skipped(skipped)
+        return 0
 
     meta = open_meta(settings, repair=True)
     records: list[dict[str, Any]] = []
@@ -438,7 +604,7 @@ def run_backfill(args: argparse.Namespace) -> int:
     finally:
         meta.close()
 
-    return print_report(records, args)
+    return print_report(records, args, skipped)
 
 
 def main() -> None:

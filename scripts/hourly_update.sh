@@ -8,6 +8,19 @@
 #     窗口），单轮内存 O(窗口)，与停机天数无关；可用 WINDOW_SECONDS 覆盖。
 #   - backfill 基于 checkpoint 续传：已覆盖窗口直接 COVERED 跳过，每小时执行
 #     默认起点即等价增量更新，同时自动回补缺口，无需指定 --start。
+#   - 启动即轮询、此后每整点轮询，每轮只更新"该更新"的 dataset：轮询时按
+#     时间结构（frequency）+ 最后更新时刻判断是否到期，到期才尝试更新
+#     （--due-only）——
+#       · 1h：每小时整点更新（以 UTC 00:00 为原点的整点网格）；
+#       · 4h：以 UTC 00:00 为原点，00/04/08/12/16/20 时更新；
+#       · 1d 及以上：按数据源发布时刻更新（config/update_schedule.py：
+#         FRED 北京 16:10、Binance 北京 08:00、其余北京 00:00），避免源
+#         未发布时抓取导致数据滞后一天。
+#     周期取 registry frequency，最后更新取 checkpoints.last_success_time；
+#     从未成功（新注册/待补历史）或周期未知（含 tick）视为到期每轮更新，
+#     失败/熔断 dataset 因 last_success 不推进而保持到期，冷却期内仍快速
+#     CANCELLED 不打源。
+#     手动 run 子命令为全量更新（人工显式调用，含补缺口/抓修订）。
 #   - 熔断冷却期内 run 快速 CANCELLED 不打源、冷却后自动半开探测，故此处
 #     刻意不带 --reset-circuit（否则定时清熔断等于失去保护）。
 #   - 每轮 backfill 成功（rc=0）后，自动执行 scripts/plot_*.py 更新分析图；
@@ -16,17 +29,24 @@
 #
 # 用法:
 #   ./scripts/hourly_update.sh [loop] [透传给 backfill_datasets.py 的额外参数]
-#       前台常驻（默认）：立即执行一轮（更新+图表），随后倒计时到下一调度
-#       整点再执行，循环往复；Ctrl+C 退出。额外参数透传，如 --dry-run
+#       前台常驻（默认）：启动立即轮询一次，之后每整点轮询；每轮仅更新
+#       到期（该更新）的 dataset，成功后更新分析图，循环往复；Ctrl+C 退出。
+#       额外参数透传，如 --dry-run
 #   ./scripts/hourly_update.sh run [透传给 backfill_datasets.py 的额外参数]
-#       只执行一轮（更新+图表）后退出，额外参数透传，如 --dry-run
+#       只执行一轮【全量】（更新+图表）后退出，额外参数透传，如 --dry-run
 #
 # 环境变量:
 #   INTERVAL_SECONDS  循环调度周期（默认 3600，按整小时对齐触发）
 #   WINDOW_SECONDS    backfill 窗口（默认 21600 = 6h）
 #   UV_BIN            uv 路径（默认 ~/.local/bin/uv）
 #
-# 日志: var/log/hourly_update.log（自动创建目录；倒计时仅显示在终端不入日志）
+# 日志:
+#   - shell 自身的轮次/调度事件 → var/log/hourly_update.log
+#   - Python pipeline 日志走 chronoforge 统一方案（CHRONOFORGE_LOG_FILE）：
+#     终端直连 TTY → rich 彩色渲染；同时全量 DEBUG 写 JSONL 轮转文件
+#     var/log/chronoforge.jsonl（10MB×5）。不再经 tee 落盘，避免日志文件
+#     混入 ANSI 控制符、管道下终端退化为 JSON。
+#   - 倒计时仅显示在终端，不写入任何日志。
 
 set -euo pipefail
 
@@ -34,6 +54,8 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_DIR="$PROJECT_DIR/var/log"
 RUN_DIR="$PROJECT_DIR/var/run"
 LOG_FILE="$LOG_DIR/hourly_update.log"
+# chronoforge 结构化日志 JSONL 文件 sink（RotatingFileHandler，10MB×5）
+export CHRONOFORGE_LOG_FILE="$LOG_DIR/chronoforge.jsonl"
 LOCK_DIR="$RUN_DIR/hourly-update.lock"
 # READY-006：1h 调度 → 窗口取调度周期 ×6（21600s = 6h）
 WINDOW_SECONDS="${WINDOW_SECONDS:-21600}"
@@ -93,9 +115,11 @@ do_round() {
     log "=== hourly update 开始 (window=${WINDOW_SECONDS}s, args: $*) ==="
     local rc=0
     set +e
+    # stderr/stdout 直连终端（TTY → rich 彩色）；结构化日志由 Python 侧
+    # 自行写 CHRONOFORGE_LOG_FILE（JSONL），不再 tee。
     "$UV_BIN" run python "$PROJECT_DIR/scripts/backfill_datasets.py" \
-        --window-seconds "$WINDOW_SECONDS" "$@" 2>&1 | tee -a "$LOG_FILE"
-    rc=${PIPESTATUS[0]}
+        --window-seconds "$WINDOW_SECONDS" "$@"
+    rc=$?
     set -e
     log "=== hourly update 结束 (rc=$rc) ==="
     if [ "$rc" -ne 0 ]; then
@@ -123,8 +147,8 @@ run_plots() {
     for plot in "${plots[@]}"; do
         log "--- 更新图表: $(basename "$plot") ---"
         set +e
-        "$UV_BIN" run python "$plot" 2>&1 | tee -a "$LOG_FILE"
-        prc=${PIPESTATUS[0]}
+        "$UV_BIN" run python "$plot"
+        prc=$?
         set -e
         if [ "$prc" -ne 0 ]; then
             log "警告: 图表脚本 $(basename "$plot") 失败 (rc=$prc)"
@@ -186,8 +210,10 @@ do_loop() {
     log "hourly update 前台调度启动 (interval=${INTERVAL_SECONDS}s, window=${WINDOW_SECONDS}s)"
     while :; do
         round=$((round + 1))
-        log "────── 第 ${round} 轮 ──────"
-        do_round "$@" || true
+        # 每轮均为到期轮询：启动立即轮询一次，之后每整点轮询；由 Python 侧
+        # 按 frequency + last_success_time 判断到期，只更新该更新的 dataset
+        log "────── 第 ${round} 轮（到期轮询 --due-only）──────"
+        do_round --due-only "$@" || true
         target=$(next_run_at)
         log "第 ${round} 轮完成，下一次运行: $(date -r "$target" '+%Y-%m-%d %H:%M:%S')"
         countdown_to "$target"

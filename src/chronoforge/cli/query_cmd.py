@@ -11,6 +11,7 @@ import sys
 
 import typer
 
+from chronoforge import ui
 from chronoforge.cli import _wiring
 from chronoforge.config.settings import Settings
 from chronoforge.connectors.errors import ChronoForgeError
@@ -67,11 +68,9 @@ def query(
 
             if result.truncated:
                 # READY-003：截断提示走 stderr，不污染 stdout 的 JSON/CSV 数据流
-                typer.secho(
-                    f"warning: result truncated at {result.row_count} rows "
-                    "(row limit reached); narrow the time range or raise --limit",
-                    fg=typer.colors.YELLOW,
-                    err=True,
+                ui.print_warning(
+                    f"result truncated at {result.row_count} rows "
+                    "(row limit reached); narrow the time range or raise --limit"
                 )
             if as_json:
                 # D07 §4：QueryResult 元信息 + 行数据（AI Agent 消费）
@@ -88,14 +87,19 @@ def query(
             elif as_csv:
                 result.frame.write_csv(sys.stdout)
             else:
-                typer.echo(
-                    f"dataset={result.dataset_id} version={result.dataset_version} "
-                    f"rows={result.row_count} elapsed_ms={result.elapsed_ms}"
+                ui.kv_line(
+                    None,
+                    [
+                        ("dataset", result.dataset_id),
+                        ("version", result.dataset_version),
+                        ("rows", result.row_count),
+                        ("elapsed_ms", result.elapsed_ms),
+                    ],
                 )
                 if result.row_count == 0:
-                    typer.echo("(empty result)")
+                    ui.print_hint("(empty result)")
                 else:
-                    typer.echo(result.frame.head(20).to_pandas().to_string(index=False))
+                    ui.print_table(ui.dataframe_table(result.frame, max_rows=20))
     except (ChronoForgeError, ValueError) as exc:
-        typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
+        ui.print_error(str(exc))
         raise typer.Exit(code=1) from exc

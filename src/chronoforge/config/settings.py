@@ -54,6 +54,14 @@ class Settings(BaseModel):
         default="INFO",
         description="日志级别",
     )
+    log_format: str = Field(
+        default="auto",
+        description="日志渲染 profile（auto/rich/json/test；auto=TTY rich、管道 json）",
+    )
+    log_file: Path | None = Field(
+        default=None,
+        description="JSONL 轮转日志文件路径（None=不落盘，仅终端输出）",
+    )
     http_timeout_s: float = Field(
         default=30.0,
         description="HTTP 超时（秒）",
@@ -152,6 +160,14 @@ class Settings(BaseModel):
         else:
             values = _read_env_fields(cls)
         return values
+
+    @field_validator("log_file", mode="before")
+    @classmethod
+    def _parse_log_file(cls, v: Any) -> Any:
+        """空串/空白 → None（env 未设置或显式置空时不落盘）。"""
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
     @field_validator("fred_api_key", mode="before")
     @classmethod
@@ -339,6 +355,8 @@ def _read_env_fields(cls_model: type[BaseModel]) -> dict[str, Any]:
         "data_dir": "CHRONOFORGE_DATA_DIR",
         "meta_dir": "CHRONOFORGE_META_DIR",
         "log_level": "CHRONOFORGE_LOG_LEVEL",
+        "log_format": "CHRONOFORGE_LOG_FORMAT",
+        "log_file": "CHRONOFORGE_LOG_FILE",
         "fred_api_key": "FRED_API_KEY",
         "sec_contact_email": "CHRONOFORGE_SEC_CONTACT",
         "http_timeout_s": "CHRONOFORGE_HTTP_TIMEOUT",

@@ -36,7 +36,7 @@ from chronoforge.models.market import (
 from chronoforge.models.positioning import POSITION
 from chronoforge.models.prediction import PREDICTION_PRICE
 
-from .continuity import expected_grid
+from .continuity import expected_grid, parse_frequency_seconds
 from .report import GapContext, QualityFinding, QualityReport
 
 # ── QualityRule ABC ────────────────────────────────────────────────────
@@ -1275,13 +1275,8 @@ def _to_datetime(v: object) -> datetime:
 
 
 def _parse_freq_seconds(freq: str) -> int | None:
-    """将频率字符串解析为秒数。"""
-    _FREQ_MAP: dict[str, int] = {
-        "1m": 60, "5m": 300, "15m": 900, "30m": 1800,
-        "1h": 3600, "2h": 7200, "4h": 14400,
-        "1d": 86400, "1w": 604800,
-    }
-    return _FREQ_MAP.get(freq)
+    """将频率字符串解析为秒数（统一委托 continuity.parse_frequency_seconds）。"""
+    return parse_frequency_seconds(freq)
 
 
 # ── 注册所有规则 ──────────────────────────────────────────────────────

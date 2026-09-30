@@ -19,13 +19,18 @@ from typing import Literal
 from .calendar import is_trading_day
 
 # ── 频率秒数映射 ─────────────────────────────────────────────────────
-# 同时支持简写（D06 约定）和 pandas 风格别名
+# 同时支持简写（D06 约定）和 pandas 风格别名。
+# 1M/1Q/1Y 为调度/STALE 用途的固定日数近似（30/91/365 天），非历法精确；
+# 注意大小写：1m=分钟，1M=月。
 
 _FREQ_SECONDS: dict[str, int] = {
     # 简写（D06 约定）
     "1m": 60, "5m": 300, "15m": 900, "30m": 1800,
     "1h": 3600, "2h": 7200, "4h": 14400,
     "1d": 86400, "1w": 604800,
+    "1M": 2592000,       # 30 天（月，固定近似）
+    "1Q": 7862400,       # 91 天（季，固定近似）
+    "1Y": 31536000,      # 365 天（年，固定近似）
     # pandas 风格别名
     "1min": 60, "5min": 300, "15min": 900, "30min": 1800,
     "1H": 3600, "2H": 7200, "4H": 14400,
@@ -34,9 +39,21 @@ _FREQ_SECONDS: dict[str, int] = {
 }
 
 
+def parse_frequency_seconds(freq: str | None) -> int | None:
+    """将 dataset_registry.frequency 简写解析为秒数（全项目唯一口径）。
+
+    未知/空值（含 "tick" 等事件型频率）返回 None，调用方按 fail-open
+    处理（如调度到期判定视为每轮到期）；需要严格语义的内部调用方使用
+    _interval_delta（未知值抛 ValueError）。
+    """
+    if freq is None:
+        return None
+    return _FREQ_SECONDS.get(str(freq).strip())
+
+
 def _interval_delta(freq: str) -> timedelta:
     """将频率字符串转为 timedelta。"""
-    seconds = _FREQ_SECONDS.get(freq)
+    seconds = parse_frequency_seconds(freq)
     if seconds is None:
         raise ValueError(f"Unsupported frequency: {freq}")
     return timedelta(seconds=seconds)

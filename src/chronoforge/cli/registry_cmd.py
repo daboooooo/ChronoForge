@@ -7,6 +7,7 @@ import json
 
 import typer
 
+from chronoforge import ui
 from chronoforge.cli import _wiring
 from chronoforge.config.settings import Settings
 from chronoforge.connectors.errors import ChronoForgeError
@@ -24,9 +25,9 @@ def registry_sync() -> None:
             meta = _wiring.open_meta(settings)
             stack.callback(meta.close)  # 审计 SR-11：资源统一管理
             count = bootstrap_defaults(meta)
-            typer.echo(f"source_registry bootstrapped: {count} sources")
+            ui.get_console().print(f"source_registry bootstrapped: {count} sources")
     except ChronoForgeError as exc:
-        typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
+        ui.print_error(str(exc))
         raise typer.Exit(code=1) from exc
 
 
@@ -45,15 +46,23 @@ def registry_list_sources(
                 typer.echo(json.dumps(_wiring.to_jsonable(rows), ensure_ascii=False))
                 return
             if not rows:
-                typer.echo("(no sources; run `chronoforge registry sync` first)")
-                return
-            for r in rows:
-                typer.echo(
-                    f"{r['source_id']:<16} {r['access_type']:<16} "
-                    f"enabled={r['enabled']} base_url={r['base_url']}"
+                ui.print_hint(
+                    "(no sources; run `chronoforge registry sync` first)"
                 )
+                return
+            table = ui.make_table(
+                "source_id", "access_type", "enabled", "base_url", title="sources"
+            )
+            for r in rows:
+                table.add_row(
+                    str(r["source_id"]),
+                    str(r["access_type"]),
+                    ui.bool_text(r["enabled"]),
+                    str(r["base_url"]),
+                )
+            ui.print_table(table)
     except ChronoForgeError as exc:
-        typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
+        ui.print_error(str(exc))
         raise typer.Exit(code=1) from exc
 
 
@@ -67,20 +76,26 @@ def registry_list_datasets(
         with contextlib.ExitStack() as stack:
             settings = Settings.load()
             meta = _wiring.open_meta(settings)
-            stack.callback(meta.close)  # 审计 SR-11：资源统一管理
+            stack.callback(meta.close)
             rows = list_datasets(meta, source_id=source)
             if as_json:
                 typer.echo(json.dumps(_wiring.to_jsonable(rows), ensure_ascii=False))
                 return
             if not rows:
-                typer.echo("(no datasets)")
+                ui.print_hint("(no datasets)")
                 return
+            table = ui.make_table(
+                "dataset_id", "type", "source", "status", "revision", title="datasets"
+            )
             for r in rows:
-                typer.echo(
-                    f"{r['dataset_id']:<32} type={r['canonical_type']} "
-                    f"source={r['source_id']} status={r['status']} "
-                    f"revision={r['revision_supported']}"
+                table.add_row(
+                    str(r["dataset_id"]),
+                    str(r["canonical_type"]),
+                    str(r["source_id"]),
+                    ui.status_text(r["status"]),
+                    ui.bool_text(r["revision_supported"]),
                 )
+            ui.print_table(table)
     except ChronoForgeError as exc:
-        typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
+        ui.print_error(str(exc))
         raise typer.Exit(code=1) from exc

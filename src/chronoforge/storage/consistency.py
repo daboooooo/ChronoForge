@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import shutil
 import sqlite3
 import time
@@ -18,13 +17,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from chronoforge.exceptions import StorageError
+from chronoforge.logging import get_logger
 
 if TYPE_CHECKING:
     from chronoforge.storage.base import CanonicalStore
     from chronoforge.storage.meta import MetaStore
     from chronoforge.storage.raw import RawStore
 
-logger = logging.getLogger(__name__)
+# D01 §4：统一经 structlog 入口（旧代码误用 stdlib logger + % 位置参数，
+# 桥接 RichHandler 后会触发 LogRecord 格式化错误）。
+logger = get_logger()
 
 
 # ── cleanup_orphans（D03 §5.5）─────────────────────────────────────
@@ -278,9 +280,8 @@ def startup_repair(
     if released:
         logger.info(
             "storage.release_stale_locks",
-            "released=%d run_ids=%s",
-            len(released),
-            released,
+            released=len(released),
+            run_ids=released,
         )
 
     # 1. 清理孤儿（R2-03①：年龄护栏，在途 run 的临时目录不删）
@@ -288,9 +289,8 @@ def startup_repair(
     if orphans:
         logger.info(
             "storage.cleanup_orphans",
-            "cleaned=%d paths=%s",
-            len(orphans),
-            orphans,
+            cleaned=len(orphans),
+            paths=orphans,
         )
 
     # 2. 对账补记（R2-03②：租约护栏，活跃 run 不补记）
@@ -304,6 +304,5 @@ def startup_repair(
     if reconciled:
         logger.info(
             "storage.reconcile",
-            "reconciled=%d",
-            len(reconciled),
+            reconciled=len(reconciled),
         )
