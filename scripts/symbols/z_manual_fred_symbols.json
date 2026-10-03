@@ -200,5 +200,12 @@
         "unit": "Index 1982-84=100",
         "desc": "核心CPI(季调, 剔除食品能源)", "role": "核心通胀趋势指标",
         "comment": "剔除波动大的食品和能源，更能反映通胀趋势。美联储更关注PCE核心，但核心CPI也是重要参考"
+    },
+
+    "VIXCLS": {
+        "id": "VIXCLS", "freq": "daily", "data_type": "index",
+        "unit": "Index 1990-01=100",
+        "desc": "VIX指数(1月波动率预期)", "role": "市场波动率预期",
+        "comment": "VIX指数是1月波动率的预期，用于衡量市场风险"
     }
 }

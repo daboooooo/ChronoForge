@@ -7,20 +7,20 @@
 ticker 为 ccxt unified symbol），可衔接后续批量注册流程。
 
 用法:
-    # 抓取 binance + okx 现货累计成交量头部 80% 的交易对
-    python scripts/fetch_top_symbols_from_ccxt_exchange.py --exchange binance okx
+    # 默认抓取 binance + okx 现货 + 合约（futures）累计成交量头部 80% 的交易对
+    python scripts/fetch_top_symbols_from_ccxt_exchange.py
 
-    # 同时抓取合约（futures）
+    # 同时抓取现货和合约（futures）
     python scripts/fetch_top_symbols_from_ccxt_exchange.py \
         --exchange binance --market-types spot futures
 
     # 只保留 USDT 计价，最多 100 个
     python scripts/fetch_top_symbols_from_ccxt_exchange.py \
-        --exchange okx --quote USDT --max-pairs 100
+        --quote USDT --max-pairs 100
 
     # 网络受限环境
     python scripts/fetch_top_symbols_from_ccxt_exchange.py \
-        --exchange okx --proxy http://127.0.0.1:7897
+        --proxy http://127.0.0.1:7897
 
 依赖:
     - 交易所公开接口，无需 API Key
@@ -151,11 +151,11 @@ def build_entries(
     market_type: str,
     top_percentile: float,
     max_pairs: int,
-) -> tuple[dict[str, dict[str, Any]], int]:
+) -> tuple[dict[str, dict[str, Any]], int, list[str]]:
     """帕累托筛选并构建清单条目。
 
     Returns:
-        (entries, filtered_total)：entries 为 {紧凑符号: 条目}，filtered_total
+        (entries, filtered_total, usd_symbols)：entries 为 {紧凑符号: 条目}，filtered_total
         为筛选前有效成交量交易对总数（用于统计输出）。
     """
     filtered_total = len(volume_map)
@@ -166,10 +166,15 @@ def build_entries(
     grand_total = sum(volume_map.values())
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     entries: dict[str, dict[str, Any]] = {}
+    usd_symbols: list[str] = []
     cumulative = 0.0
     for rank, (symbol, vol) in enumerate(selected, 1):
         cumulative += vol
         pct = cumulative / grand_total * 100 if grand_total > 0 else 0.0
+        base = symbol.split("/", 1)[0]
+        if "USD" in base:
+            usd_symbols.append(symbol)
+            continue
         compact = symbol.replace("/", "").upper()
         quote_ccy = symbol.split("/", 1)[1] if "/" in symbol else ""
         entries[compact] = {
@@ -186,7 +191,7 @@ def build_entries(
             "rank": rank,
             "cumulative_pct": round(pct, 2),
         }
-    return entries, filtered_total
+    return entries, filtered_total, usd_symbols
 
 
 def fetch_top_symbols(
@@ -226,13 +231,14 @@ def fetch_top_symbols(
                 exit_code = 1
                 continue
 
-            entries, filtered_total = build_entries(
+            entries, filtered_total, usd_symbols = build_entries(
                 volume_map, exchange_id, market_type, top_percentile, max_pairs
             )
             cum_pct = max(
                 (e["cumulative_pct"] for e in entries.values()), default=0.0
             )
             print(
+                f"  稳定币交易对 {len(usd_symbols)} 个: {usd_symbols}\n"
                 f"  有效交易对 {filtered_total} 个 → 帕累托头部 {top_percentile:g}%:"
                 f" 保留 {len(entries)} 个（累计成交量占比 {cum_pct:.1f}%）"
             )
@@ -259,13 +265,13 @@ def parse_args() -> argparse.Namespace:
         description="从 ccxt 交易所抓取成交量帕累托头部交易对并存为符号清单"
     )
     parser.add_argument(
-        "--exchange", type=str, nargs="+", required=True,
-        help="交易所 ID（ccxt 支持，如 binance okx bybit）",
+        "--exchange", type=str, nargs="+", default=["binance", "okx"],
+        help="交易所 ID（ccxt 支持，默认 binance, okx）",
     )
     parser.add_argument(
-        "--market-types", type=str, nargs="+", default=["spot"],
+        "--market-types", type=str, nargs="+", default=["spot", "futures"],
         choices=["spot", "futures"],
-        help="市场类型（默认 spot）",
+        help="市场类型（默认 spot, futures ）",
     )
     parser.add_argument(
         "--top-volume", type=float, default=80.0,

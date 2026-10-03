@@ -1,0 +1,611 @@
+{
+    "AAOIB": {
+        "ticker": "AAOIB/USDT",
+        "desc": "代币化股票：Applied Optoelectronics",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 AAOI 美股价格（代币代码 AAOIB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "AAPLB": {
+        "ticker": "AAPLB/USDT",
+        "desc": "代币化股票：Apple",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 AAPL 美股价格（代币代码 AAPLB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "ADBEB": {
+        "ticker": "ADBEB/USDT",
+        "desc": "代币化股票：Adobe",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 ADBE 美股价格（代币代码 ADBEB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "AGPUB": {
+        "ticker": "AGPUB/USDT",
+        "desc": "代币化股票：Axe Compute",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 AGPU 美股价格（代币代码 AGPUB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "ALABB": {
+        "ticker": "ALABB/USDT",
+        "desc": "代币化股票：Astera Labs",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 ALAB 美股价格（代币代码 ALABB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "AMATB": {
+        "ticker": "AMATB/USDT",
+        "desc": "代币化股票：Applied Materials",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 AMAT 美股价格（代币代码 AMATB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "AMCB": {
+        "ticker": "AMCB/USDT",
+        "desc": "代币化股票：AMC Entertainment Holdings",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 AMC 美股价格（代币代码 AMCB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "AMDB": {
+        "ticker": "AMDB/USDT",
+        "desc": "代币化股票：Advanced Micro Devices",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 AMD 美股价格（代币代码 AMDB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "AMZNB": {
+        "ticker": "AMZNB/USDT",
+        "desc": "代币化股票：Amazon",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 AMZN 美股价格（代币代码 AMZNB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "ARMB": {
+        "ticker": "ARMB/USDT",
+        "desc": "代币化股票：ARM",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 ARM 美股价格（代币代码 ARMB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "ASMLB": {
+        "ticker": "ASMLB/USDT",
+        "desc": "代币化股票：ASML",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 ASML 美股价格（代币代码 ASMLB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "ASTSB": {
+        "ticker": "ASTSB/USDT",
+        "desc": "代币化股票：AST SpaceMobile",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 ASTS 美股价格（代币代码 ASTSB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "AVGOB": {
+        "ticker": "AVGOB/USDT",
+        "desc": "代币化股票：Broadcom",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 AVGO 美股价格（代币代码 AVGOB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "AXTIB": {
+        "ticker": "AXTIB/USDT",
+        "desc": "代币化股票：AXT",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 AXTI 美股价格（代币代码 AXTIB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "BABAB": {
+        "ticker": "BABAB/USDT",
+        "desc": "代币化股票：Alibaba",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 BABA 美股价格（代币代码 BABAB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "BEB": {
+        "ticker": "BEB/USDT",
+        "desc": "代币化股票：Bloom Energy",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 BE 美股价格（代币代码 BEB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "BMNRB": {
+        "ticker": "BMNRB/USDT",
+        "desc": "代币化股票：BitMine Immersion Technologies",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 BMNR 美股价格（代币代码 BMNRB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "BNCB": {
+        "ticker": "BNCB/USDT",
+        "desc": "代币化股票：CEA Industries",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 BNC 美股价格（代币代码 BNCB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "CBRSB": {
+        "ticker": "CBRSB/USDT",
+        "desc": "代币化股票：Cerebras",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 CBRS 美股价格（代币代码 CBRSB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "COHRB": {
+        "ticker": "COHRB/USDT",
+        "desc": "代币化股票：Coherent",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 COHR 美股价格（代币代码 COHRB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "COINB": {
+        "ticker": "COINB/USDT",
+        "desc": "代币化股票：Coinbase",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 COIN 美股价格（代币代码 COINB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "CRCLB": {
+        "ticker": "CRCLB/USDT",
+        "desc": "代币化股票：Circle Internet Group",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 CRCL 美股价格（代币代码 CRCLB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "CRDOB": {
+        "ticker": "CRDOB/USDT",
+        "desc": "代币化股票：Credo Technology",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 CRDO 美股价格（代币代码 CRDOB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "CRMB": {
+        "ticker": "CRMB/USDT",
+        "desc": "代币化股票：Salesforce",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 CRM 美股价格（代币代码 CRMB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "CRWDB": {
+        "ticker": "CRWDB/USDT",
+        "desc": "代币化股票：CrowdStrike",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 CRWD 美股价格（代币代码 CRWDB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "CRWVB": {
+        "ticker": "CRWVB/USDT",
+        "desc": "代币化股票：CoreWeave",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 CRWV 美股价格（代币代码 CRWVB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "CYPHB": {
+        "ticker": "CYPHB/USDT",
+        "desc": "代币化股票：Cypherpunk Technologies",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 CYPH 美股价格（代币代码 CYPHB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "DELLB": {
+        "ticker": "DELLB/USDT",
+        "desc": "代币化股票：Dell",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 DELL 美股价格（代币代码 DELLB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "DJTB": {
+        "ticker": "DJTB/USDT",
+        "desc": "代币化股票：Trump Media & Technology Group",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 DJT 美股价格（代币代码 DJTB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "DRAMB": {
+        "ticker": "DRAMB/USDT",
+        "desc": "代币化股票：Roundhill Memory ETF",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 DRAM 美股价格（代币代码 DRAMB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "EWYB": {
+        "ticker": "EWYB/USDT",
+        "desc": "代币化股票：iShares MSCI South Korea ETF",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 EWY 美股价格（代币代码 EWYB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "FLNCB": {
+        "ticker": "FLNCB/USDT",
+        "desc": "代币化股票：Fluence Energy",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 FLNC 美股价格（代币代码 FLNCB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "FWDIB": {
+        "ticker": "FWDIB/USDT",
+        "desc": "代币化股票：Forward Industries",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 FWDI 美股价格（代币代码 FWDIB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "GLWB": {
+        "ticker": "GLWB/USDT",
+        "desc": "代币化股票：Corning",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 GLW 美股价格（代币代码 GLWB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "GMEB": {
+        "ticker": "GMEB/USDT",
+        "desc": "代币化股票：GameStop",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 GME 美股价格（代币代码 GMEB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "GOOGLB": {
+        "ticker": "GOOGLB/USDT",
+        "desc": "代币化股票：Alphabet",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 GOOGL 美股价格（代币代码 GOOGLB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "GPROB": {
+        "ticker": "GPROB/USDT",
+        "desc": "代币化股票：GoPro",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 GPRO 美股价格（代币代码 GPROB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "GSB": {
+        "ticker": "GSB/USDT",
+        "desc": "代币化股票：Goldman Sachs",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 GS 美股价格（代币代码 GSB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "HIMSB": {
+        "ticker": "HIMSB/USDT",
+        "desc": "代币化股票：Hims & Hers",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 HIMS 美股价格（代币代码 HIMSB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "HOODB": {
+        "ticker": "HOODB/USDT",
+        "desc": "代币化股票：Robinhood",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 HOOD 美股价格（代币代码 HOODB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "HPEB": {
+        "ticker": "HPEB/USDT",
+        "desc": "代币化股票：Hewlett Packard",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 HPE 美股价格（代币代码 HPEB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "IBMB": {
+        "ticker": "IBMB/USDT",
+        "desc": "代币化股票：IBM",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 IBM 美股价格（代币代码 IBMB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "INTCB": {
+        "ticker": "INTCB/USDT",
+        "desc": "代币化股票：Intel",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 INTC 美股价格（代币代码 INTCB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "INTWB": {
+        "ticker": "INTWB/USDT",
+        "desc": "代币化股票：GraniteShares 2X Long INTC ETF",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 INTW 美股价格（代币代码 INTWB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "IRENB": {
+        "ticker": "IRENB/USDT",
+        "desc": "代币化股票：IREN Limited",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 IREN 美股价格（代币代码 IRENB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "KORUB": {
+        "ticker": "KORUB/USDT",
+        "desc": "代币化股票：South Korea Bull 3X ETF",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 KORU 美股价格（代币代码 KORUB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "LITEB": {
+        "ticker": "LITEB/USDT",
+        "desc": "代币化股票：Lumentum",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 LITE 美股价格（代币代码 LITEB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "METAB": {
+        "ticker": "METAB/USDT",
+        "desc": "代币化股票：Meta",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 META 美股价格（代币代码 METAB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "MRNAB": {
+        "ticker": "MRNAB/USDT",
+        "desc": "代币化股票：Moderna",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 MRNA 美股价格（代币代码 MRNAB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "MRVLB": {
+        "ticker": "MRVLB/USDT",
+        "desc": "代币化股票：Marvell Technology",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 MRVL 美股价格（代币代码 MRVLB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "MSFTB": {
+        "ticker": "MSFTB/USDT",
+        "desc": "代币化股票：Microsoft",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 MSFT 美股价格（代币代码 MSFTB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "MSTRB": {
+        "ticker": "MSTRB/USDT",
+        "desc": "代币化股票：Strategy",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 MSTR 美股价格（代币代码 MSTRB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "MUB": {
+        "ticker": "MUB/USDT",
+        "desc": "代币化股票：Micron Technology",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 MU 美股价格（代币代码 MUB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "MUUB": {
+        "ticker": "MUUB/USDT",
+        "desc": "代币化股票：Direxion MU Bull 2X ETF",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 MUU 美股价格（代币代码 MUUB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "MVLLB": {
+        "ticker": "MVLLB/USDT",
+        "desc": "代币化股票：GraniteShares 2X Long MRVL ETF",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 MVLL 美股价格（代币代码 MVLLB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "NBISB": {
+        "ticker": "NBISB/USDT",
+        "desc": "代币化股票：Nebius",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 NBIS 美股价格（代币代码 NBISB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "NFLXB": {
+        "ticker": "NFLXB/USDT",
+        "desc": "代币化股票：Netflix",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 NFLX 美股价格（代币代码 NFLXB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "NOKB": {
+        "ticker": "NOKB/USDT",
+        "desc": "代币化股票：Nokia",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 NOK 美股价格（代币代码 NOKB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "NVDAB": {
+        "ticker": "NVDAB/USDT",
+        "desc": "代币化股票：NVIDIA",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 NVDA 美股价格（代币代码 NVDAB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "ORCLB": {
+        "ticker": "ORCLB/USDT",
+        "desc": "代币化股票：Oracle",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 ORCL 美股价格（代币代码 ORCLB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "PDDB": {
+        "ticker": "PDDB/USDT",
+        "desc": "代币化股票：PDD Holdings",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 PDD 美股价格（代币代码 PDDB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "PLTRB": {
+        "ticker": "PLTRB/USDT",
+        "desc": "代币化股票：Palantir",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 PLTR 美股价格（代币代码 PLTRB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "PYPLB": {
+        "ticker": "PYPLB/USDT",
+        "desc": "代币化股票：Paypal",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 PYPL 美股价格（代币代码 PYPLB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "QCOMB": {
+        "ticker": "QCOMB/USDT",
+        "desc": "代币化股票：Qualcomm",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 QCOM 美股价格（代币代码 QCOMB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "QNTB": {
+        "ticker": "QNTB/USDT",
+        "desc": "代币化股票：Quantinuum",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 QNT 美股价格（代币代码 QNTB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "QQQB": {
+        "ticker": "QQQB/USDT",
+        "desc": "代币化股票：Invesco QQQ Trust",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 QQQ 美股价格（代币代码 QQQB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "RDDTB": {
+        "ticker": "RDDTB/USDT",
+        "desc": "代币化股票：Reddit",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 RDDT 美股价格（代币代码 RDDTB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "RKLBB": {
+        "ticker": "RKLBB/USDT",
+        "desc": "代币化股票：Rocket Lab",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 RKLB 美股价格（代币代码 RKLBB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "SHAZB": {
+        "ticker": "SHAZB/USDT",
+        "desc": "代币化股票：SharonAI",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 SHAZ 美股价格（代币代码 SHAZB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "SKHYB": {
+        "ticker": "SKHYB/USDT",
+        "desc": "代币化股票：SK Hynix",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 SKHY 美股价格（代币代码 SKHYB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "SMCIB": {
+        "ticker": "SMCIB/USDT",
+        "desc": "代币化股票：Super Micro Computer",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 SMCI 美股价格（代币代码 SMCIB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "SMHB": {
+        "ticker": "SMHB/USDT",
+        "desc": "代币化股票：VanEck Semiconductor ETF",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 SMH 美股价格（代币代码 SMHB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "SNDKB": {
+        "ticker": "SNDKB/USDT",
+        "desc": "代币化股票：SanDisk",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 SNDK 美股价格（代币代码 SNDKB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "SNXXB": {
+        "ticker": "SNXXB/USDT",
+        "desc": "代币化股票：Tradr 2X Long SNDK ETF",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 SNXX 美股价格（代币代码 SNXXB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "SOXLB": {
+        "ticker": "SOXLB/USDT",
+        "desc": "代币化股票：Semicon Bull 3X ETF",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 SOXL 美股价格（代币代码 SOXLB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "SOXSB": {
+        "ticker": "SOXSB/USDT",
+        "desc": "代币化股票：Direxion Semiconductor Bear 3X ETF",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 SOXS 美股价格（代币代码 SOXSB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "SPCXB": {
+        "ticker": "SPCXB/USDT",
+        "desc": "代币化股票：SpaceX",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 SPCX 美股价格（代币代码 SPCXB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "SPYB": {
+        "ticker": "SPYB/USDT",
+        "desc": "代币化股票：SPY",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 SPY 美股价格（代币代码 SPYB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "SQQQB": {
+        "ticker": "SQQQB/USDT",
+        "desc": "代币化股票：ProShares UltraPro Short QQQ",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 SQQQ 美股价格（代币代码 SQQQB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "STXB": {
+        "ticker": "STXB/USDT",
+        "desc": "代币化股票：Seagate",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 STX 美股价格（代币代码 STXB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "TQQQB": {
+        "ticker": "TQQQB/USDT",
+        "desc": "代币化股票：ProShares UltraPro QQQ",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 TQQQ 美股价格（代币代码 TQQQB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "TSLAB": {
+        "ticker": "TSLAB/USDT",
+        "desc": "代币化股票：Tesla",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 TSLA 美股价格（代币代码 TSLAB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "TSMB": {
+        "ticker": "TSMB/USDT",
+        "desc": "代币化股票：TSMC",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 TSM 美股价格（代币代码 TSMB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "USARB": {
+        "ticker": "USARB/USDT",
+        "desc": "代币化股票：USA Rare Earth",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 USAR 美股价格（代币代码 USARB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "WDCB": {
+        "ticker": "WDCB/USDT",
+        "desc": "代币化股票：Western Digital",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 WDC 美股价格（代币代码 WDCB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "WENB": {
+        "ticker": "WENB/USDT",
+        "desc": "代币化股票：Wendy's",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 WEN 美股价格（代币代码 WENB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    },
+    "ZMB": {
+        "ticker": "ZMB/USDT",
+        "desc": "代币化股票：Zoom",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "Binance bStocks 代币化证券，7×24 交易，追踪 ZM 美股价格（代币代码 ZMB，bStocks 统一 B 后缀；筛选依据为币安产品目录 tags=bStocks）。ticker 为 ccxt unified symbol，可直接用于 ccxt binance fetchOHLCV。"
+    }
+}

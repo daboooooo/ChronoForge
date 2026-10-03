@@ -20,13 +20,6 @@
         "freq": "daily",
         "comment": "NASDAQ-100 排除金融股，与 QQQ ETF 对应。区别于 ^IXIC（NASDAQ Composite，含约 3000 只成分股）。科技股集中度更高，对流动性收紧更敏感。"
     },
-    "BTC": {
-        "ticker": "BTC-USD",
-        "desc": "比特币美元现货价格",
-        "unit": "USD",
-        "freq": "daily",
-        "comment": "加密市场风险资产代表。7×24 交易，周末也有数据。与美股工作日数据合并时周末行其他列为 NaN，get_latest/get_window_values 自动跳过。"
-    },
     "VIX": {
         "ticker": "^VIX",
         "desc": "CBOE 波动率指数（恐慌指数）",
@@ -68,5 +61,68 @@
         "unit": "USD",
         "freq": "daily",
         "comment": "DRAM/NAND 存储三大厂之一（另两家为三星、SK 海力士）。存储是强周期行业，股价随内存价格周期大幅波动，是观察半导体周期的高频风向标。"
+    },
+    "Meta": {
+        "ticker": "META",
+        "desc": "Meta Platforms 股票（社交媒体公司）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "社交媒体公司，是 Facebook 的母公司。Meta 是 AI 领军企业，关注 AI 技术和数据隐私"
+    },
+    "Apple": {
+        "ticker": "AAPL",
+        "desc": "Apple Inc 股票（苹果公司）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "苹果公司，是苹果公司的母公司。苹果公司是科技股龙头，关注 AI 技术和数据隐私。"
+    },
+    "TSLA": {
+        "ticker": "TSLA",
+        "desc": "Tesla Inc 股票（特斯拉公司）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "特斯拉公司，是特斯拉公司的母公司。特斯拉公司是 AI 领军企业，关注 AI 技术和数据隐私。"
+    },
+    "Netflix": {
+        "ticker": "NFLX",
+        "desc": "Netflix Inc 股票（Netflix 公司）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "流媒体公司，是 Netflix 的母公司。Netflix 是 AI 领军企业，关注 AI 技术和数据隐私。"
+    },
+    "Lilly": {
+        "ticker": "LLY",
+        "desc": "Lilly Inc 股票（医疗公司）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "医疗公司，是 Lilly 的母公司。Lilly 是 AI 领军企业，关注 AI 技术和数据隐私。"
+    },
+    "AMD": {
+        "ticker": "AMD",
+        "desc": "Advanced Micro Devices, Inc. 股票（半导体制造商）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "x86 CPU 龙头，IDM 模式代表（设计+制造一体）。近年受 AI 转型滞后与代工业务亏损拖累，股价对业绩指引和政府补贴政策敏感。"
+    },
+    "Amazon": {
+        "ticker": "AMZN",
+        "desc": "Amazon.com, Inc. 股票（亚马逊公司）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "亚马逊公司，是亚马逊公司的母公司。亚马逊公司是 AI 领军企业，关注 AI 技术和数据隐私。"
+    },
+    "Qualcomm": {
+        "ticker": "QCOM",
+        "desc": "Qualcomm, Inc. 股票（半导体制造商）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "x86 CPU 龙头，IDM 模式代表（设计+制造一体）。近年受 AI 转型滞后与代工业务亏损拖累，股价对业绩指引和政府补贴政策敏感。"
+    },
+    "NVIDIA": {
+        "ticker": "NVDA",
+        "desc": "NVIDIA Corporation 股票（半导体制造商）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "NVIDIA 是 AI 领军企业，关注 AI 技术和数据隐私。"
     }
 }

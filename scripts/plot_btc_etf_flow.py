@@ -371,7 +371,7 @@ def parse_args() -> argparse.Namespace:
                    help="回看年数（默认 2）")
     p.add_argument("--start", type=str, default=None,
                    help="起始日期 YYYY-MM-DD")
-    p.add_argument("--output", type=str, default="btc_etf_flow.png",
+    p.add_argument("--output", type=str, default="./btc_etf_flow.png",
                    help="输出 PNG 路径")
     p.add_argument("--show", action="store_true",
                    help="存图后弹窗显示")

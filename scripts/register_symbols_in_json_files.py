@@ -2,8 +2,8 @@
 """将 scripts/symbols 目录中的符号清单批量注册到 ChronoForge registry。
 
 清单发现（扫描目录内 *.json，按文件名推断数据源与注册规则）:
-    - yahoo_symbols.json                      → source=yahoo : OHLCV 1d（ticker 原样）
-    - fred_symbols.json                       → source=fred  : NUMBER（FRED 序列）
+    - z_manual_yahoo_symbols.json.json                      → source=yahoo : OHLCV 1d（ticker 原样）
+    - z_manual_fred_symbols.json.json                       → source=fred  : NUMBER（FRED 序列）
     - {exchange}_xstocks.json                 → source=ccxt  : 代币化股票（如 okx_xstocks.json）
     - {exchange}_{spot|futures}_symbols.json  → source=ccxt  : 交易对清单
       （如 binance_spot_symbols.json，由 fetch_top_symbols_from_ccxt_exchange.py 生成）
@@ -52,7 +52,7 @@ _FREQ_MAP = {
 
 
 def build_yahoo_spec(key: str, entry: dict[str, Any]) -> dict[str, Any]:
-    """yahoo_symbols.json 条目 → yahoo OHLCV 1d 数据集。"""
+    """z_manual_yahoo_symbols.json.json 条目 → yahoo OHLCV 1d 数据集。"""
     ticker = entry["ticker"]
     return {
         "dataset_id": f"YAHOO:{ticker}:OHLCV:1d",
@@ -66,7 +66,7 @@ def build_yahoo_spec(key: str, entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_fred_spec(key: str, entry: dict[str, Any]) -> dict[str, Any]:
-    """fred_symbols.json 条目 → fred NUMBER 数据集（fred_series_{ID}）。"""
+    """z_manual_fred_symbols.json.json 条目 → fred NUMBER 数据集（fred_series_{ID}）。"""
     series_id = entry["id"]
     return {
         "dataset_id": f"fred_series_{series_id}",
@@ -102,13 +102,13 @@ def make_ccxt_ohlcv_spec(exchange_id: str) -> Callable[[str, dict[str, Any]], di
 
 # 无需解析文件名即可确定的静态清单
 _STATIC_FILES: dict[str, tuple[str, Callable[[str, dict[str, Any]], dict[str, Any]]]] = {
-    "yahoo_symbols.json": ("yahoo", build_yahoo_spec),
-    "fred_symbols.json": ("fred", build_fred_spec),
+    "z_manual_yahoo_symbols.json": ("yahoo", build_yahoo_spec),
+    "z_manual_fred_symbols.json": ("fred", build_fred_spec),
 }
 
 # {exchange}_xstocks.json / {exchange}_{spot|futures}_symbols.json 模式
 _EXCHANGE_PATTERN = re.compile(
-    r"^(?P<exchange>[a-z0-9]+?)_(?:xstocks\.json|(?:spot|futures)_symbols\.json)$"
+    r"^(?P<exchange>[a-z0-9]+?)_(?:stocks\.json|(?:spot|futures)_symbols\.json)$"
 )
 
 
@@ -144,7 +144,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--only", type=str, nargs="+", default=None,
         metavar="FILE",
-        help="只处理指定清单文件（如 --only yahoo_symbols.json fred_symbols.json）",
+        help="只处理指定清单文件（如 --only z_manual_yahoo_symbols.json.json z_manual_fred_symbols.json.json）",
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="仅打印计划，不写入注册表",
