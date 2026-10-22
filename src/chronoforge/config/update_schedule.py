@@ -24,11 +24,16 @@ from datetime import time
 #   FRED            北京时间 16:10 → 08:10 UTC
 #   Binance 系列    北京时间 08:00 → 00:00 UTC（日线 00:00 UTC 收线）
 #   ccxt            Binance 桥接源，同上
+#   Alternative/Coin Metrics/CoinMarketCap 日频值 00:00 UTC
+#                   滚动、次日冻结 → 00:10 UTC 采集（北京 08:10），对齐 T+1 结算
 SOURCE_PUBLISH_TIME_UTC: dict[str, tuple[int, int]] = {
     "fred": (8, 10),
     "binance_spot": (0, 0),
     "binance_futures": (0, 0),
     "ccxt": (0, 0),
+    "alternative": (0, 10),
+    "coinmetrics": (0, 10),
+    "coinmarketcap": (0, 10),
 }
 
 # 未显式配置的数据源默认发布时刻（UTC）：北京时间 00:00 → 16:00 UTC

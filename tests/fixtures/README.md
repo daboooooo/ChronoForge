@@ -12,8 +12,9 @@ fixture 是 connector 契约测试的基准：内容为**源 API 真实响应的
 fixtures/{source}/{endpoint}/{form}.json
 ```
 
-- `{source}` ∈ D04 §4 七源：`binance_spot` / `binance_futures` / `deribit` /
-  `ccxt_binance` / `yahoo` / `fred` / `sec`
+- `{source}` ∈ D04 §4 的源：`binance_spot` / `binance_futures` / `deribit` /
+  `ccxt_bridge` / `yahoo` / `fred` / `sec_edgar` / `sosovalue` /
+  `alternative` / `coinmetrics` / `coinmarketcap`
 - `{endpoint}`：源侧端点名，snake_case（见 §4 矩阵）
 - `{form}`：形态名（§2 三件套 + §3 十形态，连字符保留）
 - 目录内仅存 JSON；禁止提交 py / 二进制 / 真实全量导出
@@ -63,9 +64,20 @@ fixtures/{source}/{endpoint}/{form}.json
 | fred | observations | vintage1 / vintage2 / dates（双 vintage 并存——TC-M-007） |
 | sec | submissions_recent | filing-recent 增量 |
 | sec | companyfacts | 含 ETag/Last-Modified 条件请求样例 |
+| sosovalue | etf_list | ETF 清单（供 discover / 注册脚本复用） |
+| sosovalue | summary_history | 汇总日频流向 |
+| sosovalue | etf_history | 单 ticker 日频流向 |
+| alternative | fng | 正常 / 边界（value 越界 [0,100]）/ 空结果 |
+| coinmetrics | asset_metrics | 分页头尾页（`paging_from` 游标）/ USDT 供给 / BTC 地址数 / 空结果 |
+| coinmarketcap | global_metrics | 正常 / 边界（value 越界）/ 空结果 |
 
 每行仍须满足 §2 三件套最低要求；矩阵与 D09 §5 清单一一对应，新增 endpoint
 须同步更新本文件与 D09 §5。
+
+> **目录布局例外**：2026-10 追加的 4 个源（`sosovalue` / `alternative` /
+> `coinmetrics` / `coinmarketcap`）按 `{source}/{文件}.json` 扁平存放（各源
+> endpoint 单一，无多端点矩阵），如 `alternative/fng.json`、
+> `coinmetrics/usdt_supply.json`。
 
 ## 5. 脱敏规范（强制）
 

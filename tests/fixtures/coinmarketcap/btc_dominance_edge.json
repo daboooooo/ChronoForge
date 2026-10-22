@@ -1,0 +1,82 @@
+{
+  "status": {
+    "timestamp": "2026-09-24T00:00:00.000Z",
+    "error_code": "0",
+    "error_message": "SUCCESS",
+    "elapsed": "10",
+    "credit_count": 0
+  },
+  "data": {
+    "quotes": [
+      {
+        "timestamp": "2026-09-20T00:00:00.000Z",
+        "btcDominance": 58.9142,
+        "quote": [
+          {
+            "name": "USD",
+            "totalMarketCap": 2890523936573.14,
+            "altcoinMarketCap": 1185646557017.89
+          }
+        ]
+      },
+      {
+        "timestamp": "2026-09-21T00:00:00.000Z",
+        "quote": [
+          {
+            "name": "USD",
+            "totalMarketCap": 2890523936573.14,
+            "altcoinMarketCap": 1185646557017.89
+          }
+        ]
+      },
+      {
+        "timestamp": "2026-09-22T00:00:00.000Z",
+        "btcDominance": 150.5,
+        "quote": [
+          {
+            "name": "USD",
+            "totalMarketCap": 2890523936573.14,
+            "altcoinMarketCap": 1185646557017.89
+          }
+        ]
+      },
+      {
+        "timestamp": "not-a-timestamp",
+        "btcDominance": 42.0
+      },
+      {
+        "timestamp": "2026-09-23T00:00:00.000Z",
+        "btcDominance": "58.9048",
+        "quote": [
+          {
+            "name": "USD",
+            "totalMarketCap": 2891044125461.98,
+            "altcoinMarketCap": 1185646557017.89
+          }
+        ]
+      },
+      {
+        "timestamp": "2026-09-24T00:00:00.000Z",
+        "btcDominance": 58.1,
+        "quote": [
+          {
+            "name": "USD",
+            "totalMarketCap": 2891044125461.98,
+            "altcoinMarketCap": 1185646557017.89
+          }
+        ]
+      },
+      {
+        "timestamp": "2026-09-25T00:00:00.000Z",
+        "btcDominance": 0.0,
+        "quote": [
+          {
+            "name": "USD",
+            "totalMarketCap": 2891044125461.98,
+            "altcoinMarketCap": 1185646557017.89
+          }
+        ]
+      }
+    ]
+  }
+}

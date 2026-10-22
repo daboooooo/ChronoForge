@@ -323,10 +323,10 @@ class TestRegistryCommands:
         for _ in range(2):
             result = runner.invoke(app, ["registry", "sync"])
             assert result.exit_code == 0, result.output
-            assert "8 sources" in result.output
+            assert "11 sources" in result.output
         assert meta.connection.execute(
             "SELECT COUNT(*) FROM source_registry"
-        ).fetchone()[0] == 8
+        ).fetchone()[0] == 11
 
     def test_sync_restores_edited_row(
         self, cli_env: dict[str, Path], meta: MetaStore
@@ -350,6 +350,7 @@ class TestRegistryCommands:
         assert {r["source_id"] for r in rows} == {
             "binance_spot", "binance_futures", "deribit", "ccxt",
             "yahoo", "fred", "sec_edgar", "sosovalue",
+            "alternative", "coinmetrics", "coinmarketcap",
         }
         fred = next(r for r in rows if r["source_id"] == "fred")
         assert fred["access_type"] == "PUBLIC_WITH_KEY"
@@ -358,6 +359,19 @@ class TestRegistryCommands:
         assert sosovalue["access_type"] == "PUBLIC_WITH_KEY"
         assert json.loads(sosovalue["rate_limit_json"]) == {"req_per_min": 20}
         assert sosovalue["historical_limit_days"] == 30
+        alternative = next(r for r in rows if r["source_id"] == "alternative")
+        assert alternative["access_type"] == "PUBLIC"
+        assert json.loads(alternative["rate_limit_json"]) == {
+            "req_per_min": 6
+        }
+        coinmetrics = next(r for r in rows if r["source_id"] == "coinmetrics")
+        assert coinmetrics["access_type"] == "PUBLIC"
+        assert json.loads(coinmetrics["rate_limit_json"]) == {"req_per_min": 20}
+        coinmarketcap = next(
+            r for r in rows if r["source_id"] == "coinmarketcap"
+        )
+        assert coinmarketcap["access_type"] == "PUBLIC"
+        assert json.loads(coinmarketcap["rate_limit_json"]) == {"req_per_min": 30}
 
     def test_list_sources_empty_hint(self, cli_env: dict[str, Path]) -> None:
         result = runner.invoke(app, ["registry", "list-sources"])
@@ -704,6 +718,30 @@ class TestBuildConnector:
         monkeypatch.setenv("SOSOVALUE_API_KEY", "k-test")
         connector = _wiring.build_connector("sosovalue", Settings_load(), {})
         assert type(connector).__name__ == "SoSoValueConnector"
+        connector.close()
+
+    def test_alternative_no_key_constructs(self) -> None:
+        """Alternative.me 免费无 key，直接构造。"""
+        connector = _wiring.build_connector(
+            "alternative", Settings_load(), {}
+        )
+        assert type(connector).__name__ == "AlternativeConnector"
+        connector.close()
+
+    def test_coinmetrics_no_key_constructs(self) -> None:
+        """Coin Metrics 社区层免费无 key，直接构造。"""
+        connector = _wiring.build_connector(
+            "coinmetrics", Settings_load(), {}
+        )
+        assert type(connector).__name__ == "CoinMetricsConnector"
+        connector.close()
+
+    def test_coinmarketcap_no_key_constructs(self) -> None:
+        """CoinMarketCap 公开数据接口免费无 key，直接构造。"""
+        connector = _wiring.build_connector(
+            "coinmarketcap", Settings_load(), {}
+        )
+        assert type(connector).__name__ == "CoinMarketCapConnector"
         connector.close()
 
     def test_unknown_source_raises(self) -> None:

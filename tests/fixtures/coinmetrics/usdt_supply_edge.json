@@ -1,0 +1,44 @@
+{
+  "data": [
+    {
+      "asset": "usdt",
+      "time": "2026-09-20T00:00:00.000000000Z",
+      "SplyCur": "187939371501.594936"
+    },
+    {
+      "asset": "usdt",
+      "time": "2026-09-20T00:00:00.000000000Z",
+      "SplyCur": "111"
+    },
+    {
+      "asset": "usdt",
+      "time": "2026-09-21T00:00:00.000000000Z"
+    },
+    {
+      "asset": "usdt",
+      "time": "2026-09-22T00:00:00.000000000Z",
+      "SplyCur": ""
+    },
+    {
+      "asset": "usdt",
+      "time": "2026-09-23T00:00:00.000000000Z",
+      "SplyCur": "not-a-number"
+    },
+    {
+      "asset": "usdt",
+      "time": "2026-09-24T00:00:00.000000000Z",
+      "SplyCur": "188936405720.293841"
+    },
+    {
+      "asset": "usdt",
+      "time": "not-a-timestamp",
+      "SplyCur": "123"
+    },
+    {
+      "asset": "usdt",
+      "time": "2026-09-25T00:00:00.000000000Z",
+      "SplyCur": "999"
+    }
+  ],
+  "next_page_token": null
+}

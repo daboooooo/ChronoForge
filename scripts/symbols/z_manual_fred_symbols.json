@@ -76,40 +76,41 @@
     },
 
     "EFFRVOL": {
-        "id": "EFFRVOL", "freq": "daily", "data_type": "volume", "unit": "M USD",
+        "id": "EFFRVOL", "freq": "daily", "data_type": "volume", "unit": "B USD",
         "desc": "联邦基金市场成交量", "role": "银行间市场活跃度",
-        "comment": "联邦基金市场成交量"
+        "comment": "联邦基金市场成交量，单位=十亿美元"
     },
     "SOFRVOL": {
-        "id": "SOFRVOL", "freq": "daily", "data_type": "volume", "unit": "M USD",
+        "id": "SOFRVOL", "freq": "daily", "data_type": "volume", "unit": "B USD",
         "desc": "回购市场成交量", "role": "回购市场深度",
-        "comment": "以国债作为抵押的回购市场交易的成交量"
+        "comment": "以国债作为抵押的回购市场交易的成交量，单位=十亿美元"
     },
 
     "ON_RRP_BAL": {
-        "id": "RRPONTSYD", "freq": "daily", "data_type": "balance", "unit": "M USD",
+        "id": "RRPONTSYD", "freq": "daily", "data_type": "balance", "unit": "B USD",
         "desc": "隔夜逆回购余额(ON RRP)", "role": "非银流动性缓冲垫",
-        "comment": "隔夜逆回购成交量"
+        "comment": "隔夜逆回购成交量。单位=十亿美元(与WALCL/WTREGEN的百万美元不同，算净流动性需先统一单位)"
     },
     "SRF_TS": {
-        "id": "RPONTSYD", "freq": "daily", "data_type": "balance", "unit": "M USD",
+        "id": "RPONTSYD", "freq": "daily", "data_type": "balance", "unit": "B USD",
         "desc": "常备回购便利(SRF)国债使用量", "role": "走廊外安全阀使用量",
-        "comment": "回购国债的常备回购便利成交量"
+        "comment": "回购国债的常备回购便利成交量，单位=十亿美元"
     },
     "SRF_MBS": {
-        "id": "RPMBSD", "freq": "daily", "data_type": "balance", "unit": "M USD",
+        "id": "RPMBSD", "freq": "daily", "data_type": "balance", "unit": "B USD",
         "desc": "常备回购便利(SRF) MBS使用量", "role": "走廊外安全阀使用量",
-        "comment": "以住宅或商业抵押贷款为基础打包证券的常备回购便利成交量"
+        "comment": "以住宅或商业抵押贷款为基础打包证券的常备回购便利成交量，单位=十亿美元"
     },
     "SRF_Agency": {
-        "id": "RPAGYD", "freq": "daily", "data_type": "balance", "unit": "M USD",
+        "id": "RPAGYD", "freq": "daily", "data_type": "balance", "unit": "B USD",
         "desc": "常备回购便利(SRF)机构债使用量", "role": "走廊外安全阀使用量",
-        "comment": "回购机构债券的常备回购便利成交量"
+        "comment": "回购机构债券的常备回购便利成交量，单位=十亿美元"
     },
 
     "WALCL": {
         "id": "WALCL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
-        "desc": "美联储总资产", "role": "资产负债表规模"
+        "desc": "美联储总资产(周三时点值)", "role": "资产负债表规模",
+        "comment": "净流动性代理指标 = WALCL - WTREGEN - RRPONTSYD(需统一单位: 前两者百万美元, RRP十亿美元)。仅为市场近似，建模时应分别保留原始序列"
     },
     "WRESBAL": {
         "id": "WRESBAL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
@@ -122,31 +123,61 @@
     },
     "WSHOSHO": {
         "id": "WSHOSHO", "freq": "weekly", "data_type": "balance", "unit": "M USD",
-        "desc": "美联储持有美国国债", "role": "QE/QT操作主体"
+        "desc": "美联储持有证券总额(国债+MBS, 周三时点值)", "role": "QE/QT操作主体(总量)",
+        "comment": "注意口径为证券持有总额(Securities Held Outright)，国债明细用 TREAST，MBS 明细用 WSHOMCB"
+    },
+    "TREAST": {
+        "id": "TREAST", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "美联储持有美国国债(周三时点值)", "role": "QE/QT操作主体(国债明细)",
+        "comment": "总资产变化归因分析：国债持仓变化是缩表/再投资的主要构成"
     },
     "WSHOMCB": {
         "id": "WSHOMCB", "freq": "weekly", "data_type": "balance", "unit": "M USD",
-        "desc": "美联储持有机构MBS", "role": "QE/QT操作主体"
+        "desc": "美联储持有机构MBS(周三时点值)", "role": "QE/QT操作主体(MBS明细)"
     },
     "WTREGEN": {
         "id": "WTREGEN", "freq": "weekly", "data_type": "balance", "unit": "M USD",
-        "desc": "财政部一般账户余额(TGA, 周均值)", "role": "财政-货币联动阀门"
+        "desc": "财政部一般账户余额(TGA, 周均值)", "role": "财政-货币联动阀门",
+        "comment": "TGA上升抽走银行体系准备金，下降则释放；净流动性代理指标组成部分"
     },
     "WDTGAL": {
         "id": "WDTGAL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
-        "desc": "财政部一般账户余额(TGA, 日频)", "role": "财政-货币联动阀门(日频)"
+        "desc": "财政部一般账户余额(TGA, 周三时点值)", "role": "财政-货币联动阀门(时点)"
     },
     "WCURCIR": {
         "id": "WCURCIR", "freq": "weekly", "data_type": "balance", "unit": "M USD",
-        "desc": "流通中现金", "role": "净流动性组成部分"
+        "desc": "流通中现金(周均值)", "role": "净流动性组成部分"
     },
-    "WLCFLL": {
-        "id": "WLCFLL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
-        "desc": "央行互换线余额", "role": "离岸美元流动性供给"
+    "WORAL": {
+        "id": "WORAL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "美联储回购协议余额(周三时点值)", "role": "联储短期资金融出",
+        "comment": "资产端 Repurchase Agreements: Wednesday Level，观察联储通过回购向市场提供的短期资金"
     },
     "WPC": {
         "id": "WPC", "freq": "weekly", "data_type": "balance", "unit": "M USD",
-        "desc": "贴现窗口借款(主信贷)", "role": "最后贷款人工具使用量"
+        "desc": "贴现窗口借款(主信贷, 周均值)", "role": "最后贷款人工具使用量",
+        "comment": "周三时点值版本为 WLCFLPCL(Loans: Primary Credit: Wednesday Level)"
+    },
+
+    "M2SL": {
+        "id": "M2SL", "freq": "monthly", "data_type": "balance", "unit": "B USD",
+        "desc": "M2广义货币(季调)", "role": "广义货币供给",
+        "comment": "公众持有的广义货币存量：现金+支票存款+储蓄存款等。单位=十亿美元"
+    },
+    "M1SL": {
+        "id": "M1SL", "freq": "monthly", "data_type": "balance", "unit": "B USD",
+        "desc": "M1货币供应量(季调)", "role": "狭义货币供给",
+        "comment": "口径受美国货币统计定义调整影响(2020-05起储蓄存款从M2移入M1)。单位=十亿美元"
+    },
+    "BOGMBASE": {
+        "id": "BOGMBASE", "freq": "monthly", "data_type": "balance", "unit": "B USD",
+        "desc": "货币基础(流通中货币+准备金)", "role": "基础货币",
+        "comment": "流通中货币与存款机构在联储准备金构成的基础货币。单位=十亿美元"
+    },
+    "TOTRESNS": {
+        "id": "TOTRESNS", "freq": "monthly", "data_type": "balance", "unit": "B USD",
+        "desc": "存款机构总准备金", "role": "银行体系准备金(月度交叉验证)",
+        "comment": "与周频 WRESBAL/WRBWFRBL 交叉验证。单位=十亿美元"
     },
 
     "GFDEBTN": {

@@ -260,6 +260,18 @@ def _get_config(dataset_id: str) -> dict[str, int | str]:
         # （同 fred_series；API 仅回看最近 1 个月，全窗口重拉 +
         # natural key upsert 幂等收敛 T+1 结算修正）
         return WINDOW_CONFIG["fred_series"]
+    if dataset_id.startswith("alternative_"):
+        # Alternative.me F&G（alternative_fng_btc）：全窗口 diff
+        # （limit=0 单请求全历史 + T+1 冻结行回退 1 天重采）
+        return WINDOW_CONFIG["fred_series"]
+    if dataset_id.startswith("coinmetrics_"):
+        # Coin Metrics asset-metrics（coinmetrics_*）：全窗口 diff
+        # （start_time+end_time 单请求覆盖全窗口 + T+1 结算回退 1 天）
+        return WINDOW_CONFIG["fred_series"]
+    if dataset_id.startswith("coinmarketcap_"):
+        # CoinMarketCap 全市场快照（coinmarketcap_*）：全窗口 diff
+        # （连接器内部按 5 年分片拉全窗口 + T+1 结算回退 1 天）
+        return WINDOW_CONFIG["fred_series"]
     if _TYPE_TOKEN_RE.search(dataset_id):
         # klines 语义：overlap=1h，chunk=24h（同 binance_*_klines / ccxt_ohlcv）
         return {"overlap_seconds": 3600, "chunk_size_seconds": 86400}

@@ -55,7 +55,9 @@ retry(fetch) : 最多 5 次，指数退避 1s→2s→4s→8s→16s + jitter(0~0.
 
 HTTP 映射：401/403→AuthError；429→RateLimitError；400/404/422→ProviderError；5xx/超时→TransportError；响应结构不符录制契约→SchemaError（对比 fixture 的 JSON Schema，见 D09）。
 
-## 4. P0 源规格表
+## 4. 源规格表
+
+§4.1~4.7 为 P0 源（原始需求范围）；§4.8~4.11 为后续追加的源（ETF 资金流 / 情绪指数 / 链上供给 / 全市场指标），规格以已落地实现为准。
 
 ### 4.1 binance_spot（直连，REST）
 
@@ -130,9 +132,66 @@ HTTP 映射：401/403→AuthError；429→RateLimitError；400/404/422→Provide
 | 时间语义（审计 F-09） | `acceptanceDateTime` 带 EDT/EST 后缀 → 先转 UTC 再去 tzinfo；`filingDate` 日期型 → 保守 `T23:59:59Z` |
 | continuity_model | EVENT_BASED（无 gap 概念） |
 
+### 4.8 sosovalue（PUBLIC_WITH_KEY，US 现货加密 ETF 资金流）
+
+| 项 | 规格 |
+|---|---|
+| endpoints | `/etfs`（ticker 清单，供 discover/注册脚本复用）、`/etfs/summary-history`（汇总日频）、`/etfs/{ticker}/history`（单 ticker 日频） |
+| key | `SOSOVALUE_API_KEY` env；启用该源时缺失 → ConfigError（组合根 fail fast） |
+| 限流 | 20 req/min（burst=20） |
+| 指标 | FLOW 类：`total_net_inflow` / `total_value_traded` / `net_inflow`；NUMBER 类：`total_net_assets` / `cum_net_inflow` |
+| 历史边界 | 回看起点 ≥ today−30d（更早被 Cloudflare 拦截 403）；summary 单响应 ≤20 行，跨度 >15 天须拆子请求 |
+| 时间语义 | observation=D 00:00:00；release=revision=D+1 00:00:00（T+1 结算） |
+| continuity_model | RELEASE_SCHEDULE |
+
+### 4.9 alternative（PUBLIC，Fear & Greed Index）
+
+| 项 | 规格 |
+|---|---|
+| endpoints | `/fng/`（params：`limit`、`format=json`；请求固定 `metric=fear_greed_index` + `symbol=BTC`） |
+| 限流 | 6 req/min（burst=6） |
+| 历史 | `limit=0` 单请求取全历史（2018-02-01 起），窗口过滤在客户端完成 |
+| 时间语义 | observation=D 00:00:00（源为 unix 秒）；release=revision=D+1 00:00:00（T+1 结算） |
+| normalize 过滤 | 同一观测日取 timestamp 最小的一条；当天未冻结行（带 `time_until_update`）跳过等次日重采；value 越界 [0,100] 跳过并计数 |
+| canonical | NUMBER，units=`INDEX_POINTS`；entity=`fng_btc` |
+| continuity_model | ALWAYS_OPEN |
+
+### 4.10 coinmetrics（PUBLIC，社区层免 key；链上/供给指标）
+
+| 项 | 规格 |
+|---|---|
+| endpoints | `/v4/timeseries/asset-metrics`（params：`assets`、`metrics`、`frequency`、`start_time`、`end_time`、`page_size`、`paging_from`） |
+| key | `COINMETRICS_API_KEY` **可选**：无 key 走社区层公开接口；有 key 自动带请求头 `X-CM-API-KEY` 走付费层（余额分层等社区层受限指标） |
+| 限流 | 社区层 20 req/min（burst=20） |
+| 分页 | 游标 `paging_from` 推进，上限 50 页 |
+| 代理 | 显式读取 `HTTPS_PROXY`/`HTTP_PROXY`（httpx 不自动继承） |
+| 时间语义 | T+1 结算：observation=D 00:00:00；release=revision=D+1 00:00:00；fetch 起点回退 1 天（重采边界日）；当天未冻结行跳过 → 重采幂等 |
+| 指标 | `SplyCur`（流通量）、`CapMrktCurUSD`（市值）、`AdrBalCnt`（有余额地址数）、`AdrActCnt`（活跃地址数）；资产维度 usdt/usdc/btc |
+| 历史边界 | 按资产实际可得日（实测）：btc 2009-01-03、usdt 2014-10-06、usdc 2018-08-03（市值 2018-09-28）；注册脚本的 `available_from` 与之一一对齐 |
+| continuity_model | ALWAYS_OPEN |
+
+### 4.11 coinmarketcap（PUBLIC，全市场指标）
+
+| 项 | 规格 |
+|---|---|
+| endpoints | `/data-api/v3/global-metrics/quotes/historical`（公开端点，免 key） |
+| 限流 | 30 req/min（burst=5） |
+| 分片 | 单请求 ≤2200 条 → 5 年（1827 天）一片，客户端跨片去重；窗口整体早于 2013-01-01 时不发请求 |
+| 指标 | `btcDominance` / `ethDominance`（units=Percent，取自 quotes 直字段）；`totalMarketCap` / `altcoinMarketCap`（units=USD，取自 `quotes[].quotes[].value` 的 USD 报价） |
+| 时间语义 | 源为 ISO 8601（`2013-04-29T00:00:00.000Z`）→ observation=D 00:00:00；release=revision=D+1 00:00:00 |
+| normalize 过滤 | 市占率类 value ≤0 或 >100 跳过并计数（防脏值） |
+| 错误映射 | 429/401/403 先于 body 解析判定（错误页非 JSON） |
+| continuity_model | ALWAYS_OPEN |
+
 ## 5. 注册表初始化
 
 `registry/service.py` 提供 `bootstrap_defaults()`：将 §4 各源规格写入 source_registry（含 license 摘要、rate_limit_json），幂等（ON CONFLICT UPDATE）。CLI `chronoforge registry sync` 暴露。
+
+当前 `DEFAULT_SOURCES` 共 **11 条**：`binance_spot` / `binance_futures` / `deribit` / `ccxt` / `yahoo` / `fred` / `sec_edgar` / `sosovalue` / `alternative` / `coinmetrics` / `coinmarketcap`。
+
+> **下线源不会自动清理**：`bootstrap_defaults` 是 upsert，已下线源的 `source_registry` 残留行需手工 `DELETE`（如 `livecoinwatch` 清理时即如此处理）。
+
+数据集（dataset_registry）侧的登记不走 `registry sync`，而由各源的注册脚本完成（幂等、含 `available_from` 与窗口预检）——`scripts/register_{sosovalue_etfs,alternative_fng,coinmetrics_metrics,coinmarketcap_dominance}.py`。
 
 ## 6. 测试依据（D09 TC-C 组）
 

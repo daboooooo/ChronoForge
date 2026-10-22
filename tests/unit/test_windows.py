@@ -306,6 +306,34 @@ class TestSixDatasetsTwoModes:
         chunks_inc = plan_chunks(job_inc, cursor, datetime(2026, 1, 15))
         assert len(chunks_inc) == 1, "sosovalue incremental should also produce exactly 1 chunk"
 
+    @pytest.mark.parametrize(
+        "dataset_id",
+        [
+            "alternative_fng_btc",
+            "coinmetrics_usdt_supply",
+            "coinmetrics_btc_active_addresses",
+            "coinmarketcap_btc_dominance",
+        ],
+    )
+    def test_new_daily_sources_prefix_full_window_no_split(
+        self, dataset_id: str
+    ) -> None:
+        """alternative_/coinmetrics_/coinmarketcap_ 前缀回退
+        fred_series：全窗口不拆分。"""
+        job = AcquisitionJob(
+            dataset_id=dataset_id,
+            start=datetime(2026, 1, 1),
+            end=datetime(2026, 1, 15),
+            mode="backfill",
+        )
+        chunks = plan_chunks(job, None, job.end)
+        assert len(chunks) == 1
+        job_inc = AcquisitionJob(dataset_id=dataset_id, mode="incremental")
+        chunks_inc = plan_chunks(
+            job_inc, "2025-12-31T00:00:00", datetime(2026, 1, 15)
+        )
+        assert len(chunks_inc) == 1
+
     def test_sec_full_window_no_split(self) -> None:
         """SEC filing-recent：全窗口不拆分。"""
         job = AcquisitionJob(
@@ -731,6 +759,20 @@ class TestIntervalAwareChunkSize:
         assert (
             resolve_window_span(
                 "sosovalue_etf_us_btc_summary_total_net_inflow", 86400, {"interval": "1d"}
+            )
+            is None
+        )
+        assert (
+            resolve_window_span("alternative_fng_btc", 86400, {"interval": "1d"})
+            is None
+        )
+        assert (
+            resolve_window_span("coinmetrics_usdt_supply", 86400, {"interval": "1d"})
+            is None
+        )
+        assert (
+            resolve_window_span(
+                "coinmarketcap_btc_dominance", 86400, {"interval": "1d"}
             )
             is None
         )

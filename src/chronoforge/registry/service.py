@@ -84,6 +84,26 @@ DEFAULT_SOURCES: tuple[SourceSpec, ...] = (
         "SoSoValue OpenAPI（API key 必填，署名来源；ETF 流向等）",
         historical_limit_days=30,
     ),
+    SourceSpec(
+        "alternative", "Alternative.me", "PUBLIC",
+        "https://api.alternative.me",
+        {"req_per_min": 6},
+        "Alternative.me 公开 API（免费无 key，署名来源；Crypto Fear & Greed Index）",
+    ),
+    SourceSpec(
+        "coinmetrics", "Coin Metrics (Community)", "PUBLIC",
+        "https://community-api.coinmetrics.io",
+        {"req_per_min": 20},
+        "Coin Metrics 社区层公开 API（免费无 key；日频 asset-metrics："
+        "稳定币流通量/市值、BTC 地址数等）",
+    ),
+    SourceSpec(
+        "coinmarketcap", "CoinMarketCap (Public Data API)", "PUBLIC",
+        "https://api.coinmarketcap.com",
+        {"req_per_min": 30},
+        "CoinMarketCap 公开数据接口（免费无 key；全市场日频快照："
+        "BTC/ETH 市占率、总市值）",
+    ),
 )
 
 _UPSERT_SOURCE_SQL = """

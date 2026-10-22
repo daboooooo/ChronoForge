@@ -78,10 +78,10 @@ HTTPS_PROXY=http://127.0.0.1:7897 chronoforge pipeline run --dataset btcusdt-ohl
 
 ```bash
 chronoforge registry sync
-# Output: source_registry bootstrapped: 7 sources
+# Output: source_registry bootstrapped: 11 sources
 ```
 
-This populates `source_registry` in the SQLite metadata store with 7 pre-configured sources:
+This populates `source_registry` in the SQLite metadata store with 11 pre-configured sources:
 
 | source_id | Access Type | Description |
 |-----------|-------------|-------------|
@@ -92,6 +92,10 @@ This populates `source_registry` in the SQLite metadata store with 7 pre-configu
 | `yahoo` | PUBLIC | Yahoo Finance |
 | `fred` | PUBLIC_WITH_KEY | FRED macroeconomic data |
 | `sec_edgar` | PUBLIC | SEC EDGAR filings |
+| `sosovalue` | PUBLIC_WITH_KEY | SoSoValue US spot-crypto ETF flows |
+| `alternative` | PUBLIC | Alternative.me Fear & Greed Index |
+| `coinmetrics` | PUBLIC | Coin Metrics community asset-metrics (key optional) |
+| `coinmarketcap` | PUBLIC | CoinMarketCap global metrics (BTC dominance, market caps) |
 
 ### Step 2: Register Datasets
 
@@ -337,6 +341,127 @@ duckdb meta/query.duckdb -c "
 
 ---
 
+## Using the New Connectors (Alternative / Coin Metrics / CoinMarketCap)
+
+These three connectors cover sentiment, stablecoin supply and BTC market share. They are
+already implemented, registered and backfilled. This section documents how to re-run,
+extend and query them.
+
+### Do I need a registration script?
+
+**Yes — the per-source registration script is the intended entry point.**
+
+`chronoforge dataset add` covers the basics (source / type / entity / params / frequency /
+continuity), but the new connectors need more than that:
+
+| Need | `dataset add` | Registration script |
+|------|---------------|---------------------|
+| `available_from` (history start date) | ✗ not supported | ✓ written to `dataset_registry.available_from` |
+| Window-config pre-flight (`windows._get_config`) | ✗ | ✓ fails fast before the backfill instead of mid-run |
+| Idempotency + summary statistics | ✗ | ✓ skips already-registered entries, reports added / existed / failed |
+| Non-zero exit code on failure | ✗ | ✓ exit code 1 |
+
+The three scripts already exist and are idempotent — re-running them is safe:
+
+| Script | Datasets registered |
+|--------|--------------------|
+| `scripts/register_alternative_fng.py` | `alternative_fng_btc` |
+| `scripts/register_coinmarketcap_dominance.py` | `coinmarketcap_btc_dominance` |
+| `scripts/register_coinmetrics_metrics.py` | 6 Coin Metrics datasets (table below) |
+
+> The SoSoValue ETF source has its own script: `scripts/register_sosovalue_etfs.py`
+> (dynamic ticker discovery).
+
+```bash
+uv run python scripts/register_alternative_fng.py --dry-run   # preview only
+uv run python scripts/register_alternative_fng.py             # register (idempotent)
+```
+
+### Four-step usage
+
+**Step 1 — Register the dataset**
+
+```bash
+uv run python scripts/register_coinmetrics_metrics.py
+# 汇总统计
+#   共 6   条 | 新增 0   已存在 6   已更新 0   失败 0
+```
+
+`available_from` 一律取源端实际最早可回溯日（实测核对）。已注册但 `available_from`
+与脚本 spec 不一致时 → 同一 upsert 对齐并计入「已更新」：
+
+```text
+[UPDATE] coinmetrics_usdt_supply: available_from 2016-01-01 → 2014-10-06
+```
+
+**Step 2 — First run (history backfill)**
+
+`available_from` is registry metadata only — the pipeline does **not** read it — so the
+first run must pass `--start` explicitly:
+
+```bash
+chronoforge pipeline run --dataset alternative_fng_btc \
+  --mode incremental --start 2018-02-01
+```
+
+With no checkpoint yet, incremental mode starts from `--start` and walks the whole
+history; once a checkpoint exists, the cursor wins and `--start` is ignored (re-run is
+idempotent — an already-covered range is skipped).
+
+**Step 3 — Routine increments (no manual intervention)**
+
+```bash
+scripts/hourly_update.sh          # 前台常驻，每整点轮询一轮（到期才更新）
+scripts/hourly_update.sh run      # 只跑一轮全量更新后退出
+```
+
+This drives `scripts/backfill_datasets.py --due-only --window-seconds 21600` (loop mode;
+`run` mode drops `--due-only` for a full sweep). "Due" is derived from `frequency` + the
+last successful checkpoint + the source publish time (`alternative` / `coinmetrics` /
+`coinmarketcap` all publish at 00:10 UTC = 08:10 Beijing time), so each daily dataset is
+refreshed once per day.
+
+**Step 4 — Query**
+
+```bash
+chronoforge query --dataset coinmarketcap_btc_dominance \
+  --start 2026-10-15 --end 2026-10-20 \
+  --filters '{"entity":"global_btc_market_dominance"}' \
+  --json
+```
+
+> ⚠️ **`--filters` is required.** DuckDB views are created per canonical type
+> (`number`), not per dataset, so every NUMBER-type dataset shares one view. Without a
+> filter, querying `coinmarketcap_btc_dominance` also returns FRED / Alternative /
+> Coin Metrics rows. Scope with `--filters '{"entity":"<entity_id>"}'` (the entity_id of
+> each dataset is listed below); `"source"` and `"source_id"` also work.
+
+### Registered dataset list (all `NUMBER` canonical type, `1d` frequency)
+
+| dataset_id | entity_id (= source_id) | available_from | Source |
+|---|---|---|---|
+| `alternative_fng_btc` | `fng_btc` | 2018-02-01 | alternative |
+| `coinmarketcap_btc_dominance` | `global_btc_market_dominance` | 2013-04-29 | coinmarketcap |
+| `coinmetrics_usdt_supply` | `usdt_supply` | 2014-10-06 | coinmetrics |
+| `coinmetrics_usdt_market_cap` | `usdt_market_cap` | 2014-10-06 | coinmetrics |
+| `coinmetrics_usdc_supply` | `usdc_supply` | 2018-08-03 | coinmetrics |
+| `coinmetrics_usdc_market_cap` | `usdc_market_cap` | 2018-09-28 | coinmetrics |
+| `coinmetrics_btc_addresses_with_balance` | `btc_addresses_with_balance` | 2009-01-03 | coinmetrics |
+| `coinmetrics_btc_active_addresses` | `btc_active_addresses` | 2009-01-03 | coinmetrics |
+
+### Adding another Coin Metrics metric
+
+The Coin Metrics connector is generic — it accepts any `asset` + `metric` pair supported
+by the community API. To add a dataset, append a row to the `_SPECS` table in
+`scripts/register_coinmetrics_metrics.py` and run the script.
+
+Community-tier metrics used so far: `SplyCur` (circulating supply), `CapMrktCurUSD`
+(market cap), `AdrBalCnt` (addresses with balance), `AdrActCnt` (active addresses).
+Metrics outside the community tier (e.g. balance-tier breakdowns) require setting
+`COINMETRICS_API_KEY` to use the paid API.
+
+---
+
 ## Monitor & Maintain
 
 ```bash
@@ -377,7 +502,8 @@ chronoforge pipeline run --dataset btcusdt-ohlcv-1h --mode incremental
 │ (API)      │  (JSONL)        │  (Parquet) │  (SQLite)    │
 ├────────────┴─────────────────┴────────────┴──────────────┤
 │                    Data Sources                          │
-│  Binance │ Deribit │ CCXT │ Yahoo │ FRED │ SEC EDGAR     │
+│  Binance │ Deribit │ CCXT │ Yahoo │ FRED │ SEC EDGAR      │
+│  SoSoValue │ Alternative │ Coin Metrics │ CoinMarketCap    │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -435,6 +561,7 @@ cp .env.example .env
 # Edit .env with your API keys and proxy
 # Required at minimum:
 #   FRED_API_KEY        (for FRED data source)
+#   SOSOVALUE_API_KEY   (for SoSoValue ETF flows)
 #   CHRONOFORGE_SEC_CONTACT  (for SEC EDGAR User-Agent)
 #   HTTPS_PROXY         (for Binance access from China)
 ```
@@ -451,8 +578,13 @@ cp .env.example .env
 | `CHRONOFORGE_RETRY_MAX` | `5` | Max retry attempts (exponential backoff) |
 | `CHRONOFORGE_QUALITY_BLOCK` | `Q-SCHEMA-001,Q-PROV-001` | Quality rules that block ingestion |
 | `FRED_API_KEY` | *(empty)* | FRED API key (required for `fred` source) |
+| `SOSOVALUE_API_KEY` | *(empty)* | SoSoValue API key (required for `sosovalue` source) |
+| `COINMETRICS_API_KEY` | *(empty)* | Coin Metrics API key (optional — community tier is keyless; needed for paid-only metrics) |
 | `CHRONOFORGE_SEC_CONTACT` | *(empty)* | SEC EDGAR contact email |
 | `HTTPS_PROXY` | *(empty)* | HTTP proxy for API access (e.g., ClashVerge on port 7897) |
+
+> The `alternative` and `coinmarketcap` sources need **no key** — the public endpoints used
+> by their connectors are open.
 
 ---
 
@@ -555,7 +687,11 @@ chronoforge/
 │   │   ├── ccxt_bridge.py
 │   │   ├── yahoo.py
 │   │   ├── fred.py
-│   │   └── sec_edgar.py
+│   │   ├── sec_edgar.py
+│   │   ├── sosovalue.py        # US spot-crypto ETF flows
+│   │   ├── alternative.py      # Fear & Greed Index
+│   │   ├── coinmetrics.py      # On-chain / supply asset metrics
+│   │   └── coinmarketcap.py    # Global metrics (BTC dominance, market cap)
 │   ├── models/                 # Canonical data models
 │   │   ├── base.py             # BaseRecord (schema + provenance + quality)
 │   │   ├── enums.py            # CanonicalType enum (27 types)

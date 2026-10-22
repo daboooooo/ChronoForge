@@ -119,6 +119,21 @@ def build_connector(
                 context={"source": "sosovalue"},
             )
         return SoSoValueConnector(settings=settings)
+    if source_id == "alternative":
+        # 公开免费源（无 key）：Crypto Fear & Greed Index
+        from chronoforge.connectors.alternative import AlternativeConnector
+
+        return AlternativeConnector(settings=settings)
+    if source_id == "coinmetrics":
+        # 公开免费源（社区层无 key）；付费层可选（COINMETRICS_API_KEY）
+        from chronoforge.connectors.coinmetrics import CoinMetricsConnector
+
+        return CoinMetricsConnector(settings=settings)
+    if source_id == "coinmarketcap":
+        # 公开免费源（免 key）
+        from chronoforge.connectors.coinmarketcap import CoinMarketCapConnector
+
+        return CoinMarketCapConnector(settings=settings)
     if source_id == "sec_edgar":
         # SECEdgarConnector 需要 str 型 sec_contact_email（_SECSettings 结构）
         sec_settings = SimpleNamespace(

@@ -139,6 +139,13 @@ class Settings(BaseModel):
         default=SecretStr(""),
         description="SoSoValue API Key（启用 sosovalue 时必填）",
     )
+    coinmetrics_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description=(
+            "Coin Metrics API Key（可选：社区层免费无 key；"
+            "付费层用于余额分层地址数等社区层受限指标）"
+        ),
+    )
 
     # ── 测试注入（不映射 env，pydantic 忽略 __ 前缀字段）──
     rate_overrides__: dict[str, Any] = Field(default_factory=dict)
@@ -210,6 +217,16 @@ class Settings(BaseModel):
     @field_validator("sosovalue_api_key", mode="before")
     @classmethod
     def _parse_sosovalue_api_key(cls, v: Any) -> SecretStr:
+        """将 str → SecretStr（env 加载时自动转换）。"""
+        if isinstance(v, SecretStr):
+            return v
+        if isinstance(v, str):
+            return SecretStr(v)
+        return SecretStr(str(v))
+
+    @field_validator("coinmetrics_api_key", mode="before")
+    @classmethod
+    def _parse_coinmetrics_api_key(cls, v: Any) -> SecretStr:
         """将 str → SecretStr（env 加载时自动转换）。"""
         if isinstance(v, SecretStr):
             return v
@@ -293,6 +310,7 @@ class Settings(BaseModel):
             "ccxt_okx_secret": self.ccxt_okx_secret,
             "ccxt_okx_passphrase": self.ccxt_okx_passphrase,
             "sosovalue_api_key": self.sosovalue_api_key,
+            "coinmetrics_api_key": self.coinmetrics_api_key,
         }
         return cast(dict[str, Any], redact(data))
 
@@ -374,6 +392,7 @@ def _read_env_fields(cls_model: type[BaseModel]) -> dict[str, Any]:
         "ccxt_okx_secret": "CCXT_OKX_SECRET",
         "ccxt_okx_passphrase": "CCXT_OKX_PASSPHRASE",
         "sosovalue_api_key": "SOSOVALUE_API_KEY",
+        "coinmetrics_api_key": "COINMETRICS_API_KEY",
     }
 
     for field_name, env_name in env_mapping.items():

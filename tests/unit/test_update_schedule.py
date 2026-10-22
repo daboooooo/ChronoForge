@@ -3,6 +3,7 @@
 运营口径（北京时间 UTC+8）：
 - FRED 每日 16:10
 - Binance 系列（含 ccxt 桥接源）日线 08:00
+- Alternative.me / Coin Metrics / CoinMarketCap 日频值次日冻结，08:10 采集（T+1）
 - 其余数据源 00:00
 配置以 UTC 存储（UTC = 北京时间 − 8 小时），此处逐条锁定换算结果。
 """
@@ -40,6 +41,13 @@ class TestPublishTimeUtc:
         assert publish_time_utc(source_id) == time(0, 0)
 
     @pytest.mark.parametrize(
+        "source_id", ["alternative", "coinmetrics", "coinmarketcap"]
+    )
+    def test_daily_freezes_beijing_0810(self, source_id: str):
+        """Alternative/CoinMetrics/CoinMarketCap 日频值次日冻结 → 北京 08:10 = 00:10 UTC。"""
+        assert publish_time_utc(source_id) == time(0, 10)
+
+    @pytest.mark.parametrize(
         "source_id",
         ["deribit", "sosovalue", "yahoo", "", None, "unknown_source"],
     )
@@ -54,6 +62,9 @@ class TestPublishTimeUtc:
             "binance_spot": (8, 0),
             "binance_futures": (8, 0),
             "ccxt": (8, 0),
+            "alternative": (8, 10),
+            "coinmetrics": (8, 10),
+            "coinmarketcap": (8, 10),
         }
         assert set(SOURCE_PUBLISH_TIME_UTC) == set(beijing)
         for source_id, (hour, minute) in beijing.items():

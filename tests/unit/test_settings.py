@@ -172,6 +172,20 @@ class TestFieldParsing:
             settings.sosovalue_api_key.get_secret_value()
         ]
 
+    def test_coinmetrics_key_optional_and_secret(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Coin Metrics key：可选（社区层无 key），但仍按 SecretStr 脱敏。"""
+        settings = Settings.load()
+        assert settings.coinmetrics_api_key.is_empty()
+
+        monkeypatch.setenv("COINMETRICS_API_KEY", "cm-secret-key")
+        settings = Settings.load()
+        assert "cm-secret-key" not in repr(settings)
+        assert "cm-secret-key" not in str(settings.coinmetrics_api_key)
+        assert settings.coinmetrics_api_key.get_secret_value() == "cm-secret-key"
+        assert settings.dict_for_logging()["coinmetrics_api_key"] == "***"
+
 
 class TestDerived:
     """派生字段（D08 §1 sec_user_agent）。"""

@@ -35,6 +35,10 @@ ChronoForge/
 │   │   ├── yahoo.py
 │   │   ├── fred.py
 │   │   ├── sec_edgar.py
+│   │   ├── sosovalue.py       # US 现货加密 ETF 资金流
+│   │   ├── alternative.py     # Fear & Greed Index
+│   │   ├── coinmetrics.py     # 链上 / 供给 asset-metrics
+│   │   ├── coinmarketcap.py   # 全市场指标（BTC 市占率等）
 │   │   └── errors.py          # 错误映射（HTTP → 错误类）
 │   ├── storage/
 │   │   ├── base.py            # RawStore/CanonicalStore/DerivedStore/MetaStore 协议
