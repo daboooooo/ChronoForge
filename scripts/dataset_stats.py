@@ -241,8 +241,15 @@ def match_datasets(
         )
         if score:
             pool.append((score, d))
+    # 3) 类型级回退：无任何标识符/交易所参数的 dataset（如 treasury 拍卖，
+    #    entity 分区由记录内容自组织）命中该类型下任意分组
     if not pool:
-        return []
+        return [
+            d for d in cands
+            if _interval_ok(d, interval)
+            and not str(d["params"].get("exchange") or "")
+            and not _ident_variants(d["params"])
+        ]
     # 只保留特异度最高（最长标识符命中）的候选
     best = max(s for s, _ in pool)
     pool = [d for s, d in pool if s == best]

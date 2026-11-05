@@ -544,6 +544,56 @@ def test_tcp002_chunk_level_partial(tmp_stores, monkeypatch, exc_cls: type) -> N
     assert row.checkpoint_after == CHUNK1_END
 
 
+# ── 审计 C1 回归：normalize 错误率分母不得因异常吞没而退化为 0 ─────────
+
+
+def test_normalize_all_failures_blocks_checkpoint(tmp_stores, monkeypatch) -> None:
+    """全部 chunk normalize 抛异常 → QualityError + FAILED，checkpoint 不推进。
+
+    修复前 input_count=0 使阈值判定被短路，run 判 PARTIAL_SUCCESS 并推进
+    checkpoint，canonical 永久缺数。
+    """
+    h = _harness(
+        tmp_stores,
+        monkeypatch,
+        "normalize_all_fail",
+        connector=FakeConnector(fail_normalize_chunks={1, 2, 3}),
+    )
+    with pytest.raises(QualityError, match=r"72/72"):
+        h.runner.run(_make_job())
+    db = _run_log_row(h.meta, h.ctxs[0].run_id)
+    assert db["status"] == "FAILED"
+    assert db["checkpoint_after"] is None
+    assert h.meta.get_checkpoint(SOURCE_ID, DS_ID) is None
+    assert _canonical_rows(h.data_dir) == []
+
+
+def test_normalize_partial_failure_within_threshold_advances(
+    tmp_stores, monkeypatch
+) -> None:
+    """部分 chunk normalize 失败且错误率在阈值内（24/288 < 10%）→ 正常推进。"""
+    h = _harness(
+        tmp_stores,
+        monkeypatch,
+        "normalize_partial_ok",
+        connector=FakeConnector(fail_normalize_chunks={1}),
+    )
+    job = AcquisitionJob(
+        dataset_id=DS_ID,
+        start=JOB_START,
+        end=datetime(2024, 1, 12, 23, 0),
+        mode="backfill",
+        priority=0,
+        params={"symbol": "BTCUSDT", "interval": "1m"},
+    )
+    row = h.runner.run(job)
+    assert row.status == "PARTIAL_SUCCESS"
+    assert row.checkpoint_after == "2024-01-12T23:00:00"
+    assert h.meta.get_checkpoint(SOURCE_ID, DS_ID) == "2024-01-12T23:00:00"
+    # 失败 chunk 未产出，其余 11 chunk 正常入库
+    assert len(_canonical_rows(h.data_dir)) == 11 * 24
+
+
 # ── DEC-F0：首个 chunk 即失败 → FAILED（任务单裁决确认） ────────────────
 
 

@@ -134,6 +134,18 @@ def build_connector(
         from chronoforge.connectors.coinmarketcap import CoinMarketCapConnector
 
         return CoinMarketCapConnector(settings=settings)
+    if source_id == "treasury_fiscal":
+        # 美国财政部 Fiscal Data API（公开免 key；DTS/拍卖/MTS）
+        from chronoforge.connectors.treasury_fiscal import TreasuryFiscalConnector
+
+        return TreasuryFiscalConnector(settings=settings)
+    if source_id == "treasury_refunding":
+        # 财政部 Quarterly Refunding HTML 新闻稿（公开免 key）
+        from chronoforge.connectors.treasury_refunding import (
+            TreasuryRefundingConnector,
+        )
+
+        return TreasuryRefundingConnector(settings=settings)
     if source_id == "sec_edgar":
         # SECEdgarConnector 需要 str 型 sec_contact_email（_SECSettings 结构）
         sec_settings = SimpleNamespace(

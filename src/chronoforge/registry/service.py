@@ -104,6 +104,18 @@ DEFAULT_SOURCES: tuple[SourceSpec, ...] = (
         "CoinMarketCap 公开数据接口（免费无 key；全市场日频快照："
         "BTC/ETH 市占率、总市值）",
     ),
+    SourceSpec(
+        "treasury_fiscal", "U.S. Treasury Fiscal Data", "PUBLIC",
+        "https://api.fiscaldata.treasury.gov/services/api/fiscal_service",
+        {"req_per_min": 60},
+        "U.S. Treasury Fiscal Data API（美国政府公开数据；DTS/拍卖/MTS）",
+    ),
+    SourceSpec(
+        "treasury_refunding", "U.S. Treasury Quarterly Refunding", "PUBLIC",
+        "https://home.treasury.gov/policy-issues/financing-the-government/quarterly-refunding",
+        {"req_per_min": 6},
+        "财政部季度再融资公告（借款估计 + 现金余额假设；HTML 新闻稿）",
+    ),
 )
 
 _UPSERT_SOURCE_SQL = """

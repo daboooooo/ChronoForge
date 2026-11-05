@@ -1,0 +1,72 @@
+{
+  "data": [
+    {
+      "record_date": "2026-10-16",
+      "security_type": "Bill",
+      "security_term": "6-Week",
+      "reopening": "Yes",
+      "cusip": "912797VG9",
+      "offering_amt": "null",
+      "announcemt_date": "2026-10-22",
+      "auction_date": "2026-10-27",
+      "issue_date": "2026-10-29"
+    },
+    {
+      "record_date": "2026-10-16",
+      "security_type": "Note",
+      "security_term": "7-Year",
+      "reopening": "No",
+      "cusip": "91282CRV5",
+      "offering_amt": "null",
+      "announcemt_date": "2026-10-22",
+      "auction_date": "2026-10-29",
+      "issue_date": "2026-11-02"
+    },
+    {
+      "record_date": "2026-10-16",
+      "security_type": "Bill",
+      "security_term": "4-Week",
+      "reopening": "Yes",
+      "cusip": "912797VY0",
+      "offering_amt": "null",
+      "announcemt_date": "2026-10-20",
+      "auction_date": "2026-10-22",
+      "issue_date": "2026-10-27"
+    }
+  ],
+  "meta": {
+    "labels": {
+      "record_date": "Record Date",
+      "security_type": "Security Type",
+      "security_term": "Security Term",
+      "reopening": "Reopening",
+      "cusip": "CUSIP",
+      "offering_amt": "Offering Amount",
+      "announcemt_date": "Announcement Date",
+      "auction_date": "Auction Date",
+      "issue_date": "Issue Date"
+    },
+    "dataTypes": {
+      "record_date": "DATE",
+      "security_type": "STRING",
+      "security_term": "STRING",
+      "reopening": "STRING",
+      "cusip": "STRING",
+      "offering_amt": "CURRENCY",
+      "announcemt_date": "DATE",
+      "auction_date": "DATE",
+      "issue_date": "DATE"
+    },
+    "dataFormats": {
+      "record_date": "YYYY-MM-DD",
+      "security_type": "String",
+      "security_term": "String",
+      "reopening": "String",
+      "cusip": "String",
+      "offering_amt": "$10.20",
+      "announcemt_date": "YYYY-MM-DD",
+      "auction_date": "YYYY-MM-DD",
+      "issue_date": "YYYY-MM-DD"
+    }
+  }
+}

@@ -279,15 +279,21 @@ class TestSQLSnapshot:
         expected = get_base_view_names()
         actual = {ct.value.lower() for ct in CanonicalType}
         assert expected == actual
-        # 验证 27 个类型
-        assert len(CanonicalType) == 27
-        assert len(expected) == 27
+        # 验证 32 个类型（含 5 个 TGA Canonical Type）
+        assert len(CanonicalType) == 32
+        assert len(expected) == 32
 
     def test_asof_view_names_match_revision_types(self) -> None:
         """as-of 视图名与 REVISION_TYPES 一致。"""
         expected_asof = get_asof_view_names()
         actual_asof = {f"{ct.value.lower()}_asof" for ct in REVISION_TYPES}
         assert expected_asof == actual_asof
+
+    def test_revision_types_have_partition_map(self) -> None:
+        """每个 revision 类型都必须有 as-of 分区键（防止新增类型漏注册）。"""
+        from chronoforge.storage.views import _PARTITION_TIME_FIELD_MAP
+
+        assert set(REVISION_TYPES) <= set(_PARTITION_TIME_FIELD_MAP)
 
     def test_all_view_names_comprehensive(self) -> None:
         """get_all_view_names() 返回基础视图 + as-of 视图的完整集合。"""

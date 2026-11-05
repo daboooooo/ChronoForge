@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="scripts/generate_fdam_html.py">
+<title>FDAM：美联储双目标政策关注度模型</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false}],throwOnError:false});"></script>
+<style>
+:root{
+  --navy:#0b2239; --navy-2:#123a5c; --ink:#1d2a36; --muted:#5c6b7a;
+  --accent:#c9973c; --line:#e4e9ef; --bg:#f2f4f7; --card:#ffffff;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font:16px/1.75 "PingFang SC","Hiragino Sans GB","Microsoft YaHei",-apple-system,"Segoe UI",sans-serif;
+}
+.hero{
+  background:linear-gradient(135deg,#0b2239 0%,#123a5c 62%,#1b4a70 100%);
+  color:#fff; padding:56px 32px 48px;
+}
+.hero-inner{max-width:1280px; margin:0 auto}
+.hero-kicker{
+  margin:0; font-size:.75rem; letter-spacing:.32em; text-transform:uppercase;
+  color:var(--accent); font-weight:600;
+}
+h1.doc-title{
+  font-family:"Songti SC","Noto Serif SC","STSong",serif;
+  font-size:2.4rem; font-weight:700; margin:.35em 0 .25em;
+}
+.hero-sub{margin:0 0 28px; font-size:1.08rem; color:#c9d6e2}
+.hero-meta{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px}
+.meta-item{
+  background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.16);
+  border-radius:10px; padding:12px 16px;
+}
+.meta-item.wide{grid-column:1/-1}
+.meta-label{display:block; font-size:.72rem; letter-spacing:.22em; color:#9fb3c8; margin-bottom:4px}
+.meta-value{font-size:.92rem; color:#f2f6fa}
+.page{
+  max-width:1280px; margin:0 auto; padding:32px;
+  display:grid; grid-template-columns:270px minmax(0,1fr); gap:32px; align-items:start;
+}
+.sidebar{
+  position:sticky; top:24px; background:var(--card);
+  border:1px solid var(--line); border-radius:14px; padding:18px;
+  max-height:calc(100vh - 48px); overflow:auto;
+}
+.sidebar-title{
+  margin:0 0 10px; font-size:.78rem; letter-spacing:.25em; color:var(--muted);
+  text-transform:uppercase; font-weight:600;
+}
+.toc-list{list-style:none; margin:0; padding:0; font-size:.85rem}
+.toc-list a{display:block; padding:4px 8px; border-radius:6px; color:var(--muted); text-decoration:none}
+.toc-list a:hover{background:#eef2f6; color:var(--navy)}
+.toc-sec > a{font-weight:600; color:var(--navy)}
+.toc-sub{list-style:none; margin:2px 0 8px; padding-left:12px; border-left:2px solid var(--line)}
+.content{
+  background:var(--card); border:1px solid var(--line);
+  border-radius:14px; padding:48px 56px; min-width:0;
+}
+.content h2.section{
+  font-family:"Songti SC","Noto Serif SC","STSong",serif;
+  font-size:1.55rem; color:var(--navy); border-bottom:2px solid var(--navy);
+  padding-bottom:.4em; margin:2.2em 0 1em; scroll-margin-top:24px;
+}
+.content > h2.section:first-of-type{margin-top:0}
+.content h3{font-size:1.2rem; color:var(--navy-2); margin:1.8em 0 .8em; scroll-margin-top:24px}
+.content h4{font-size:1.02rem; margin:1.5em 0 .6em}
+.table-wrap{overflow-x:auto; margin:1.2em 0; border:1px solid var(--line); border-radius:10px}
+table{border-collapse:collapse; width:100%; font-size:.86rem; line-height:1.55}
+th{background:var(--navy); color:#fff; text-align:left; padding:9px 12px; font-weight:600; white-space:nowrap}
+td{padding:8px 12px; border-top:1px solid var(--line); vertical-align:top}
+tbody tr:nth-child(even){background:#f7f9fb}
+code{
+  font-family:"SF Mono",Menlo,Consolas,monospace; font-size:.88em;
+  background:#eef2f6; color:#0b3a5c; padding:.15em .4em; border-radius:5px;
+}
+pre.code-block{
+  background:#0f1b2a; color:#d9e4ee; padding:20px 24px; border-radius:12px;
+  overflow-x:auto; font-size:.82rem; line-height:1.6;
+}
+pre.code-block code{background:none; color:inherit; padding:0}
+.math-block{overflow-x:auto; padding:14px 8px; margin:1em 0; text-align:center; font-size:1.02rem}
+hr{border:0; border-top:1px solid var(--line); margin:2.5em 0}
+ul,ol{padding-left:1.6em}
+li{margin:.3em 0}
+strong{color:var(--navy)}
+.badge{display:inline-block; font-size:.72rem; font-weight:700; padding:.15em .65em; border-radius:999px; letter-spacing:.05em}
+.badge.p0{background:#fde8e4; color:#a4362a}
+.badge.p1{background:#e3edfb; color:#1d4ed8}
+.badge.p2{background:#e9edf1; color:#55606c}
+.doc-footer{margin-top:3em; padding-top:1.2em; border-top:1px solid var(--line); color:var(--muted); font-size:.8rem}
+.toc-mobile{display:none}
+@media (max-width:1080px){
+  .page{grid-template-columns:1fr; padding:16px}
+  .sidebar{display:none}
+  .toc-mobile{
+    display:block; background:#f7f9fb; border:1px solid var(--line);
+    border-radius:10px; padding:12px 16px; margin-bottom:1.5em;
+  }
+  .toc-mobile summary{cursor:pointer; font-weight:600; color:var(--navy)}
+  .content{padding:28px 22px}
+  h1.doc-title{font-size:1.7rem}
+}
+@media print{
+  body{background:#fff}
+  .sidebar,.toc-mobile{display:none}
+  .page{display:block; padding:0}
+  .content{border:0; padding:0}
+}
+</style>
+</head>
+<body>
+<header class="hero"><div class="hero-inner"><p class="hero-kicker">ChronoForge · 策略研究文档</p><h1 class="doc-title">FDAM：美联储双目标政策关注度模型</h1><div class="hero-meta"><div class="meta-item"><span class="meta-label">版本</span><span class="meta-value">1.0</span></div><div class="meta-item"><span class="meta-label">研究对象</span><span class="meta-value">美国联邦储备委员会及联邦公开市场委员会（FOMC）</span></div><div class="meta-item wide"><span class="meta-label">研究目标</span><span class="meta-value">判断当前美联储的政策压力更偏向通胀还是就业，并通过历史数据估计模型参数，再利用主席的议息会议后新闻发布会实录进行动态校准。</span></div></div></div></header>
+<div class="page">
+  <aside class="sidebar">
+    <p class="sidebar-title">目录</p>
+    <nav class="toc"><ul class="toc-list"><li class="toc-sec"><a href="#sec-1">一、研究目标与基本原则</a><ul class="toc-sub"><li><a href="#sec-1-1">1.1 核心研究问题</a></li><li><a href="#sec-1-2">1.2 必须遵守的研究原则</a></li></ul></li><li class="toc-sec"><a href="#sec-2">二、数据采集总体清单</a></li><li class="toc-sec"><a href="#sec-3">三、D1：通胀与价格指数数据</a><ul class="toc-sub"><li><a href="#sec-3-1">3.1 原始数据清单</a></li><li><a href="#sec-3-2">3.2 衍生变量</a></li><li><a href="#sec-3-3">3.3 数据使用规则</a></li></ul></li><li class="toc-sec"><a href="#sec-4">四、D2：就业与劳动力市场数据</a><ul class="toc-sub"><li><a href="#sec-4-1">4.1 原始数据清单</a></li><li><a href="#sec-4-2">4.2 必须生成的衍生变量</a></li><li><a href="#sec-4-3">4.3 动态均衡失业率</a></li></ul></li><li class="toc-sec"><a href="#sec-5">五、D3：经济增长与总需求数据</a><ul class="toc-sub"><li><a href="#sec-5-1">5.1 原始数据</a></li><li><a href="#sec-5-2">5.2 衍生变量</a></li><li><a href="#sec-5-3">5.3 使用规则</a></li></ul></li><li class="toc-sec"><a href="#sec-6">六、D4：货币政策与利率数据</a><ul class="toc-sub"><li><a href="#sec-6-1">6.1 原始数据</a></li><li><a href="#sec-6-2">6.2 必须采集的政策事件</a></li></ul></li><li class="toc-sec"><a href="#sec-7">七、D5：中性利率和均衡失业率参考数据</a></li><li class="toc-sec"><a href="#sec-8">八、D6：FOMC 决策和经济预测数据库</a><ul class="toc-sub"><li><a href="#sec-8-1">8.1 必须下载的官方资料</a></li><li><a href="#sec-8-2">8.2 会议事件表字段</a></li></ul></li><li class="toc-sec"><a href="#sec-9">九、D7：主席新闻发布会文本数据库</a><ul class="toc-sub"><li><a href="#sec-9-1">9.1 采集范围</a></li><li><a href="#sec-9-2">9.2 文本数据库字段</a></li><li><a href="#sec-9-3">9.3 文本特征数据库</a></li></ul></li><li class="toc-sec"><a href="#sec-10">十、统一数据结构和历史版本管理</a><ul class="toc-sub"><li><a href="#sec-10-1">10.1 原始数据表</a></li><li><a href="#sec-10-2">10.2 实时可用数据集</a></li><li><a href="#sec-10-3">10.3 数据质量规则</a></li></ul></li><li class="toc-sec"><a href="#sec-11">十一、历史参数评估的总体方案</a></li><li class="toc-sec"><a href="#sec-12">十二、第一阶段：描述性分析</a><ul class="toc-sub"><li><a href="#sec-12-1">12.1 统计特征</a></li><li><a href="#sec-12-2">12.2 周期与制度分析</a></li><li><a href="#sec-12-3">12.3 相关性分析</a></li></ul></li><li class="toc-sec"><a href="#sec-13">十三、第二阶段：建立历史基准模型</a><ul class="toc-sub"><li><a href="#sec-13-1">13.1 模型 A：简单双目标偏离模型</a></li><li><a href="#sec-13-2">13.2 模型 B：加入趋势与经济周期变量</a></li><li><a href="#sec-13-3">13.3 模型 C：利率平滑模型</a></li></ul></li><li class="toc-sec"><a href="#sec-14">十四、第三阶段：将系数转换为可比较的关注权重</a><ul class="toc-sub"><li><a href="#sec-14-1">14.1 标准化经济变量</a></li><li><a href="#sec-14-2">14.2 估计标准化系数</a></li><li><a href="#sec-14-3">14.3 计算历史相对敏感度</a></li></ul></li><li class="toc-sec"><a href="#sec-15">十五、第四阶段：滚动估计与参数稳定性</a></li><li class="toc-sec"><a href="#sec-16">十六、第五阶段：构建真正的样本外回测</a><ul class="toc-sub"><li><a href="#sec-16-1">16.1 预测任务</a></li><li><a href="#sec-16-2">16.2 时间序列验证</a></li><li><a href="#sec-16-3">16.3 评价指标</a></li><li><a href="#sec-16-4">16.4 与基准模型比较</a></li></ul></li><li class="toc-sec"><a href="#sec-17">十七、主席文本分析的参数校准方案</a><ul class="toc-sub"><li><a href="#sec-17-1">17.1 文本模型输入</a></li><li><a href="#sec-17-2">17.2 人工标注</a></li><li><a href="#sec-17-3">17.3 文本信号与历史参数融合</a></li><li><a href="#sec-17-4">17.4 文本更新系数的评估</a></li></ul></li><li class="toc-sec"><a href="#sec-18">十八、文本模型与历史回归的最终验收标准</a><ul class="toc-sub"><li><a href="#sec-18-1">验收 A：文本分类质量</a></li><li><a href="#sec-18-2">验收 B：历史参数稳定性</a></li><li><a href="#sec-18-3">验收 C：样本外预测增量</a></li><li><a href="#sec-18-4">验收 D：可追溯性</a></li><li><a href="#sec-18-5">验收 E：降级机制</a></li></ul></li><li class="toc-sec"><a href="#sec-19">十九、推荐的项目目录</a></li><li class="toc-sec"><a href="#sec-20">二十、建议的实施顺序与交付物</a><ul class="toc-sub"><li><a href="#sec-20-1">阶段一：数据采集</a></li><li><a href="#sec-20-2">阶段二：历史参数估计</a></li><li><a href="#sec-20-3">阶段三：文本分析</a></li><li><a href="#sec-20-4">阶段四：动态校准</a></li></ul></li><li class="toc-sec"><a href="#sec-21">二十一、最终报告格式</a><ul class="toc-sub"><li><a href="#sec-21-1">A. 当前经济状态</a></li><li><a href="#sec-21-2">B. 历史参数</a></li><li><a href="#sec-21-3">C. 主席文本分析</a></li><li><a href="#sec-21-4">D. 融合结果</a></li><li><a href="#sec-21-5">E. 预测表现</a></li><li><a href="#sec-21-6">F. 结论</a></li></ul></li><li class="toc-sec"><a href="#sec-22">二十二、项目完成的最终定义</a></li></ul></nav>
+  </aside>
+  <main class="content">
+    <details class="toc-mobile"><summary>目录</summary><nav class="toc"><ul class="toc-list"><li class="toc-sec"><a href="#sec-1">一、研究目标与基本原则</a><ul class="toc-sub"><li><a href="#sec-1-1">1.1 核心研究问题</a></li><li><a href="#sec-1-2">1.2 必须遵守的研究原则</a></li></ul></li><li class="toc-sec"><a href="#sec-2">二、数据采集总体清单</a></li><li class="toc-sec"><a href="#sec-3">三、D1：通胀与价格指数数据</a><ul class="toc-sub"><li><a href="#sec-3-1">3.1 原始数据清单</a></li><li><a href="#sec-3-2">3.2 衍生变量</a></li><li><a href="#sec-3-3">3.3 数据使用规则</a></li></ul></li><li class="toc-sec"><a href="#sec-4">四、D2：就业与劳动力市场数据</a><ul class="toc-sub"><li><a href="#sec-4-1">4.1 原始数据清单</a></li><li><a href="#sec-4-2">4.2 必须生成的衍生变量</a></li><li><a href="#sec-4-3">4.3 动态均衡失业率</a></li></ul></li><li class="toc-sec"><a href="#sec-5">五、D3：经济增长与总需求数据</a><ul class="toc-sub"><li><a href="#sec-5-1">5.1 原始数据</a></li><li><a href="#sec-5-2">5.2 衍生变量</a></li><li><a href="#sec-5-3">5.3 使用规则</a></li></ul></li><li class="toc-sec"><a href="#sec-6">六、D4：货币政策与利率数据</a><ul class="toc-sub"><li><a href="#sec-6-1">6.1 原始数据</a></li><li><a href="#sec-6-2">6.2 必须采集的政策事件</a></li></ul></li><li class="toc-sec"><a href="#sec-7">七、D5：中性利率和均衡失业率参考数据</a></li><li class="toc-sec"><a href="#sec-8">八、D6：FOMC 决策和经济预测数据库</a><ul class="toc-sub"><li><a href="#sec-8-1">8.1 必须下载的官方资料</a></li><li><a href="#sec-8-2">8.2 会议事件表字段</a></li></ul></li><li class="toc-sec"><a href="#sec-9">九、D7：主席新闻发布会文本数据库</a><ul class="toc-sub"><li><a href="#sec-9-1">9.1 采集范围</a></li><li><a href="#sec-9-2">9.2 文本数据库字段</a></li><li><a href="#sec-9-3">9.3 文本特征数据库</a></li></ul></li><li class="toc-sec"><a href="#sec-10">十、统一数据结构和历史版本管理</a><ul class="toc-sub"><li><a href="#sec-10-1">10.1 原始数据表</a></li><li><a href="#sec-10-2">10.2 实时可用数据集</a></li><li><a href="#sec-10-3">10.3 数据质量规则</a></li></ul></li><li class="toc-sec"><a href="#sec-11">十一、历史参数评估的总体方案</a></li><li class="toc-sec"><a href="#sec-12">十二、第一阶段：描述性分析</a><ul class="toc-sub"><li><a href="#sec-12-1">12.1 统计特征</a></li><li><a href="#sec-12-2">12.2 周期与制度分析</a></li><li><a href="#sec-12-3">12.3 相关性分析</a></li></ul></li><li class="toc-sec"><a href="#sec-13">十三、第二阶段：建立历史基准模型</a><ul class="toc-sub"><li><a href="#sec-13-1">13.1 模型 A：简单双目标偏离模型</a></li><li><a href="#sec-13-2">13.2 模型 B：加入趋势与经济周期变量</a></li><li><a href="#sec-13-3">13.3 模型 C：利率平滑模型</a></li></ul></li><li class="toc-sec"><a href="#sec-14">十四、第三阶段：将系数转换为可比较的关注权重</a><ul class="toc-sub"><li><a href="#sec-14-1">14.1 标准化经济变量</a></li><li><a href="#sec-14-2">14.2 估计标准化系数</a></li><li><a href="#sec-14-3">14.3 计算历史相对敏感度</a></li></ul></li><li class="toc-sec"><a href="#sec-15">十五、第四阶段：滚动估计与参数稳定性</a></li><li class="toc-sec"><a href="#sec-16">十六、第五阶段：构建真正的样本外回测</a><ul class="toc-sub"><li><a href="#sec-16-1">16.1 预测任务</a></li><li><a href="#sec-16-2">16.2 时间序列验证</a></li><li><a href="#sec-16-3">16.3 评价指标</a></li><li><a href="#sec-16-4">16.4 与基准模型比较</a></li></ul></li><li class="toc-sec"><a href="#sec-17">十七、主席文本分析的参数校准方案</a><ul class="toc-sub"><li><a href="#sec-17-1">17.1 文本模型输入</a></li><li><a href="#sec-17-2">17.2 人工标注</a></li><li><a href="#sec-17-3">17.3 文本信号与历史参数融合</a></li><li><a href="#sec-17-4">17.4 文本更新系数的评估</a></li></ul></li><li class="toc-sec"><a href="#sec-18">十八、文本模型与历史回归的最终验收标准</a><ul class="toc-sub"><li><a href="#sec-18-1">验收 A：文本分类质量</a></li><li><a href="#sec-18-2">验收 B：历史参数稳定性</a></li><li><a href="#sec-18-3">验收 C：样本外预测增量</a></li><li><a href="#sec-18-4">验收 D：可追溯性</a></li><li><a href="#sec-18-5">验收 E：降级机制</a></li></ul></li><li class="toc-sec"><a href="#sec-19">十九、推荐的项目目录</a></li><li class="toc-sec"><a href="#sec-20">二十、建议的实施顺序与交付物</a><ul class="toc-sub"><li><a href="#sec-20-1">阶段一：数据采集</a></li><li><a href="#sec-20-2">阶段二：历史参数估计</a></li><li><a href="#sec-20-3">阶段三：文本分析</a></li><li><a href="#sec-20-4">阶段四：动态校准</a></li></ul></li><li class="toc-sec"><a href="#sec-21">二十一、最终报告格式</a><ul class="toc-sub"><li><a href="#sec-21-1">A. 当前经济状态</a></li><li><a href="#sec-21-2">B. 历史参数</a></li><li><a href="#sec-21-3">C. 主席文本分析</a></li><li><a href="#sec-21-4">D. 融合结果</a></li><li><a href="#sec-21-5">E. 预测表现</a></li><li><a href="#sec-21-6">F. 结论</a></li></ul></li><li class="toc-sec"><a href="#sec-22">二十二、项目完成的最终定义</a></li></ul></nav></details>
+    <h2 id="sec-1" class="section">一、研究目标与基本原则</h2>
+<h3 id="sec-1-1">1.1 核心研究问题</h3>
+<p>模型需要回答五个问题：</p>
+<ol><li>当前通胀距离长期目标有多远？</li><li>当前就业市场距离充分就业状态有多远？</li><li>历史上，美联储的利率决策对通胀与就业变化分别有多敏感？</li><li>主席最新新闻发布会是否显示政策关注重点发生变化？</li><li>将文本信息加入模型后，能否改善对未来 FOMC 政策决策的样本外预测？</li></ol>
+<p>最终输出：</p>
+<ul><li>通胀压力指数。</li><li>就业压力指数。</li><li>历史政策反应权重。</li><li>主席文本关注度指数。</li><li>动态通胀与就业相对权重。</li><li>加息、降息或维持利率的预测概率。</li><li>模型置信度和参数不确定性。</li></ul>
+<h3 id="sec-1-2">1.2 必须遵守的研究原则</h3>
+<h4>原则 A：区分经济状态与政策关注度</h4>
+<p>通胀偏离目标的程度，不等于美联储对通胀的关注度。</p>
+<p>失业率上升的幅度，也不等于美联储对就业的关注度。</p>
+<p>模型必须分别计算经济压力和政策反应。</p>
+<h4>原则 B：不将 4% 失业率视为固定官方目标</h4>
+<p>通胀长期目标采用 2%。</p>
+<p>就业参考值采用动态均衡失业率估计，并以固定 4% 参考值作为基准模型的对照组。</p>
+<p>不得将 4% 失业率描述为美联储正式承诺的就业目标。</p>
+<h4>原则 C：区分历史政策行为和当前政策沟通</h4>
+<p>历史数据模型负责估计过去的政策反应。</p>
+<p>新闻发布会模型负责识别当前政策沟通中的风险重点。</p>
+<p>文本信号只能在经过历史验证后影响动态权重。</p>
+<h4>原则 D：禁止未来信息泄漏</h4>
+<p>任何历史预测只能使用预测时点已经公开的数据。</p>
+<p>必须区分：</p>
+<ul><li>数据所属日期。</li><li>数据发布日期。</li><li>数据实际采集日期。</li><li>历史数据版本日期。</li></ul>
+<p>对于历史决策回测，优先使用当时可获得的数据版本。</p>
+<h4>原则 E：保留模型不确定性</h4>
+<p>不得只输出一个看似精确的关注度百分比。</p>
+<p>必须同时报告参数估计区间、样本外预测表现、数据完整性和模型局限。</p>
+<hr>
+<h2 id="sec-2" class="section">二、数据采集总体清单</h2>
+<p>数据分为七组。</p>
+<div class="table-wrap"><table><thead><tr><th>编号</th><th>数据组</th><th>优先级</th><th>主要用途</th></tr></thead><tbody><tr><td>D1</td><td>通胀与价格指数</td><td><span class="badge p0">P0</span></td><td>衡量物价稳定目标偏离</td></tr><tr><td>D2</td><td>就业与劳动力市场</td><td><span class="badge p0">P0</span></td><td>衡量就业目标偏离</td></tr><tr><td>D3</td><td>经济增长与总需求</td><td><span class="badge p1">P1</span></td><td>控制经济周期影响</td></tr><tr><td>D4</td><td>货币政策与利率</td><td><span class="badge p0">P0</span></td><td>估计历史政策反应</td></tr><tr><td>D5</td><td>中性利率及均衡就业估计</td><td><span class="badge p1">P1</span></td><td>建立动态参考目标</td></tr><tr><td>D6</td><td>FOMC 决策与经济预测</td><td><span class="badge p0">P0</span></td><td>建立会议事件数据库</td></tr><tr><td>D7</td><td>主席新闻发布会与政策文本</td><td><span class="badge p0">P0</span></td><td>识别政策关注点并校准参数</td></tr></tbody></table></div>
+<p>P0 表示第一版模型必须具备。</p>
+<p>P1 表示推荐采集，用于改善模型可靠性。</p>
+<p>P2 表示扩展项目，可在基础模型通过测试后加入。</p>
+<hr>
+<h2 id="sec-3" class="section">三、D1：通胀与价格指数数据</h2>
+<h3 id="sec-3-1">3.1 原始数据清单</h3>
+<div class="table-wrap"><table><thead><tr><th>字段名</th><th>FRED 系列代码</th><th>频率</th><th>用途</th><th>优先级</th></tr></thead><tbody><tr><td>pce_price_index</td><td>PCEPI</td><td>月度</td><td>总体 PCE 价格指数</td><td><span class="badge p0">P0</span></td></tr><tr><td>core_pce_price_index</td><td>PCEPILFE</td><td>月度</td><td>核心 PCE 价格指数</td><td><span class="badge p0">P0</span></td></tr><tr><td>cpi</td><td>CPIAUCSL</td><td>月度</td><td>总体 CPI</td><td><span class="badge p1">P1</span></td></tr><tr><td>core_cpi</td><td>CPILFESL</td><td>月度</td><td>核心 CPI</td><td><span class="badge p1">P1</span></td></tr><tr><td>gdp_deflator</td><td>GDPDEF</td><td>季度</td><td>GDP 价格指数</td><td><span class="badge p2">P2</span></td></tr><tr><td>breakeven_5y</td><td>T5YIE</td><td>日度</td><td>5 年期市场隐含通胀补偿</td><td><span class="badge p1">P1</span></td></tr><tr><td>breakeven_10y</td><td>T10YIE</td><td>日度</td><td>10 年期市场隐含通胀补偿</td><td><span class="badge p1">P1</span></td></tr><tr><td>michigan_inflation_expectations</td><td>MICH</td><td>月度</td><td>消费者通胀预期辅助指标</td><td><span class="badge p1">P1</span></td></tr></tbody></table></div>
+<p>采集时必须保存每个系列的官方名称、单位、季节调整方式、来源机构、首次可用日期和最新可用日期。</p>
+<p>如果某个系列在指定历史区间不存在，不得自动填充虚构数据，应记录缺失原因并调整该模型的可用样本。</p>
+<h3 id="sec-3-2">3.2 衍生变量</h3>
+<p>必须生成：</p>
+<div class="table-wrap"><table><thead><tr><th>字段名</th><th>定义</th><th>用途</th></tr></thead><tbody><tr><td>pce_yoy</td><td>总体 PCE 同比变化率</td><td>主要通胀指标</td></tr><tr><td>core_pce_yoy</td><td>核心 PCE 同比变化率</td><td>基础通胀趋势</td></tr><tr><td>pce_3m_annualized</td><td>总体 PCE 三个月年化变化率</td><td>短期通胀趋势</td></tr><tr><td>core_pce_3m_annualized</td><td>核心 PCE 三个月年化变化率</td><td>核心通胀短期趋势</td></tr><tr><td>pce_gap</td><td>pce_yoy - 2</td><td>通胀目标偏离</td></tr><tr><td>core_pce_gap</td><td>core_pce_yoy - 2</td><td>核心通胀目标偏离</td></tr><tr><td>inflation_acceleration</td><td>当前通胀与过去三个月趋势的差值</td><td>通胀加速识别</td></tr><tr><td>inflation_expectations_gap</td><td>通胀预期与 2% 的差值</td><td>预期脱锚风险</td></tr></tbody></table></div>
+<p>同比通胀：</p>
+<div class="math-block">\[\pi_t=100\left(\frac{P_t}{P_{t-12}}-1\right)\]</div>
+<p>三个月年化通胀：</p>
+<div class="math-block">\[\pi_{t,3m}
+=100\left[\left(\frac{P_t}{P_{t-3}}\right)^4-1\right]\]</div>
+<p>其中，\(P_t\) 为相应价格指数。</p>
+<p>三个月年化指标必须明确标记为短期趋势估计，不能直接替代美联储的长期通胀目标。</p>
+<h3 id="sec-3-3">3.3 数据使用规则</h3>
+<ol><li>总体 PCE 是主要目标指标。</li><li>核心 PCE 用于识别潜在通胀压力。</li><li>CPI 只作为补充，不得直接替代 PCE。</li><li>通胀预期指标不能与实际通胀率直接相加。</li><li>对通胀低于 2% 的情况，必须保留偏离方向。</li><li>不得简单使用绝对值后丢弃方向，因为通胀过高与通胀过低可能对应不同政策压力。</li></ol>
+<hr>
+<h2 id="sec-4" class="section">四、D2：就业与劳动力市场数据</h2>
+<h3 id="sec-4-1">4.1 原始数据清单</h3>
+<div class="table-wrap"><table><thead><tr><th>字段名</th><th>FRED 系列代码</th><th>频率</th><th>用途</th><th>优先级</th></tr></thead><tbody><tr><td>unemployment_rate</td><td>UNRATE</td><td>月度</td><td>核心就业指标</td><td><span class="badge p0">P0</span></td></tr><tr><td>nonfarm_payrolls</td><td>PAYEMS</td><td>月度</td><td>非农就业人数</td><td><span class="badge p0">P0</span></td></tr><tr><td>labor_force_participation</td><td>CIVPART</td><td>月度</td><td>劳动参与率</td><td><span class="badge p1">P1</span></td></tr><tr><td>employment_population_ratio</td><td>EMRATIO</td><td>月度</td><td>就业人口比</td><td><span class="badge p1">P1</span></td></tr><tr><td>initial_claims</td><td>ICSA</td><td>周度</td><td>初次失业救济申请</td><td><span class="badge p1">P1</span></td></tr><tr><td>continued_claims</td><td>CCSA</td><td>周度</td><td>持续失业救济申请</td><td><span class="badge p1">P1</span></td></tr><tr><td>job_openings_rate</td><td>JTS1000JOL</td><td>月度</td><td>职位空缺率</td><td><span class="badge p1">P1</span></td></tr><tr><td>average_hourly_earnings</td><td>CES0500000003</td><td>月度</td><td>平均时薪</td><td><span class="badge p1">P1</span></td></tr></tbody></table></div>
+<p>职位空缺率系列必须核对当前 FRED 元数据，确认其行业覆盖范围、单位及历史起始日期。</p>
+<p>如果行业覆盖范围发生变化，应在数据字典中记录。</p>
+<h3 id="sec-4-2">4.2 必须生成的衍生变量</h3>
+<div class="table-wrap"><table><thead><tr><th>字段名</th><th>计算方式</th><th>用途</th></tr></thead><tbody><tr><td>unemployment_gap_fixed</td><td>失业率 - 4%</td><td>固定参考值基准模型</td></tr><tr><td>unemployment_gap_dynamic</td><td>失业率 - 动态均衡参考值</td><td>主模型</td></tr><tr><td>unemployment_change_3m</td><td>当前失业率 - 三个月前失业率</td><td>识别就业恶化速度</td></tr><tr><td>unemployment_change_6m</td><td>当前失业率 - 六个月前失业率</td><td>识别中期趋势</td></tr><tr><td>payroll_change_1m</td><td>非农就业人数月度变化</td><td>当月就业增长</td></tr><tr><td>payroll_change_3m_avg</td><td>最近三个月非农就业月均增量</td><td>平滑就业噪声</td></tr><tr><td>payroll_growth_12m</td><td>非农就业人数同比增速</td><td>中期就业趋势</td></tr><tr><td>claims_4w_avg</td><td>初次失业救济申请四周平均值</td><td>识别裁员趋势</td></tr><tr><td>wage_growth_yoy</td><td>平均时薪同比增速</td><td>工资压力辅助指标</td></tr><tr><td>vacancies_change</td><td>职位空缺变化</td><td>劳动力需求变化</td></tr></tbody></table></div>
+<p>就业压力必须同时考虑水平和变化速度。</p>
+<p>例如：</p>
+<ul><li>失业率水平较高但稳定。</li><li>失业率仍然不高但快速上升。</li></ul>
+<p>这两种状态不能被模型视为完全相同。</p>
+<h3 id="sec-4-3">4.3 动态均衡失业率</h3>
+<p>建议设置两个版本：</p>
+<p><strong>基准版本：</strong></p>
+<div class="math-block">\[G_{u,t}^{fixed}=u_t-4\%\]</div>
+<p><strong>动态版本：</strong></p>
+<div class="math-block">\[G_{u,t}^{dynamic}=u_t-u_t^*\]</div>
+<p>其中，\(u_t^*\) 是自然失业率或长期均衡失业率的估计值。</p>
+<p>可使用 CBO 等机构发布的自然失业率估计作为外部参考。</p>
+<p>必须保存参考值的发布日期和历史版本。</p>
+<p>不能使用未来公布的均衡失业率估计，回填为历史会议当时已知的值。</p>
+<hr>
+<h2 id="sec-5" class="section">五、D3：经济增长与总需求数据</h2>
+<h3 id="sec-5-1">5.1 原始数据</h3>
+<div class="table-wrap"><table><thead><tr><th>字段名</th><th>FRED 系列代码</th><th>频率</th><th>用途</th><th>优先级</th></tr></thead><tbody><tr><td>real_gdp</td><td>GDPC1</td><td>季度</td><td>实际 GDP</td><td><span class="badge p1">P1</span></td></tr><tr><td>real_pce</td><td>PCEC96</td><td>月度</td><td>实际个人消费支出</td><td><span class="badge p1">P1</span></td></tr><tr><td>industrial_production</td><td>INDPRO</td><td>月度</td><td>工业生产</td><td><span class="badge p1">P1</span></td></tr><tr><td>personal_saving_rate</td><td>PSAVERT</td><td>月度</td><td>居民储蓄率</td><td><span class="badge p2">P2</span></td></tr><tr><td>yield_spread_10y_3m</td><td>T10Y3M</td><td>日度</td><td>收益率曲线状态</td><td><span class="badge p2">P2</span></td></tr><tr><td>treasury_yield_2y</td><td>GS2</td><td>月度</td><td>短期政策预期辅助指标</td><td><span class="badge p2">P2</span></td></tr><tr><td>treasury_yield_10y</td><td>GS10</td><td>月度</td><td>长期利率环境</td><td><span class="badge p2">P2</span></td></tr></tbody></table></div>
+<h3 id="sec-5-2">5.2 衍生变量</h3>
+<p>至少生成：</p>
+<ul><li>实际 GDP 同比增长率。</li><li>实际 GDP 季度年化增长率。</li><li>实际消费同比增长率。</li><li>工业生产同比增长率。</li><li>产出缺口。</li><li>经济增长减速指标。</li></ul>
+<p>产出缺口应优先采用有明确发布日期的外部估计。</p>
+<p>如果使用自行估计的产出缺口，必须单独标记为模型估计值，不得与官方统计值混淆。</p>
+<h3 id="sec-5-3">5.3 使用规则</h3>
+<p>经济增长变量用于控制经济周期影响。</p>
+<p>它们不直接代表美联储的双目标之一。</p>
+<p>不能因为 GDP 增长放缓，就直接提高就业关注度；必须结合就业数据和政策反应进行判断。</p>
+<hr>
+<h2 id="sec-6" class="section">六、D4：货币政策与利率数据</h2>
+<h3 id="sec-6-1">6.1 原始数据</h3>
+<div class="table-wrap"><table><thead><tr><th>字段名</th><th>来源</th><th>频率</th><th>用途</th><th>优先级</th></tr></thead><tbody><tr><td>effective_fed_funds_rate</td><td>EFFR</td><td>日度</td><td>实际有效联邦基金利率</td><td><span class="badge p0">P0</span></td></tr><tr><td>target_rate_lower</td><td>FOMC 声明及实施说明</td><td>会议级</td><td>目标区间下限</td><td><span class="badge p0">P0</span></td></tr><tr><td>target_rate_upper</td><td>FOMC 声明及实施说明</td><td>会议级</td><td>目标区间上限</td><td><span class="badge p0">P0</span></td></tr><tr><td>policy_rate_midpoint</td><td>根据目标区间计算</td><td>会议级</td><td>主要政策结果变量</td><td><span class="badge p0">P0</span></td></tr><tr><td>policy_rate_change</td><td>相邻会议中点之差</td><td>会议级</td><td>加息、降息或维持</td><td><span class="badge p0">P0</span></td></tr><tr><td>reserve_balance</td><td>H.4.1 / FRED 对应系列</td><td>周度</td><td>银行准备金环境辅助指标</td><td><span class="badge p2">P2</span></td></tr><tr><td>fed_assets</td><td>H.4.1 / FRED 对应系列</td><td>周度</td><td>美联储资产负债表辅助指标</td><td><span class="badge p2">P2</span></td></tr></tbody></table></div>
+<p>对于利率目标区间中点：</p>
+<div class="math-block">\[i_t=\frac{i_t^{lower}+i_t^{upper}}{2}\]</div>
+<p>相邻会议的政策利率变化：</p>
+<div class="math-block">\[\Delta i_t=i_t-i_{t-1}\]</div>
+<p>分类标签：</p>
+<ul><li><code>hike</code>：目标区间中点上升。</li><li><code>cut</code>：目标区间中点下降。</li><li><code>hold</code>：目标区间中点不变。</li></ul>
+<p>政策利率必须以 FOMC 决策为准。</p>
+<p>EFFR 仅作为实际市场利率的补充指标。</p>
+<h3 id="sec-6-2">6.2 必须采集的政策事件</h3>
+<p>每次会议记录：</p>
+<ul><li>会议开始日期。</li><li>会议结束日期。</li><li>政策声明发布时间。</li><li>新闻发布会时间。</li><li>目标利率区间。</li><li>区间变化幅度。</li><li>是否召开新闻发布会。</li><li>是否发布 SEP。</li><li>是否存在重要政策框架变化。</li><li>是否存在紧急会议或会议间政策调整。</li></ul>
+<p>必须单独处理会议间紧急降息、特殊流动性措施和其他非常规政策行动。</p>
+<hr>
+<h2 id="sec-7" class="section">七、D5：中性利率和均衡失业率参考数据</h2>
+<p>这一组数据用于改善模型的目标偏离计算。</p>
+<div class="table-wrap"><table><thead><tr><th>字段名</th><th>来源</th><th>用途</th><th>优先级</th></tr></thead><tbody><tr><td>natural_unemployment_rate</td><td>CBO 等机构公开估计</td><td>动态失业率参考值</td><td><span class="badge p1">P1</span></td></tr><tr><td>neutral_real_rate</td><td>公开的中性利率估计系列</td><td>中性利率参考</td><td><span class="badge p1">P1</span></td></tr><tr><td>longer_run_fed_funds_rate</td><td>SEP 长期利率预测中位数</td><td>长期利率参考</td><td><span class="badge p1">P1</span></td></tr><tr><td>longer_run_unemployment</td><td>SEP 长期失业率预测中位数</td><td>长期就业参考</td><td><span class="badge p1">P1</span></td></tr><tr><td>longer_run_inflation</td><td>SEP 长期通胀预测</td><td>长期通胀参考</td><td><span class="badge p1">P1</span></td></tr></tbody></table></div>
+<p>如果使用纽约联储公开的 Holston-Laubach-Williams 中性利率估计，应明确标记其属于估计值，而非直接观测值。</p>
+<p>对于中性利率和自然失业率：</p>
+<ol><li>保存每次发布的原始数据。</li><li>保存发布日期。</li><li>保存历史修订版本。</li><li>在回测中使用当时可获得的估计。</li><li>同时保留固定参考值模型，作为稳健性检验。</li></ol>
+<p>不允许仅因为动态模型回测效果更好，就忽略它可能存在的前视偏差。</p>
+<hr>
+<h2 id="sec-8" class="section">八、D6：FOMC 决策和经济预测数据库</h2>
+<h3 id="sec-8-1">8.1 必须下载的官方资料</h3>
+<div class="table-wrap"><table><thead><tr><th>文件类型</th><th>采集内容</th><th>优先级</th></tr></thead><tbody><tr><td>FOMC 会议声明</td><td>正式政策决定与措辞变化</td><td><span class="badge p0">P0</span></td></tr><tr><td>主席新闻发布会实录</td><td>开场陈述及问答</td><td><span class="badge p0">P0</span></td></tr><tr><td>SEP</td><td>通胀、失业率、GDP 和利率预测</td><td><span class="badge p0">P0</span></td></tr><tr><td>FOMC 会议纪要</td><td>集体讨论和风险判断</td><td><span class="badge p1">P1</span></td></tr><tr><td>长期政策框架声明</td><td>目标与政策框架变化</td><td><span class="badge p1">P1</span></td></tr><tr><td>主席其他正式演讲</td><td>补充政策沟通信息</td><td><span class="badge p2">P2</span></td></tr></tbody></table></div>
+<p>新闻发布会实录与正式政策声明必须分别保存。</p>
+<p>会议纪要和 SEP 的发布时间通常与会议声明不同，回测时必须使用各文件的实际公开时间。</p>
+<h3 id="sec-8-2">8.2 会议事件表字段</h3>
+<p>建议建立 <code>fomc_events</code> 数据表。</p>
+<div class="table-wrap"><table><thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead><tbody><tr><td>meeting_id</td><td>string</td><td>唯一会议编号</td></tr><tr><td>meeting_start_date</td><td>date</td><td>会议开始日期</td></tr><tr><td>meeting_end_date</td><td>date</td><td>会议结束日期</td></tr><tr><td>statement_release_at</td><td>timestamp</td><td>声明发布时间</td></tr><tr><td>press_conference_at</td><td>timestamp</td><td>新闻发布会时间</td></tr><tr><td>minutes_release_at</td><td>timestamp</td><td>纪要发布时间</td></tr><tr><td>sep_release_at</td><td>timestamp/null</td><td>SEP 发布时间</td></tr><tr><td>target_lower_before</td><td>float</td><td>会议前目标区间下限</td></tr><tr><td>target_upper_before</td><td>float</td><td>会议前目标区间上限</td></tr><tr><td>target_lower_after</td><td>float</td><td>会议后目标区间下限</td></tr><tr><td>target_upper_after</td><td>float</td><td>会议后目标区间上限</td></tr><tr><td>rate_change_bps</td><td>integer</td><td>利率变化，单位基点</td></tr><tr><td>policy_action</td><td>enum</td><td>hike/cut/hold</td></tr><tr><td>chair_name</td><td>string</td><td>主席姓名</td></tr><tr><td>transcript_url</td><td>string</td><td>官方实录来源</td></tr><tr><td>statement_url</td><td>string</td><td>官方声明来源</td></tr><tr><td>sep_url</td><td>string/null</td><td>SEP 文件来源</td></tr><tr><td>downloaded_at</td><td>timestamp</td><td>下载时间</td></tr><tr><td>content_hash</td><td>string</td><td>原始文件哈希</td></tr></tbody></table></div>
+<p>如果没有新闻发布会或 SEP，应保留空值，不得伪造记录。</p>
+<hr>
+<h2 id="sec-9" class="section">九、D7：主席新闻发布会文本数据库</h2>
+<h3 id="sec-9-1">9.1 采集范围</h3>
+<p>第一阶段建议从 2011 年以来有可用新闻发布会实录的会议开始。</p>
+<p>之后再根据需要扩展到更早时期。</p>
+<p>采集流程：</p>
+<ol><li>从美联储官方会议资料页面发现会议。</li><li>获取新闻发布会官方链接。</li><li>下载 HTML 或 PDF。</li><li>保存未经修改的原始文件。</li><li>解析主席开场陈述。</li><li>解析记者提问与主席回答。</li><li>为每个段落记录发言人。</li><li>保存时间戳或段落序号。</li><li>对解析结果进行质量检查。</li><li>生成文本分析特征。</li></ol>
+<h3 id="sec-9-2">9.2 文本数据库字段</h3>
+<p>建议建立 <code>press_conference_segments</code> 表。</p>
+<div class="table-wrap"><table><thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead><tbody><tr><td>meeting_id</td><td>string</td><td>关联会议</td></tr><tr><td>segment_id</td><td>string</td><td>段落唯一编号</td></tr><tr><td>speaker_role</td><td>enum</td><td>chair/reporter/other/unknown</td></tr><tr><td>section_type</td><td>enum</td><td>opening_statement/qa/other</td></tr><tr><td>paragraph_index</td><td>integer</td><td>段落序号</td></tr><tr><td>raw_text</td><td>text</td><td>原始文本</td></tr><tr><td>normalized_text</td><td>text</td><td>规范化文本</td></tr><tr><td>source_url</td><td>string</td><td>官方来源</td></tr><tr><td>parser_version</td><td>string</td><td>解析器版本</td></tr><tr><td>content_hash</td><td>string</td><td>原始内容哈希</td></tr><tr><td>parse_status</td><td>enum</td><td>success/partial/failed</td></tr></tbody></table></div>
+<p>不得将记者的提问直接计入主席主动强调某个问题的频率。</p>
+<p>对于无法确认发言人的段落，应标记为 <code>unknown</code>，不参与核心关注度计算。</p>
+<h3 id="sec-9-3">9.3 文本特征数据库</h3>
+<p>建立 <code>speech_features</code> 表，至少包括：</p>
+<ul><li><code>inflation_salience</code></li><li><code>employment_salience</code></li><li><code>inflation_risk</code></li><li><code>employment_risk</code></li><li><code>inflation_trend</code></li><li><code>employment_trend</code></li><li><code>policy_urgency</code></li><li><code>policy_uncertainty</code></li><li><code>policy_guidance</code></li><li><code>evidence_coverage</code></li><li><code>classifier_confidence</code></li><li><code>annotation_version</code></li></ul>
+<p>每个特征都必须保留对应的证据段落。</p>
+<p>模型必须能够追溯：为什么某次会议的通胀关注度上升，究竟是哪几段主席发言产生了影响。</p>
+<hr>
+<h2 id="sec-10" class="section">十、统一数据结构和历史版本管理</h2>
+<h3 id="sec-10-1">10.1 原始数据表</h3>
+<p>建立 <code>macro_observations</code> 表。</p>
+<p>字段：</p>
+<ul><li><code>series_id</code></li><li><code>series_name</code></li><li><code>observation_date</code></li><li><code>release_date</code></li><li><code>retrieved_at</code></li><li><code>vintage_date</code></li><li><code>value</code></li><li><code>unit</code></li><li><code>frequency</code></li><li><code>seasonal_adjustment</code></li><li><code>source</code></li><li><code>source_url</code></li><li><code>revision_status</code></li></ul>
+<p>建议使用 Parquet 存储批量数据，使用 SQLite 或 DuckDB 维护索引、事件表和元数据。</p>
+<p>原始数据必须不可变。</p>
+<p>修订后的数据保存为新版本，不得直接覆盖历史文件。</p>
+<h3 id="sec-10-2">10.2 实时可用数据集</h3>
+<p>建立 <code>real_time_macro</code> 数据集。</p>
+<p>每条记录表示：</p>
+<p>“在某次 FOMC 会议召开之前，市场参与者已经能够获得哪些经济数据？”</p>
+<p>该数据集应根据实际发布日期构造。</p>
+<p>如果暂时无法恢复某项数据的历史版本，必须标记为 <code>latest_vintage_proxy</code>，并将相关回测结果列为近似结果，而不是严格实时回测。</p>
+<h3 id="sec-10-3">10.3 数据质量规则</h3>
+<p>每次下载后自动检查：</p>
+<ol><li>日期是否重复。</li><li>是否出现不合理的缺失区间。</li><li>单位是否发生变化。</li><li>频率是否符合预期。</li><li>价格指数是否出现异常跳变。</li><li>会议日期是否与官方资料一致。</li><li>文件是否损坏。</li><li>原始文件哈希是否发生变化。</li><li>数据发布日期是否晚于对应预测时点。</li><li>是否存在使用未来修订值的风险。</li></ol>
+<p>所有质量检查必须生成机器可读报告。</p>
+<hr>
+<h2 id="sec-11" class="section">十一、历史参数评估的总体方案</h2>
+<p>历史参数评估分为五个阶段：</p>
+<ol><li>描述性分析。</li><li>基准模型估计。</li><li>滚动参数估计。</li><li>历史事件与制度变化分析。</li><li>样本外预测检验。</li></ol>
+<p>第一版模型优先采用可解释的统计模型。</p>
+<p>暂时不使用复杂的深度学习模型预测利率决策。</p>
+<hr>
+<h2 id="sec-12" class="section">十二、第一阶段：描述性分析</h2>
+<p>在正式估计参数前，先完成以下分析。</p>
+<h3 id="sec-12-1">12.1 统计特征</h3>
+<p>计算：</p>
+<ul><li>总体 PCE 通胀率均值、标准差和分位数。</li><li>核心 PCE 通胀率均值、标准差和分位数。</li><li>失业率均值、标准差和分位数。</li><li>失业率变化速度的分布。</li><li>非农就业增量的分布。</li><li>会议利率变化的分布。</li><li>加息、降息和维持不变的次数。</li></ul>
+<h3 id="sec-12-2">12.2 周期与制度分析</h3>
+<p>分别观察：</p>
+<ul><li>经济扩张时期。</li><li>经济衰退时期。</li><li>高通胀时期。</li><li>低通胀时期。</li><li>有效利率下限时期。</li><li>疫情及后疫情时期。</li></ul>
+<p>这些分类主要用于解释模型表现，不应在观察回测结果后随意修改分类规则。</p>
+<h3 id="sec-12-3">12.3 相关性分析</h3>
+<p>计算通胀、失业率、经济增长与利率变化之间的相关关系。</p>
+<p>相关性只能作为探索工具，不能直接解释为因果关系。</p>
+<hr>
+<h2 id="sec-13" class="section">十三、第二阶段：建立历史基准模型</h2>
+<p>建议估计三组模型。</p>
+<h3 id="sec-13-1">13.1 模型 A：简单双目标偏离模型</h3>
+<p>定义：</p>
+<div class="math-block">\[G_{\pi,t}=\pi_t-2\]</div>
+<div class="math-block">\[G_{u,t}=u_t-u_t^*\]</div>
+<p>建立会议级模型：</p>
+<div class="math-block">\[\Delta i_t=
+\beta_0+
+\beta_{\pi}G_{\pi,t}+
+\beta_uG_{u,t}+
+\varepsilon_t\]</div>
+<p>其中：</p>
+<ul><li>\(\Delta i_t\) 为目标利率区间中点的变化。</li><li>\(\beta_{\pi}\) 为通胀偏离的关联系数。</li><li>\(\beta_u\) 为失业率偏离的关联系数。</li></ul>
+<p>该模型是最简单的基准模型。</p>
+<p>需要预先说明：如果通胀上升伴随失业率下降，或者失业率上升伴随通胀下降，二者可能高度相关，导致系数估计不稳定。</p>
+<p>因此，不能只报告系数大小，还应报告置信区间、标准误和多重共线性诊断。</p>
+<h3 id="sec-13-2">13.2 模型 B：加入趋势与经济周期变量</h3>
+<p>扩展为：</p>
+<div class="math-block">\[\Delta i_t=
+\beta_0+
+\beta_{\pi}G_{\pi,t}+
+\beta_uG_{u,t}+
+\beta_{\pi s}S_{\pi,t}+
+\beta_{us}S_{u,t}+
+\beta_gG_{g,t}+
+\varepsilon_t\]</div>
+<p>其中：</p>
+<ul><li>\(S_{\pi,t}\) 为通胀趋势或加速度变量。</li><li>\(S_{u,t}\) 为失业率变化速度。</li><li>\(G_{g,t}\) 为产出缺口或经济增长指标。</li></ul>
+<p>该模型用于判断美联储是否不仅对经济指标的当前水平作出反应，还对变化趋势作出反应。</p>
+<h3 id="sec-13-3">13.3 模型 C：利率平滑模型</h3>
+<p>引入利率惯性：</p>
+<div class="math-block">\[i_t=
+\rho i_{t-1}+
+(1-\rho)i_t^*+
+\varepsilon_t\]</div>
+<p>其中：</p>
+<div class="math-block">\[i_t^*=
+r_t^*+\pi_t+
+\phi_{\pi}G_{\pi,t}+
+\phi_uG_{u,t}\]</div>
+<p>这里的 \(r_t^*\) 为中性实际利率估计。</p>
+<p>模型 C 用于识别政策调整的惯性。</p>
+<p>必须注意：</p>
+<ul><li>利率平滑模型不能自动解决内生性问题。</li><li>中性利率属于估计变量。</li><li>参数应按时期重新估计并进行稳定性检验。</li><li>该模型仅描述历史政策行为，不代表美联储实际使用的内部公式。</li></ul>
+<hr>
+<h2 id="sec-14" class="section">十四、第三阶段：将系数转换为可比较的关注权重</h2>
+<p>不能直接比较未经标准化的通胀和失业率回归系数。</p>
+<p>原因是二者的单位不同。</p>
+<p>建议采用以下步骤。</p>
+<h3 id="sec-14-1">14.1 标准化经济变量</h3>
+<p>使用训练窗口内的均值与标准差：</p>
+<div class="math-block">\[Z_{\pi,t}=
+\frac{\pi_t-\mu_{\pi}}{\sigma_{\pi}}\]</div>
+<div class="math-block">\[Z_{u,t}=
+\frac{u_t-u_t^*-\mu_u}{\sigma_u}\]</div>
+<p>标准化参数只能使用训练窗口估计，并在验证集和测试集上保持固定。</p>
+<p>如果采用滚动标准差，应明确滚动窗口长度，且不能使用未来数据。</p>
+<h3 id="sec-14-2">14.2 估计标准化系数</h3>
+<p>建立：</p>
+<div class="math-block">\[\Delta i_t=
+\beta_0+
+\beta_{\pi}Z_{\pi,t}+
+\beta_uZ_{u,t}+
+\varepsilon_t\]</div>
+<h3 id="sec-14-3">14.3 计算历史相对敏感度</h3>
+<p>可以定义：</p>
+<div class="math-block">\[W_{\pi}^{hist}
+=
+\frac{|\beta_{\pi}|}
+{|\beta_{\pi}|+|\beta_u|}\]</div>
+<div class="math-block">\[W_u^{hist}=1-W_{\pi}^{hist}\]</div>
+<p>但该权重只是一种描述性指标。</p>
+<p>它不是美联储官方公布的目标权重，也不一定能直接代表官员的真实注意力。</p>
+<p>必须同时报告：</p>
+<ul><li>原始回归系数。</li><li>标准化回归系数。</li><li>置信区间。</li><li>参数稳定性。</li><li>样本外表现。</li></ul>
+<p>如果两个系数的估计不确定性很大，或者其中一个系数接近零，则不应把归一化结果解释为可靠的关注度比例。</p>
+<hr>
+<h2 id="sec-15" class="section">十五、第四阶段：滚动估计与参数稳定性</h2>
+<p>美联储的政策框架会变化，因此不能假设 1990 年至今只有一个稳定的政策反应函数。</p>
+<p>建议建立以下模型版本。</p>
+<div class="table-wrap"><table><thead><tr><th>模型</th><th>样本</th><th>用途</th></tr></thead><tbody><tr><td>Long-run</td><td>1990 年至最新可用日期</td><td>长期基准</td></tr><tr><td>Pre-GFC</td><td>1990—2007 年</td><td>金融危机前参考</td></tr><tr><td>Low-rate</td><td>2009—2019 年</td><td>低利率环境</td></tr><tr><td>Pandemic</td><td>2020 年至最新可用日期</td><td>疫情及后疫情时期</td></tr><tr><td>Rolling-10Y</td><td>最近 10 年滚动窗口</td><td>近期政策敏感度</td></tr><tr><td>Rolling-15Y</td><td>最近 15 年滚动窗口</td><td>中期政策敏感度</td></tr></tbody></table></div>
+<p>这些分段是研究设计，不代表每个时期内部的政策反应一定稳定。</p>
+<p>建议进一步使用：</p>
+<ul><li>滚动回归。</li><li>参数置信区间。</li><li>结构变化检验。</li><li>必要时的状态空间模型。</li></ul>
+<p>如果样本数量不足，不应为了得到更多参数而强行增加模型复杂度。</p>
+<p>对于会议级数据，观察数量远少于月度宏观数据。应避免把月度数据简单重复到每次会议，从而制造虚假的独立样本。</p>
+<hr>
+<h2 id="sec-16" class="section">十六、第五阶段：构建真正的样本外回测</h2>
+<p>这是整个参数评估中最重要的环节。</p>
+<p>不能只用历史拟合优度判断模型好坏。</p>
+<h3 id="sec-16-1">16.1 预测任务</h3>
+<p>建立三个预测任务。</p>
+<h4>任务 A：预测下一次会议的政策行动</h4>
+<p>分类：</p>
+<ul><li>加息。</li><li>降息。</li><li>维持不变。</li></ul>
+<h4>任务 B：预测下一次会议的利率变化</h4>
+<p>目标：</p>
+<div class="math-block">\[y_t=\Delta i_t\]</div>
+<p>以基点为单位。</p>
+<h4>任务 C：预测未来政策关注点变化</h4>
+<p>目标是下一次新闻发布会的文本关注度变化，或者下一次会议政策行动所体现的相对政策压力。</p>
+<p>该任务需要单独评估，不能与利率变化预测混为一谈。</p>
+<h3 id="sec-16-2">16.2 时间序列验证</h3>
+<p>采用扩展窗口或滚动窗口。</p>
+<p>示例：</p>
+<ol><li>使用 1990—2009 年的数据训练。</li><li>预测 2010 年下一次会议。</li><li>将实际结果加入训练集。</li><li>重新估计模型。</li><li>预测下一次会议。</li><li>持续重复至最新可用日期。</li></ol>
+<p>样本切分必须按照时间顺序。</p>
+<p>禁止随机打乱所有会议后进行训练集和测试集划分。</p>
+<p>如果采用滚动窗口，应预先确定窗口长度，并在训练阶段选择参数，避免利用最终测试集反复调整模型。</p>
+<h3 id="sec-16-3">16.3 评价指标</h3>
+<div class="table-wrap"><table><thead><tr><th>预测任务</th><th>评价指标</th></tr></thead><tbody><tr><td>加息、降息、维持分类</td><td>Macro-F1、Balanced Accuracy</td></tr><tr><td>会议行动概率预测</td><td>多分类 Log Loss、Brier Score</td></tr><tr><td>利率变化幅度</td><td>MAE、RMSE</td></tr><tr><td>预测概率可靠性</td><td>Calibration Curve、Brier Score</td></tr><tr><td>模型增量价值</td><td>相对于基准模型的样本外损失改善</td></tr></tbody></table></div>
+<p>对于分类任务，必须同时报告混淆矩阵。</p>
+<p>由于维持利率可能远比加息或降息更常见，不能只使用准确率作为评价指标。</p>
+<p>对于概率预测，必须评估概率校准。</p>
+<p>如果模型预测某类决策的概率长期偏高，即使偶尔预测正确，也不代表它是可靠的概率模型。</p>
+<h3 id="sec-16-4">16.4 与基准模型比较</h3>
+<p>至少设置以下基准：</p>
+<ul><li>永远预测维持利率。</li><li>使用上一次会议政策行动的简单模型。</li><li>只使用通胀的模型。</li><li>只使用就业的模型。</li><li>同时使用通胀与就业的模型。</li><li>加入经济增长变量的模型。</li><li>加入主席文本特征的完整模型。</li></ul>
+<p>完整模型只有在时间序列样本外测试中表现出稳定的增量价值，才可以被认定为优于简单模型。</p>
+<hr>
+<h2 id="sec-17" class="section">十七、主席文本分析的参数校准方案</h2>
+<h3 id="sec-17-1">17.1 文本模型输入</h3>
+<p>文本分析必须区分：</p>
+<ul><li>主席开场陈述。</li><li>记者提问。</li><li>主席回答。</li><li>主席明确表达的风险判断。</li><li>主席对未来政策的指引。</li><li>对既有政策决定的解释。</li></ul>
+<p>文本模型不得只根据关键词数量决定关注度。</p>
+<h3 id="sec-17-2">17.2 人工标注</h3>
+<p>建议从不同经济环境中分层抽取新闻发布会段落，建立人工标注集。</p>
+<p>每段至少标注：</p>
+<ul><li>通胀相关程度。</li><li>就业相关程度。</li><li>风险严重程度。</li><li>趋势方向。</li><li>政策紧迫程度。</li><li>是否明确关联政策决策。</li><li>是否属于记者提问。</li><li>是否属于主席主动陈述。</li></ul>
+<p>先进行人工标注，再评估分类器。</p>
+<p>至少报告：</p>
+<ul><li>各标签 Precision。</li><li>各标签 Recall。</li><li>各标签 F1。</li><li>标注者一致性。</li><li>证据段落的准确提取率。</li></ul>
+<p>如果分类器无法可靠区分主席观点与记者提问，文本模型不得进入动态参数更新阶段。</p>
+<h3 id="sec-17-3">17.3 文本信号与历史参数融合</h3>
+<p>设历史模型得到的通胀权重为：</p>
+<div class="math-block">\[W_{\pi,t}^{hist}\]</div>
+<p>文本模型得到的通胀关注度为：</p>
+<div class="math-block">\[W_{\pi,t}^{text}\]</div>
+<p>可以先使用对数几率进行融合：</p>
+<div class="math-block">\[L_t^{hist}
+=
+\log\left(
+\frac{W_{\pi,t}^{hist}}
+{1-W_{\pi,t}^{hist}}
+\right)\]</div>
+<div class="math-block">\[L_t^{text}
+=
+\log\left(
+\frac{W_{\pi,t}^{text}}
+{1-W_{\pi,t}^{text}}
+\right)\]</div>
+<p>然后：</p>
+<div class="math-block">\[L_t^{new}
+=
+L_t^{hist}
++\kappa_t
+\left(L_t^{text}-L_t^{hist}\right)\]</div>
+<p>最终：</p>
+<div class="math-block">\[W_{\pi,t}^{new}
+=
+\frac{1}{1+\exp(-L_t^{new})}\]</div>
+<p>就业权重：</p>
+<div class="math-block">\[W_{u,t}^{new}=1-W_{\pi,t}^{new}\]</div>
+<p>其中，\(\kappa_t\) 为文本更新系数。</p>
+<p>该方法只有在历史权重与文本权重具有可比较的定义和尺度时才适用。</p>
+<p>如果两种权重衡量的并非同一概念，不能直接融合，必须先建立明确的映射关系。</p>
+<h3 id="sec-17-4">17.4 文本更新系数的评估</h3>
+<p>建议在训练阶段测试一组候选值，例如：</p>
+<div class="math-block">\[\kappa\in\{0,0.1,0.2,0.3,0.5,0.75,1.0\}\]</div>
+<p>这些数值仅为待评估的候选参数，不代表已经得到验证的最优值。</p>
+<p>采用滚动样本外回测，比较不同 \(\kappa\) 下：</p>
+<ul><li>下一次会议政策行动的 Log Loss。</li><li>Brier Score。</li><li>利率变化预测 MAE。</li><li>概率校准情况。</li><li>不同经济时期的稳定性。</li></ul>
+<p>如果最佳结果始终出现在 \(\kappa=0\)，说明文本信号在当前定义下没有提供足够的增量预测价值。</p>
+<p>这种情况下应保留文本报告，但暂时不让文本调整历史参数。</p>
+<hr>
+<h2 id="sec-18" class="section">十八、文本模型与历史回归的最终验收标准</h2>
+<p>模型必须通过以下测试，才能允许文本信号动态修改关注度参数。</p>
+<h3 id="sec-18-1">验收 A：文本分类质量</h3>
+<ul><li>能够正确区分主席与记者。</li><li>能够识别通胀和就业相关语境。</li><li>能够区分风险恶化、改善和稳定。</li><li>能够保留原始证据段落。</li><li>对模糊语句可以输出不确定，而不是强行判断。</li></ul>
+<h3 id="sec-18-2">验收 B：历史参数稳定性</h3>
+<ul><li>不同训练窗口下的系数变化可解释。</li><li>标准误和置信区间已报告。</li><li>不存在明显的数据泄漏。</li><li>参数变化不会仅由单次极端会议决定。</li></ul>
+<h3 id="sec-18-3">验收 C：样本外预测增量</h3>
+<p>加入文本后，应与不加入文本的模型比较。</p>
+<p>如果文本模型未能稳定改善样本外预测，就不允许自动调整历史参数。</p>
+<h3 id="sec-18-4">验收 D：可追溯性</h3>
+<p>每次动态权重变化必须记录：</p>
+<ul><li>变化前的参数。</li><li>新增的宏观数据。</li><li>新增的文本特征。</li><li>文本证据段落。</li><li>使用的模型版本。</li><li>更新系数。</li><li>更新后的参数。</li><li>样本外验证结果。</li></ul>
+<h3 id="sec-18-5">验收 E：降级机制</h3>
+<p>出现以下情况时，系统必须停止自动调整：</p>
+<ul><li>最新新闻发布会实录下载失败。</li><li>文本解析不完整。</li><li>关键数据缺失。</li><li>分类器置信度过低。</li><li>参数估计不稳定。</li><li>样本外预测质量显著恶化。</li></ul>
+<p>此时保留上一版有效参数，并明确报告数据或模型异常。</p>
+<hr>
+<h2 id="sec-19" class="section">十九、推荐的项目目录</h2>
+<pre class="code-block"><code>fdam/
+├── README.md
+├── pyproject.toml
+├── config/
+│   ├── series.yaml
+│   ├── sources.yaml
+│   ├── model.yaml
+│   └── backtest.yaml
+├── data/
+│   ├── raw/
+│   │   ├── fred/
+│   │   ├── alfred/
+│   │   ├── fomc_statements/
+│   │   ├── press_conferences/
+│   │   ├── fomc_minutes/
+│   │   └── sep/
+│   ├── interim/
+│   ├── processed/
+│   └── manifests/
+├── src/
+│   └── fdam/
+│       ├── collect_fred.py
+│       ├── collect_alfred.py
+│       ├── collect_fomc.py
+│       ├── collect_transcripts.py
+│       ├── parse_transcripts.py
+│       ├── build_macro_dataset.py
+│       ├── build_event_dataset.py
+│       ├── build_text_features.py
+│       ├── estimate_baseline.py
+│       ├── estimate_rolling.py
+│       ├── run_backtest.py
+│       ├── calibrate_text_weight.py
+│       ├── update_parameters.py
+│       └── generate_report.py
+├── models/
+│   ├── baseline/
+│   ├── text/
+│   └── combined/
+├── reports/
+│   ├── data_quality/
+│   ├── parameter_estimates/
+│   ├── backtests/
+│   └── latest/
+└── tests/
+    ├── test_data_integrity.py
+    ├── test_release_dates.py
+    ├── test_no_lookahead.py
+    ├── test_macro_features.py
+    ├── test_fomc_events.py
+    ├── test_transcript_parser.py
+    ├── test_parameter_estimation.py
+    └── test_backtest.py</code></pre>
+<hr>
+<h2 id="sec-20" class="section">二十、建议的实施顺序与交付物</h2>
+<h3 id="sec-20-1">阶段一：数据采集</h3>
+<p>交付物：</p>
+<ol><li>完整的数据系列清单。</li><li>FRED 数据下载程序。</li><li>ALFRED 历史版本下载程序。</li><li>FOMC 会议事件表。</li><li>原始新闻发布会实录。</li><li>数据完整性报告。</li></ol>
+<p>验收标准：数据可重复下载，原始数据有来源记录，缺失值和历史版本问题均可追踪。</p>
+<h3 id="sec-20-2">阶段二：历史参数估计</h3>
+<p>交付物：</p>
+<ol><li>描述性统计报告。</li><li>简单双目标偏离模型。</li><li>加入经济周期变量的模型。</li><li>利率平滑模型。</li><li>滚动参数估计报告。</li><li>参数置信区间和稳定性报告。</li></ol>
+<p>验收标准：模型能重复估计，报告清楚区分历史关联和因果解释。</p>
+<h3 id="sec-20-3">阶段三：文本分析</h3>
+<p>交付物：</p>
+<ol><li>主席新闻发布会实录数据库。</li><li>说话人识别程序。</li><li>文本特征提取程序。</li><li>人工标注集。</li><li>文本分类质量报告。</li><li>每次会议的证据段落与评分记录。</li></ol>
+<p>验收标准：文本评分能够追溯到原始段落，并能区分主席主动表态与记者提问。</p>
+<h3 id="sec-20-4">阶段四：动态校准</h3>
+<p>交付物：</p>
+<ol><li>历史参数与文本信号融合程序。</li><li>文本更新系数候选值评估报告。</li><li>纯宏观模型与融合模型的样本外对比。</li><li>参数更新审计记录。</li><li>最新政策关注度报告。</li></ol>
+<p>验收标准：文本信号只有在通过样本外检验后才能参与动态参数更新。</p>
+<hr>
+<h2 id="sec-21" class="section">二十一、最终报告格式</h2>
+<p>每次运行生成一份结构化报告，至少包括：</p>
+<h3 id="sec-21-1">A. 当前经济状态</h3>
+<ul><li>最新总体 PCE 通胀。</li><li>最新核心 PCE 通胀。</li><li>最新失业率。</li><li>失业率变化速度。</li><li>非农就业趋势。</li><li>数据发布日期与可用性。</li></ul>
+<h3 id="sec-21-2">B. 历史参数</h3>
+<ul><li>通胀回归系数。</li><li>就业回归系数。</li><li>标准化后的相对敏感度。</li><li>参数置信区间。</li><li>长期与近期估计的差异。</li></ul>
+<h3 id="sec-21-3">C. 主席文本分析</h3>
+<ul><li>最新新闻发布会日期。</li><li>通胀关注度。</li><li>就业关注度。</li><li>风险趋势。</li><li>关键证据段落。</li><li>分类器质量与置信度。</li></ul>
+<h3 id="sec-21-4">D. 融合结果</h3>
+<ul><li>历史通胀权重。</li><li>历史就业权重。</li><li>文本通胀权重。</li><li>文本就业权重。</li><li>动态通胀权重。</li><li>动态就业权重。</li><li>本次参数变化的具体原因。</li></ul>
+<h3 id="sec-21-5">E. 预测表现</h3>
+<ul><li>纯宏观模型的样本外表现。</li><li>加入文本后的样本外表现。</li><li>概率校准结果。</li><li>不同历史时期的表现。</li><li>模型当前是否允许自动调整参数。</li></ul>
+<h3 id="sec-21-6">F. 结论</h3>
+<p>结论必须区分：</p>
+<ol><li>当前经济数据体现的压力。</li><li>历史政策反应体现的敏感度。</li><li>主席当前讲话体现的政策沟通重点。</li><li>模型对未来决策的预测。</li></ol>
+<p>不能将上述四者混为一个没有解释的百分比。</p>
+<hr>
+<h2 id="sec-22" class="section">二十二、项目完成的最终定义</h2>
+<p>当且仅当以下条件全部满足，才认为 FDAM 第一版完成：</p>
+<ol><li>核心宏观数据能够自动更新。</li><li>历史 FOMC 会议事件完整可追溯。</li><li>历史参数可以重复估计。</li><li>参数估计有置信区间和稳定性分析。</li><li>历史回测不存在已知的未来信息泄漏。</li><li>主席新闻发布会实录可以自动采集和解析。</li><li>文本关注度可以追溯到具体证据段落。</li><li>纯宏观模型与文本增强模型进行了严格比较。</li><li>文本更新系数经过样本外评估。</li><li>模型能够在数据缺失或文本质量下降时停止自动更新。</li><li>每次运行都有数据版本、参数版本和报告记录。</li><li>所有最终结论都能区分经济压力、政策关注度和政策行动预测。</li></ol>
+<p><strong>最重要的验收标准不是模型能否输出“通胀关注度 65%”，而是这个数字能否由历史数据重复计算、能否通过样本外检验，以及能否解释它为什么发生变化。</strong></p>
+    <footer class="doc-footer">
+      本页面由 <code>scripts/generate_fdam_html.py</code> 从
+      <code>docs/strategy/FDAM 美联储双目标政策关注度模型.md</code> 自动生成 · 生成时间 2026-10-29 21:41
+    </footer>
+  </main>
+</div>
+</body>
+</html>

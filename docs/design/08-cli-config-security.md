@@ -49,7 +49,7 @@ chronoforge
 
 - structlog：JSON lines → stderr；run_id/dataset 贯穿 contextvar
 - 级别：INFO=阶段/重试/锁；WARNING=质量 finding、429；ERROR=终态失败
-- 事件名受控词表：pipeline.stage / connector.retry / storage.upsert / quality.finding / run.finish（新事件名需入本表——architecture test 校验字符串集）
+- 事件名受控词表：pipeline.stage / connector.retry / storage.upsert / quality.finding / run.finish / treasury_fiscal.normalize_skipped / treasury_fiscal.table_code_variant（新事件名需入 `logging.py::EVENT_VOCABULARY`——architecture test 校验字符串集）
 
 ## 4. 脱敏（架构 09 §3 实现）
 

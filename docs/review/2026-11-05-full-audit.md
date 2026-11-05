@@ -1,0 +1,626 @@
+# ChronoForge 全面审计报告（文档 + 代码）
+
+| 项目 | 内容 |
+|---|---|
+| 审计日期 | 2026-11-05 |
+| 审计对象 | `/Users/horsenli/Works/ChronoForge`（Python 3.12，uv + polars + DuckDB + Parquet） |
+| 审计范围 | `src/chronoforge`（82 文件 / 23,026 行）、`scripts`（26 文件 / 12,848 行）、`tests`（69 文件 / 31,552 行 / 71 fixtures）、`docs`（94 篇 / 24,702 行）、`config/`、README、git 工作区 |
+| 审计性质 | 只读审计（除本报告外未修改任何源码/文档/配置） |
+| 最终判定 | **NOT READY**（现存 CRITICAL 0；C1/C2/C3/A-1/TGA-1/B-1 已修复；G6/G7 等门禁仍未通过） |
+
+---
+
+## 0. 结论速览
+
+### 0.1 总体判定：NOT READY
+
+架构分层、类型安全、测试独立性和日频源的幂等回退实现质量扎实：mypy strict 全绿、import-linter 两个架构契约均 KEPT、1782 个测试全过。但**数据正确性的核心不变量存在实质破口**：
+
+1. ~~管道层 `normalize` 全失败/零产出时仍推进 checkpoint（C1）~~ —— **已修复（2026-11-05）**，全失败现在触发 `QualityError` 并阻止 checkpoint 推进；
+2. ~~三个连接器按**想象出来的 API 结构**编码（deribit chart、sec_edgar companyfacts、ccxt trades），生产中静默产出 0 行~~ —— deribit 与 sec_edgar **已修复（C2/C3/A-1，2026-11-05）**；ccxt trades 仍在 H1/A-3 范围；
+3. ~~TGA 主模型的组件聚合去重键缺少 subcategory，导致同类多子类的基线/事件现金流被**静默坍缩**（TGA-1），直接污染主模型输出~~ —— **已修复（2026-11-05）**：仅事件行去重且键含 detail，基线行不再去重；去重前后月度守恒断言锁死组件丢失；
+4. ~~`scripts/fdam_attention.py` 存在语法错误，FDAM 日报流程完全不可用（B-1）~~ —— **已修复（2026-11-05）**：删除重复 `__main__` 入口与 281 行死代码，`py_compile` 通过；
+5. 整个 TGA 子系统（`scripts/tga_*.py`、`config/tga/`、treasury 连接器、迁移 0005、TGA 测试）**全部未纳入版本控制**，且 38 个已跟踪文件处于修改态，部分提交会直接 ImportError。
+
+### 0.2 严重级别统计
+
+| 级别 | 数量 | 编号 |
+|---|---|---|
+| CRITICAL | **6**（现存 0，C1/C2/C3/A-1/TGA-1/B-1 均已修复） | C1、C2、C3、A-1、TGA-1、B-1 |
+| HIGH | **12** | H1–H6、A-2、A-3、G-1、D-1、D-2、D-3 |
+| MEDIUM | **19** | M1–M10、A-4–A-6、C-2、C-3、C-4、D-4、D-5、TGA-3 |
+| LOW | **11** | L1–L6、A-7、C-6、C-7、D-6、D-7 |
+| 合计 | **48** | |
+
+### 0.3 最需要先修的事项（按顺序）
+
+1. ~~**C1 — normalize 零产出仍推进 checkpoint**（[runner.py#L459-L515](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/pipeline/runner.py#L459-L515)）~~ —— **已修复（2026-11-05）**。它是所有连接器缺陷的"静默放大器"，本次已把该出口堵住（详见 §3.1 C1）。
+2. ~~**C2 / C3 / A-1 — 连接器响应契约与 fixture 同源**（[deribit.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/deribit.py)、[sec_edgar.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/sec_edgar.py)）~~ —— **已修复（2026-11-05）**：两连接器已按真实响应解包并换真实 fixture，补契约与负向测试（详见 §3.1 C2/C3、§5.1 A-1）。
+3. ~~**TGA-1 — 组件聚合去重键缺 subcategory**~~ —— **已修复（2026-11-05）**：事件行去重键纳入 `detail`，基线行不再参与去重；新增去重前原始月度守恒、去重后基线/月度/身份集合三重核对，任何组件丢失显式抛 `Q-TGA-012`（详见 §4.2）。
+4. ~~**B-1 — `fdam_attention.py` 语法错误**，FDAM 日报流程完全不可用~~ —— **已修复（2026-11-05）**：死代码已删除、入口恢复，详见 §6.1。
+
+> 另需在 P0 批次内同步处理 **G-1**（TGA 全部未跟踪文件的成套提交）。
+
+---
+
+## 1. 审计方案
+
+### 1.1 审计目标
+
+1. 判定当前代码库是否满足进入下一阶段（发布/扩大数据源/对外使用 TGA 输出）的质量门禁；
+2. 找出会导致**静默数据丢失、数据损坏、不可恢复状态**的缺陷，而不止于代码风格；
+3. 核验项目既定的硬性约束（PIT、幂等重采、熔断冷却、日志规范、TGA 口径）是否在代码/配置/文档中一致落地；
+4. 核验文档承诺与实际实现是否一致（测试层级、数据源数量、类型数量、环境变量、TGA 定位）；
+5. 输出可执行的分级问题清单与修复批次，作为后续迭代基线。
+
+### 1.2 审计范围与规模
+
+| 模块 | 文件数 | 行数 | 审计深度 |
+|---|---|---|---|
+| `src/chronoforge/pipeline` | 6 | 2,159 | 深度（逐函数） |
+| `src/chronoforge/storage` | 11 | 3,734 | 深度（事务/原子性/迁移） |
+| `src/chronoforge/connectors` | 18 | 8,729 | 深度（全部连接器窗口语义与解析契约） |
+| `src/chronoforge/quality` | 5 | 1,861 | 深度（规则有效性与日历） |
+| `src/chronoforge/models` | 15 | 2,189 | 中（schema/枚举/身份） |
+| `src/chronoforge/cli` | 9 | 1,145 | 中（入口隔离与错误码） |
+| `src/chronoforge/registry` | 2 | 286 | 中（源规格与幂等注册） |
+| `src/chronoforge/config` | 3 | 512 | 中（settings 与环境变量） |
+| `src/chronoforge/features` / `research` / `security` | 3 / 3 / 3 | 700 / 699 / 260 | 浅（分层契约与依赖方向） |
+| `src/chronoforge/ui.py` 等根模块 | — | 含于总计 | 浅 |
+| `scripts/` | 26 | 12,848 | 深度（TGA 七个脚本全读；其余抽读） |
+| `tests/` | 69 | 31,552 | 深度（测试契约、fixture、失败恢复、独立性） |
+| `docs/` | 94 | 24,702 | 中（architecture/design/strategy/implement/review 交叉核对） |
+| `config/` | 4 个 TGA YAML | 327 | 深度（键与代码读取一一对应） |
+| `README.md` | 1 | — | 深度（数字与表格核对） |
+
+**明确排除**：`data/`、`meta/`、`var/`、`output/`、`reports/` 等运行时产物内容（仅检查其版本控制与 .gitignore 覆盖）；第三方依赖实现；历史审计报告正文（仅核对其中 CRITICAL/HIGH 项是否已被修复）。
+
+### 1.3 审计方法与证据要求
+
+| 方法 | 具体做法 | 证据要求 |
+|---|---|---|
+| 静态检查 | `mypy`、`ruff`、`lint-imports`、`pytest`（默认排除 smoke） | 记录命令、版本、退出码与摘要 |
+| 分区深度审读 | 四个独立分区（核心源码 / TGA / 文档一致性 / 测试·脚本·配置）并行审读 | 每个发现必须给出 `file:line` 与关键代码行 |
+| 契约核对 | 将项目记忆中的硬性约束逐条映射到代码/配置/文档位置 | 每条约束给出"已落实 / 部分落实 / 违反 / 需复核" |
+| trust-but-verify | 对代理报告的 CRITICAL 与 HIGH 项，主审计回读源码逐行复核 | 复核通过的标注 ✅ 已核实；未能复核的标注"需复核" |
+| 反证测试 | 对"测试全绿"的结论，检查 fixture 是否与生产解析路径同形 | 给出 fixture 路径与连接器读取路径对比 |
+| 只读验证 | `py_compile`、`yaml.safe_load`、`grep` 统计，不写入任何数据 | 记录命令与输出 |
+
+**证据分级**：本报告中标注 ✅ 已核实的条目由主审计直接回读源码确认；未标注者为分区代理提供证据、主审计未逐行复读（涉及 H1–H6 与部分 M/L 项，建议修复前再确认行号漂移）。
+
+### 1.4 检查项清单
+
+| # | 检查项 | 判定关注点 |
+|---|---|---|
+| 1 | 正确性 | 计算/映射/时间语义是否符合口径（UTC、T+1、PIT、交易日历） |
+| 2 | 静默数据丢失 | HTTP 200 + 正常退出 + checkpoint 推进，但 canonical 实际缺数 |
+| 3 | 崩溃一致性 | 写入与 checkpoint 顺序、原子换名、fsync、迁移幂等 |
+| 4 | 幂等与重采 | 自然键 upsert、起点回退重采、重复 run 不产生重复数据 |
+| 5 | 错误处理与熔断 | 错误分类、重试范围、熔断冷却与 half-open、失败隔离 |
+| 6 | 连接器契约 | 响应结构与解析路径同形、分页完整、未收盘数据过滤 |
+| 7 | 日志规范 | 结构化字段、profile、跳过/丢弃是否留痕 |
+| 8 | 配置一致性 | YAML 键是否被读取、默认值语义、config_hash 覆盖 |
+| 9 | 文档一致性 | 数量/名称/流程/口径是否与代码一致；过期与矛盾 |
+| 10 | 测试有效性 | 覆盖真实失败路径、fixture 真实性、层级承诺是否兑现 |
+| 11 | 架构契约 | 分层依赖、research 不依赖 connectors、TGA 边界守卫 |
+| 12 | 工程卫生 | 未提交变更成套性、生成物是否入版本库、脚本可执行 |
+
+### 1.5 严重级别定义
+
+| 级别 | 判定标准（满足任一条） |
+|---|---|
+| **CRITICAL** | 静默数据丢失或损坏；不可恢复状态；核心流程完全不可用；违反核心不变量且无告警；生产环境必然产出错误结果 |
+| **HIGH** | 会造成返工或接口不兼容；测试无法验证核心行为；约束明文违反；关键路径存在可触发崩溃窗口；版本库状态会导致构建/导入失败 |
+| **MEDIUM** | 局部功能缺陷或配置陷阱；文档与实现显著不一致；可测但缺测试；不立即致错但会误导使用者 |
+| **LOW** | 代码/文档质量瑕疵、日志口径不统一、冗余维护、命名与格式问题 |
+
+### 1.6 准入门禁与通过标准
+
+| 门禁 | 标准 | 本次结果 |
+|---|---|---|
+| G1 静态质量 | `mypy src` 0 error；`ruff check src` 0 error；`lint-imports` 全 KEPT | ✅ 通过（ruff 仅 scripts 有错） |
+| G2 测试 | 全量 `pytest` 通过；无真实网络依赖；失败恢复测试为真实链路 | ✅ 通过（1782 passed，含 C1/C2/C3/A-1/TGA-1 回归） |
+| G3 契约测试 | 每条连接器有"真实响应样本 → fetch → normalize"全链路测试，禁止仅直喂内层结构 | ⚠️ 部分通过（deribit/sec_edgar 已于 2026-11-05 达标；A-2/A-3 其余连接器仍缺） |
+| G4 静默丢失 | 任何"有输入但零产出"必须置为失败或阻止 checkpoint 推进 | ✅ 通过（C1 于 2026-11-05 修复，含 2 条回归测试） |
+| G5 约束核验 | 项目硬性约束逐条有代码/配置/文档三方证据 | ⚠️ 部分通过（H4 违反、C-2 死键；TGA-1 已于 2026-11-05 修复） |
+| G6 版本库 | 工作区可构建；生成物不入库；变更成套 | ❌ 未通过（G-1、C-3） |
+| G7 文档一致 | README/设计文档/TGA 文档与实现一致 | ❌ 未通过（D-1、D-2、D-3） |
+
+**通过标准**：G1–G7 全部为 ✅ 方判定 READY。本次 **2 项 ❌（G6、G7）、2 项 ⚠️（G3、G5）**，故判定 **NOT READY**。
+
+### 1.7 审计执行顺序
+
+1. 基线采集（静态检查 + 全量测试 + git 状态）→ 建立客观证据；
+2. 四个分区并行深度审读（核心源码 / TGA / 文档 / 测试·脚本·配置）；
+3. 主审计对 CRITICAL 逐条 `trust-but-verify` 回读；
+4. 约束矩阵逐条映射；
+5. 发现合并去重、定级、排批次；
+6. 写入报告（本文件）。
+
+### 1.8 风险与局限
+
+- **动态行为未验证**：审计以静态阅读与只读命令为主，未对真实外部 API 做联网调用（受时间/配额/合规限制）。连接器"生产恒 0 行"的判定基于响应结构比对，修复时应用真实响应样本回归。
+- **未做性能压测**：H1/L4 的 O(N²) 判定基于请求/重写语义分析，未实测。
+- **未覆盖运行时数据内容质量**：`data/`、`meta/` 中历史数据是否已被既有缺陷污染（尤其 deribit/sec_edgar/TGA 三条链路）**需要单独的数据回溯核对**，本报告只能确认代码路径存在缺陷。
+- **代理证据的行号漂移**：工作区有 38 个未提交修改，部分代理给出的行号可能与最终提交版本有偏移，修复前应重新定位。
+- **范围外**：未审计第三方依赖（ccxt/polars/duckdb）自身行为与供应链安全；未做渗透测试。
+
+---
+
+## 2. 基线验证（命令与结果）
+
+| 检查 | 命令 | 结果 |
+|---|---|---|
+| 类型检查 | `uv run mypy src` | ✅ Success，82 files（models/storage/pipeline strict） |
+| Lint | `uv run ruff check src scripts tests` | ⚠️ 89 errors，**src 为 0**，全部集中在 `scripts/`（F821×32、E501×20、UP031×12、E702×10、F541×6、F706×1 等） |
+| 架构契约 | `uv run lint-imports` | ✅ 2 contracts KEPT，0 broken |
+| 全量测试 | `uv run pytest -q` | ✅ 1770 passed，11 warnings，87.33s |
+| 脚本可编译 | `py_compile scripts/fdam_attention.py` | ❌ `SyntaxError: 'return' outside function`（line 1518） |
+| 枚举核对 | AST 统计 `CanonicalType` | 32 个（README 写 27） |
+| 源规格核对 | 读 `DEFAULT_SOURCES` | 13 个（README 写 11） |
+| 工作区 | `git status --porcelain` | 38 个 M + 30 个 untracked（含整个 TGA 子系统与 `reports/`） |
+
+---
+
+## 3. 核心源码审计（`src/chronoforge`）
+
+### 3.1 CRITICAL
+
+#### C1. normalize 全失败/零产出时 checkpoint 照常推进 —— 静默数据丢失 ✅ 已核实 ✅ 已修复（2026-11-05）
+
+- **位置**：[runner.py#L459-L515](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/pipeline/runner.py#L459-L515)
+- **证据（修复前）**：
+  - 旧 L447-453：`connector.normalize(batch)` 抛异常时只累加 `error_count` 后 `continue`；
+  - 旧 L454-455：`input_count` 仅在 normalize **成功返回记录**时累加；
+  - 旧 L473-479：`total = result.input_count`，`if total > 0 and result.error_count / total > threshold` —— 当所有 batch 都抛异常时 `total == 0`，短路，**永不触发 QualityError**；
+  - 下游 `_decide_status` 将空产出判为 PARTIAL_SUCCESS，而 cursor 属终态，`advance_chunks` 只依据 fetch 成功推进。
+- **影响**：raw 有数据但 canonical 永远缺失，窗口不再重拉。这正是审计要求中定义的 Silent Data Loss，也违反 [cursor.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/pipeline/cursor.py) 的"checkpoint ≤ 已验证持久化数据边界"不变量。它是 C2/C3/A-1 能造成长期损害的直接原因。
+- **修复实现**：
+  - 新增 [\_payload_units()](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/pipeline/runner.py#L428-L441)：失败调用无法回传记录数，按 payload 单元数（list 长度 / 常见行数组键）给出下界，未知形状计 1；
+  - 失败批次计入 `failed_units`（与成功记录同口径）；provenance 注入失败单独计 `record_errors`，避免与批次失败重复计数；
+  - 阈值判定改为 `attempted = input_count + failed_units`、`attempted_errors = record_errors + failed_units`，分母不再可能退化为 0：全失败时错误率 = 100% → `QualityError` → run FAILED，cursor 不推进；合法空批次（normalize 正常返回 `[]`）仍 `attempted = 0`，不误报。
+- **回归测试**：
+  - [test_normalize_all_failures_blocks_checkpoint](file:///Users/horsenli/Works/ChronoForge/tests/integration/test_pipeline.py#L550-L568)：3/3 chunk 全失败 → `QualityError(72/72)`、run `FAILED`、`checkpoint_after=None`、`meta.get_checkpoint=None`、canonical 0 行；
+  - [test_normalize_partial_failure_within_threshold_advances](file:///Users/horsenli/Works/ChronoForge/tests/integration/test_pipeline.py#L571-L594)：12 chunk 中 1 个失败（24/288 = 8.3% < 10%）→ `PARTIAL_SUCCESS` 且 checkpoint 推进到终点，入库 264 行（防止过度阻断）。
+- **验证结果（2026-11-05）**：`pytest tests/integration/test_pipeline.py` 55 passed；`tests/unit + test_pipeline.py` 977 passed；全量 `pytest -q` **1772 passed**（原 1770 + 2 新增）；`ruff check src` 无问题；`mypy src` Success（82 files）。
+- **兼容性影响**：阈值默认值与异常类型未变；历史 run 记录不受影响（新逻辑仅作用于后续 run 的阈值判定）；已落盘 checkpoint 不回退、不重算。唯一行为变化是"有 raw 批次但 normalize 零产出"从静默 PARTIAL 变为显式失败（预期且必要）。
+- **剩余风险**：`_payload_units` 对嵌套 dict（如 yahoo `chart.result`）只能按 1 个单元估算，属于下界；全失败场景不受影响，但在"大嵌套批次 + 少量成功 + 阈值边缘"时可能低估错误率。建议后续按连接器真实 payload 形状补强估算或改为连接器自报条数。
+
+#### C2. deribit chart 响应结构解析错误 —— OHLCV/IV 生产恒 0 行 ✅ 已核实 ✅ 已修复（2026-11-05）
+
+- **位置**：[deribit.py#L302-L325](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/deribit.py#L302-L325)；normalize 侧约 L446、L554
+- **证据**：L307 `data = response.json()` 后 L313 直接 `candles = data.get("candles", [])`。Deribit 是 JSON-RPC，数据在 `result` 下；同文件 instruments 路径（约 L366）正确使用 `payload.get("result")`，chart 路径未解包 —— **同一文件内两种口径**。`_normalize_options` 也直接迭代 `payload.items()` 期望内层 `{"BTC":[...]}`。而 `tests/fixtures/deribit/get_tradingview_chart_data/happy.json` 正是内层形状（见 A-1）。
+- **影响**：deribit OHLCV/IV 每次 run 均为 0 batch、HTTP 200、checkpoint 推进、canonical 永远为空；且由于 C1，不会有任何告警。
+- **修复建议**：统一按 JSON-RPC envelope 解包（`payload.get("result", {})`，再取 `candles`）；用真实响应样本重建 fixture；补"fetch→normalize"全链路用例。
+- **真实形状依据（2026-11-05）**：
+  - Deribit v2 公共接口响应为 JSON-RPC envelope：`{"jsonrpc":"2.0","result":...}`；
+  - `public/get_tradingview_chart_data` 的 `result` 为**并行数组**：`{status, ticks:[u64], open:[f64], high:[f64], low:[f64], close:[f64], volume:[f64], cost:[f64], continuation}`（docs.rs `deribit-http` 0.7 `TradingViewChartData`），**不是** `candles` 对象列表，也不含 `instrument_name` / IV；
+  - `public/get_book_summary_by_currency` 的 `result` 是 **BookSummary 列表**（docs.rs `BookSummary`：instrument_name、base_currency、mark_price、bid_price、ask_price、open_interest、mark_iv、last_update_time 等），不是按币种键控的 dict；
+  - 当前环境无法直连 Deribit（curl 无响应），形状以官方 v2 接口与客户端模型定义为准，已在 `tests/fixtures/deribit/SOURCE.md` 记录。
+- **修复实现**：
+  - [\_fetch_chart_data](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/deribit.py#L273-L336)：先解 `data["result"]`（必须为 dict），空 `ticks` 即止；分页取 `result["ticks"][-1]` 作为下一页 `start_timestamp`（保留原 resolution × 60_000 步进修复）；
+  - [\_normalize_chart](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/deribit.py#L542-L700)：`instrument_name`/`resolution` 从 `raw_meta` 取（真实 result 无 instrument_name）；按 `ticks/open/high/low/close/volume` 并行数组逐行构造 OHLCV；任一数组短于 ticks、非数值或非有限值 → `normalize_skip` 计数；真实 chart 无 IV，删除伪造 IV 分支（同步移除未用导入）；
+  - [\_normalize_options](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/deribit.py#L440-L540)：显式遍历 `payload["result"]` 列表，币种取每项的 `base_currency`（不再猜 `payload.items()`）；
+  - [checkpoint_from](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/deribit.py#L716-L770)：chart 取最后一个 tick，options 取 result 长度；
+  - **零行防御**：非空 envelope 缺 `result`（或 chart `result` 非 dict）→ 抛 `ProviderError`；`ticks` 非空但所有行被跳过 → `connector.normalize_skip` + `connector.normalize_summary(kept=0, skipped=N)` 告警，不再静默空产出。
+- **测试（A-1 联动）**：
+  - fixture 换为真实 envelope（`tests/fixtures/deribit/get_tradingview_chart_data/{happy,empty}.json`、`get_book_summary/happy.json`），来源与日期见 `tests/fixtures/deribit/SOURCE.md`；
+  - 契约：[test_contract_chart_real_envelope](file:///Users/horsenli/Works/ChronoForge/tests/integration/test_deribit.py) 断言 2 条 OHLCV 及事件时间/收盘价/成交量/`source_id`/`market_id`；
+  - 负向：`test_negative_chart_short_arrays_warn_not_silent`（非空 ticks + 短数组 → 0 行但必须 `normalize_summary` 告警）、`test_negative_chart_missing_result_raises`、`test_negative_book_summary_old_dict_shape_raises`。
+- **验证结果（2026-11-05）**：`pytest tests/integration/test_deribit.py tests/integration/test_sec_edgar.py` 83 passed；全量 `pytest -q` **1778 passed**；`ruff check src tests` 通过；`mypy src` Success（82 files）；`lint-imports` 2 kept / 0 broken。
+- **对已落盘数据的影响**：`data/raw` 与 `data/canonical` 中均无 deribit 分区（chart 因 `candles` 恒空从未 yield 任何 batch；options 亦无 canonical），因此**无需回放/清洗**；但历史 run 若对 deribit chart 记过成功，应视为无效并重采。建议对 `dataset_id` 含 deribit 的 checkpoint 做一次审计后重拉所需窗口。
+- **剩余风险**：Deribit 真实抓包未能取得（网络不可达），形状证据为官方客户端模型定义；若官方新增字段不影响并行数组解析。options 的 IV 指标仍由 `mark_iv` 提供，但 canonical 仅落 OPTION 快照，IMPLIED_VOLATILITY 历史仍未落盘（能力矩阵声明与实现存在缺口，见 M 级后续项）。
+
+#### C3. sec_edgar companyfacts 结构解析错误 —— FUNDAMENTAL 恒空 ✅ 已核实 ✅ 已修复（2026-11-05）
+
+- **位置**：[sec_edgar.py#L416-L455](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/sec_edgar.py#L416-L455)
+- **证据**：L421-425 按 `facts.items() → concept_data.get("units", [])` 把 `units` 当作 **list** 迭代。真实 companyfacts 为 `facts → {taxonomy → {concept → {units: {USD: [ {end, val, fy, fp, frame} ... ]}}}}` 四层结构，`units` 是 **dict**，值键为 `val` / `end`。代码读取的 `i` / `f` / `$` 是 frames API 的形状。结果：`units` 在错误层级取不到 → 循环空转 → 返回 `[]`。另 L446-449 观测日**硬编码 `day=28`**，即使结构修好日期也会错。
+- **影响**：FUNDAMENTAL 数据集静默 0 行且 checkpoint 推进。
+- **修复建议**：按 companyfacts 真实 schema 重写解析（taxonomy→concept→units→unit）；观测日取 `end` 字段；未收盘/未修订语义按 `filed` 日期设 release_time。补真实响应 fixture。
+- **真实形状依据（2026-11-05，SEC 官方 API 实测）**：
+  - 正确 endpoint：`https://data.sec.gov/api/xbrl/companyfacts/CIK##########.json`；
+  - 结构：`facts[taxonomy][concept]["units"][unit] = [observation, ...]`；`units` 是**以单位名为键的 object**（`USD`/`shares`），不是 list；
+  - observation 字段：`end`（期间结束日）、`val`（数值）、`accn`、`fy`、`fp`、`form`、`filed`，`frame` 可选；`i`/`f`/`$`/`taxonomy.entry.url` 均不存在。
+- **修复实现**：
+  - [\_fetch_companyfacts](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/sec_edgar.py#L195-L230)：endpoint 由实测 404 的 `/submissions/CIK{cik}/companyfacts.json` 改为真实 `/api/xbrl/companyfacts/CIK{cik}.json`；因 client `base_url` 指向 `/submissions`，改用**绝对 URL** 请求（相对路径会被拼成 `/submissions/api/xbrl/...` 而 404）；
+  - [\_normalize_fundamentals](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/sec_edgar.py#L414-L560)：按 taxonomy→concept→units→unit 四层遍历；`unit` 取键名；`observation_time = end` 的 T23:59:59；`value = val`；`taxon` 取外层 taxonomy；`fiscal_year = fy`（缺失时回退 `end` 年份）；`fiscal_period = fp`；`frame` 可选；`raw_record_id` 含 `taxon/concept/unit/end/accn` 保证 raw 唯一；
+  - [checkpoint_from](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/sec_edgar.py#L658-L720)：按真实四层结构取最后一个观测的 `end`，cursor 为 `YYYY-MM`；
+  - **零行防御**：payload 缺 `facts` 或 `facts` 非 object → `ProviderError`；`facts` 非空但全部观测被跳过 → 逐 reason 记 `connector.normalize_skip` + `connector.normalize_summary` 后抛 `ProviderError("parsed 0 rows from non-empty facts")`，交由 C1 门禁；`facts:{}` 视作合法空返回 0。
+- **测试（A-1 联动）**：
+  - fixture 换为真实 schema（`tests/fixtures/sec_edgar/companyfacts/happy.json`，5 条观测，taxonomy=`us-gaap`，unit=`USD`），来源与日期见 `tests/fixtures/sec_edgar/SOURCE.md`；
+  - 契约：[test_contract_companyfacts_real_schema](file:///Users/horsenli/Works/ChronoForge/tests/integration/test_sec_edgar.py) 断言 5 条及 `observation_time`（2024-09-28 23:59:59）、`value`、`taxon`、`unit`、`fiscal_year/period`、`frame`、`cik`；
+  - 负向：`test_negative_companyfacts_missing_fields_raises`（非空 facts + observation 缺 `end/val` → 告警 + `ProviderError`）；`test_gwt_fundamental_count_matches_fixture` 改为按真实四层结构统计观测数。
+- **验证结果（2026-11-05）**：
+  - 单测：`pytest tests/integration/test_deribit.py tests/integration/test_sec_edgar.py` → **83 passed**；
+  - 全量：`pytest -q` → **1778 passed**（81.8s，11 条既有 DeprecationWarning）；
+  - `ruff check src tests` → All checks passed；`mypy src` → Success（82 files）；`lint-imports` → **2 kept / 0 broken**；
+  - **真实端到端（SEC 实测）**：`fetch(CIK 320193, data_type=fundamental) → normalize` → **25,598 条记录**，首条 `EntityCommonStockSharesOutstanding / shares / 2009-06-27 23:59:59 / 895816758.0`，checkpoint `2026-09`（证明真实形状可解析且非 0 行）。
+- **对已落盘数据的影响**：`data/raw` 与 `data/canonical` 中无 `sec_edgar` 分区，无历史 FUNDAMENTAL 数据；原 endpoint 404 使 fetch 直接失败，旧解析即使拿到 payload 也恒 0 行，故**无需回放/清洗**。历史 run 若对 `sec_fund` 记过成功/零行，应按无效处理并对目标 CIK 重采。
+- **剩余风险**：companyfacts 同一 `(concept, unit, end)` 可能有多条 `accn`（修订/多表），当前 raw 允许重复，canonical 自然键 `(entity_id, concept, observation_time)` 会在下游去重时按写入顺序保留其一；如需严格 PIT/修订语义，应显式按 `filed` 择最新。`filed` 字段已随 payload 可用但未落 release_time（避免扩大本次改动面），建议后续单列。large CIK（如 Apple）单次 2.5 万条，normalize 为纯 CPU，未见性能问题。
+
+### 3.2 HIGH
+
+| ID | 位置 | 问题 | 影响 |
+|---|---|---|---|
+| H1 | [binance_futures.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/binance_futures.py) `_fetch_funding`（约 L260-L305） | 只设 `startTime` 无 `endTime`，分页仅当返回空才停 | 窗口语义被破坏；backfill 时每 chunk 拉到"现在"，请求量 O(N²) |
+| H2 | [ccxt_bridge.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/ccxt_bridge.py)（约 L362-L431） | OHLCV 无起点 rewind、无未收盘过滤（对照 [binance_spot.py#L216](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/binance_spot.py#L216) 有 `rewind_ms`） | 跨窗口边界 K 线永久漏拉；live 末根部分值永不修正 |
+| H3 | ccxt_bridge.py `fetchTrades`（约 L475-L495） | 单次 `fetchTrades(limit=100)` 无分页；L491 把 ISO cursor 传给期望 `asc/desc` 的 `order` 参数 | 窗口内成交 >100 笔静默截断；参数误用 |
+| H4 | [treasury_fiscal.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/treasury_fiscal.py) fetch 窗口过滤（约 L200-L260） | 按 `record_date >= start` 过滤，**无 T+1 起点回退**（sosovalue/alternative/coinmetrics/coinmarketcap 均有回退 1 天） | DTS T+1 发布语义下边界日行永久漏采，违反项目硬性约束 |
+| H5 | [yahoo.py#L77-L80](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/yahoo.py#L77-L80) | `RateLimiter(rate=http_timeout_s * 30/60)`：超时 30s 时 15 req/s = 900 req/min（本意 30 req/min） | 限流形同失效，429 风暴与 getcrumb 封禁风险 |
+| H6 | [canonical.py#L582-L614](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/storage/canonical.py#L582-L614) | `target→.old-*` 与 `tmp→target` 两次 rename 之间崩溃 → 分区缺失；`cleanup_orphans` 只删不合并；下次 upsert 视 `has_old_data=False` 直接覆盖 | 该月历史数据丢失（原子提交契约破口） |
+
+### 3.3 MEDIUM
+
+| ID | 位置 | 问题 |
+|---|---|---|
+| M1 | [raw.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/storage/raw.py)（约 L130-L143） | 滚动切文件时旧句柄 `close()` 前未 `fsync`；append 末尾 dirty 循环跳过 `file_obj=None` 句柄 —— 违反 docstring "append 返回 ⇒ 本批已 durable" |
+| M2 | [consistency.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/storage/consistency.py)（约 L278-L303） | startup_repair 先 `release_stale_locks` 把超时 RUNNING/PENDING 置 CANCELLED，reconcile 再查 PENDING/RUNNING 恒空 —— 按 raw 对账补记逻辑为死代码 |
+| M3 | canonical.py `merge_rewrite`（约 L923-L936） | `old_table.num_rows == 0` 分支直接 `return`，却声称 inserted/rewritten=1，未实际写盘 —— 静默丢失 + run_log 计数虚报 |
+| M4 | [ratelimit.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/ratelimit.py)（约 L125-L135） | `on_rate_limited(retry_after)` 忽略 `retry_after`，docstring 承诺的"429 全局冷却"未实现；多数连接器从不调用 |
+| M5 | yahoo.py 约 L293 | `status_code >= 400 < 500` 链式比较恒等于 `>= 400`；5xx 被误分类为不可重试 ProviderError，L303 的 TransportError 分支为死代码 |
+| M6 | deribit.py 约 L295-L297、yahoo.py normalize | start 无回退 / 无 `closeTime > now` 过滤 —— live 末根未收盘 K 线永久入库且不修正（与 binance_spot 口径不一致） |
+| M7 | [fred.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/fred.py) | 观测日早于窗口起点的历史修订永不回补（vintage 机制对增量失效）；`units`/`seasonal_adjustment` 读响应回显而真实端点不回显 → canonical 恒 `""`，Q-NULL-001 只查 None 不查空串 |
+| M8 | [treasury_refunding.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/treasury_refunding.py)（约 L155-L160） | httpx 传输异常未包装为 TransportError（裸异常 → run FAILED 而非 chunk 重试）；非 200 一律 SchemaError → 5xx 触发熔断而非重试 |
+| M9 | [calendar.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/quality/calendar.py)（约 L20-L31） | `US_MARKET_HOLIDAYS` 为 2026/27 具体日期且浮动假日写死，跨年份应用 → 真假日判 REGULAR、真实交易日判 EXPECTED_GAP（掩盖真缺失） |
+| M10 | sec_edgar.py 约 L336、L527 | 只读 `filings.recent`（≈1000 条上限），忽略 `filings.files` 分页 → 老 filing 永久缺失；`_extract_doc_url` 缺 CIK 路径段，primary_doc_url 恒 404 |
+
+### 3.4 LOW
+
+- **L1**：binance_spot / binance_futures / deribit / yahoo / sec_edgar 多处畸形行 `continue` 无 warning（alternative/coinmetrics 的 skipped 计数日志可作范本，口径不一致）。
+- **L2**：[rules.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/quality/rules.py) 中 Q-OHLC-001 读 `open_time`/`close_time`、Q-CROSS-001 读 `low_24h`/`high_24h`，canonical schema 无这些字段 → 两条规则永不触发（空转）。
+- **L3**：ccxt_bridge `"1M"` 因 `tf.lower()` 恒不可达，月 K 线误标 `"1m"`；ccxt/yahoo/sec_edgar/fred 多处 `raise ValueError` 而非 ProviderError/ConfigError，破坏 chunk 级失败语义。
+- **L4**：`replay` 全量读 raw 重放整个数据集；canonical merge-rewrite 每次重写全月分区 —— backfill 叠加 H1 时 O(N²) 放大。
+- **L5**：`_revision_dedup` 仅当自然键恰含 `revision_time` 才生效；新增 REVISION 类型漏配将静默退化为 keep-last、折叠多版本。
+- **L6**：meta.py `ended_at` 用 `datetime('now')`（无 Z/T，与 `started_at` 的 ISO+Z 不一致）；迁移 0002 的 ALTER 非幂等；`MIGRATION_0001_SQL` 双份维护。
+
+### 3.5 项目硬性约束核对（核心源码）
+
+| 约束 | 结论 | 证据 |
+|---|---|---|
+| 熔断冷却（默认 1800s）+ half-open 探测 | ✅ 已落实 | [settings.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/config/settings.py) `circuit_cooldown_s=1800`；runner half-open 标记 |
+| chunk 重试使用 `retry(max_retries=settings.retry_max)` | ✅ 已落实 | runner 调用 retry 装饰器 |
+| startup repair 有 `min_age_seconds` / `stale_run_timeout_seconds` | ⚠️ 防护存在但对账逻辑为死代码 | M2 |
+| FRED 稳定 revision_time / `realtime_start=1776` / vintage 分页 | ✅ 已落实 | fred.py vintage 日切分 |
+| T+1 起点回退（sosovalue/alternative/coinmetrics/coinmarketcap） | ✅；**treasury_fiscal 违反、ccxt_bridge 缺失** | H4、H2 |
+| ccxt 显式传 `proxies` | ✅ 已落实 | ccxt_bridge `_init_exchange` |
+| 日志统一走 ui.py / structlog + RichHandler | ✅ 已落实 | logging.py、ui.py |
+
+---
+
+## 4. TGA 链路审计（`scripts/tga_*`、`config/tga`、`docs/tga`、`docs/strategy`）
+
+审读范围：`tga_forecast.py`（1,519 行）、`tga_backtest.py`（820）、`tga_report.py`（706）、`tga_store.py`（692）、`tga_reconstruct.py`（1,179）、`tga_common.py`（228）、`tga_probe.py`（351）、`config/tga/*.yaml`（327）、`docs/strategy/TGA前瞻模型*.md`（4,025）、`docs/tga/*.md`（708）。
+
+### 4.1 硬性约束核对矩阵
+
+| # | 约束 | 结论 | 证据（file:line） |
+|---|---|---|---|
+| 1 | PIT：拍卖 `release_time <= cutoff`，现金流 `date <= cutoff` | ✅ 已落实 | [pit_auctions L236-L238](file:///Users/horsenli/Works/ChronoForge/scripts/tga_forecast.py#L236-L238)；`hist()` 过滤 `date <= through`（L195-L200）；公告层 L241-L259 |
+| 2 | 情景不得修改已知事件（KNOWN_* 因子恒 1.0） | ✅ 已落实 | `apply_to_known` 为 true 时直接抛 D-TGA-11（L1041-L1043） |
+| 3 | 回测与生产预测同源组件逻辑 | ✅ 已落实 | [tga_backtest.py L36-L45](file:///Users/horsenli/Works/ChronoForge/scripts/tga_backtest.py#L36-L45) 直接 import `compute_base_components` / `aggregate_forecast` / `apply_scenario`，无简化副本 |
+| 4 | 校准只用 cutoff 前信息；`seasonal_window` 仅为可选，默认 `none` | ✅ 已落实 | [model.yaml L63-L66](file:///Users/horsenli/Works/ChronoForge/config/tga/model.yaml#L63-L66) `calibration.mode: none` |
+| 5 | 历史公告时间戳来自官方 `announcement_date`，不伪造、缺口如实记录 | ✅ 已落实 | `announced_auctions` 对缺失公告日的未出结果条目**直接剔除**，不回填（L241-L259） |
+| 6 | 日历层只改月内时点分布、不改月度总量；停更子类保护 | ✅ 已落实 | 月度守恒 L1008-L1013；停更保护 `STALE_SUBCATEGORY_DAYS=90`（L75、L940-L947）；TGA-1 修复后聚合层另有去重前后月度核对 |
+| 7 | 定位为"情景与事件解释"；输出 `output_type=scenario` 等标签；日报为情景表+归因+切换条件 | ✅ 已落实 | [tga_forecast.py L1248-L1256](file:///Users/horsenli/Works/ChronoForge/scripts/tga_forecast.py#L1248-L1256)；[tga_report.py L588-L647](file:///Users/horsenli/Works/ChronoForge/scripts/tga_report.py#L588-L647) 十个章节；多处显式"非点位预测"（L310-L319、L534-L540） |
+| 8 | DM 检验 HAC/Newey-West + Bonferroni/FDR；能力边界如实声明 | ✅ 已落实 | [tga_backtest.py L289-L430](file:///Users/horsenli/Works/ChronoForge/scripts/tga_backtest.py#L289-L430)；日报第九节 |
+| 9 | 到期偿还按 CUSIP 去重；35 年回看；entity `US_TREASURY` | ✅ 已落实 | `seen_maturity`（L584-L591）、`_principal_by_cusip`（L503-L513）、`AUCTION_LOOKBACK_YEARS=35`（L81、L222）；[register_treasury_datasets.py L80/L88](file:///Users/horsenli/Works/ChronoForge/scripts/register_treasury_datasets.py#L80-L88) |
+| 10 | run 按 `config_hash + cutoff` 幂等复用；回测记录终态 | ✅ 已落实 | [tga_store.py L198-L228](file:///Users/horsenli/Works/ChronoForge/scripts/tga_store.py#L198-L228) 唯一键含 origin/cutoff/model_version/config_hash/scenarios/horizons；回测状态字段 L398-L410 |
+| 11 | 组件日期落在预测网格内、非工作日顺延；缺发行规模跳过不伪造 | ✅ 已落实 | 越界断言 L1159-L1164；顺延 `next_business_day`（L357、L398）；`offering is None` 跳过（L559-L560、L595-L596） |
+
+### 4.2 发现
+
+#### TGA-1 CRITICAL —— 组件去重键缺 subcategory，同类多子类现金流被静默坍缩 ✅ 已修复（2026-11-05）
+
+- **位置**：[tga_forecast.py#L74-L78](file:///Users/horsenli/Works/ChronoForge/scripts/tga_forecast.py#L74-L78)、[aggregate_forecast L1163-L1300](file:///Users/horsenli/Works/ChronoForge/scripts/tga_forecast.py#L1163-L1300)
+- **根因（已复核并量化）**：
+  1. 原实现 `unique(subset=["target_date", "category", "event_key"], keep="first")`：基线行 `event_key=None`，同类别不同子类落在同一 `(date, category, None)` 键；事件行 label（`TAX:<id>`、`OUTLAY:first_of_month`）跨子类共享；
+  2. 守恒断言原在去重**之后**比较 `comps` 与其按日汇总，恒等成立，无法发现丢弃；
+  3. 实测（origin=2026-11-05、cutoff=2026-11-02、90 天网格）：原始 1,813 行组件，旧键仅保留 633 行，**丢失 1,180 行**（基线 1,527→347），组件总额偏移 **+584,402.85 USD Million（≈+584B）**——负向流出优先被丢，TGA 被系统性高估；
+  4. 复核还发现第二层同质缺陷：同一子类同日存在**流入/流出两条基线**（如 `OTHER/agency_misc` 同时 `+2,246` 与 `−6,889`），仅补 `detail` 仍会被合并（1,527→1,409，丢 118 行）。因此修复必须同时把基线行移出去重。
+- **修复（最小 diff）**：
+  - [L55](file:///Users/horsenli/Works/ChronoForge/scripts/tga_forecast.py#L55)：`MODEL_VERSION` `0.3.0` → `0.4.0`（阻断旧逻辑 run 复用，见下）；
+  - [L74-L78](file:///Users/horsenli/Works/ChronoForge/scripts/tga_forecast.py#L74-L78)：去重键改为 `["target_date", "category", "detail", "event_key"]`，并明确**仅用于事件行**；
+  - [L1196-L1224](file:///Users/horsenli/Works/ChronoForge/scripts/tga_forecast.py#L1196-L1224)：拆分基线行与事件行——基线行（`event_key is null`）**不参与去重**（逐子类/逐方向独立生成）；仅事件行按新键、`confidence` 降序 `keep="first"`；
+  - [L1201-L1215](file:///Users/horsenli/Works/ChronoForge/scripts/tga_forecast.py#L1201-L1215)：新增冲突防御——同一去重键下若 `predicted/lower/upper` 出现多种取值，抛 `Q-TGA-012 dedupe key collides distinct event components`，不再静默 `keep="first"`。
+- **守恒校验的新位置与断言**（[L1188-L1300](file:///Users/horsenli/Works/ChronoForge/scripts/tga_forecast.py#L1188-L1300)）：
+  1. **去重前**：原始组件按自然月汇总，`Σmonthly == Σcomponents`（±0.5）；
+  2. **去重后**：基线行数量不得减少（实测 1,527→1,527）、基线逐月合计与去重前逐月相等；
+  3. **去重后月度核对**：`原始月度合计 − 完全重复事件的重复部分 == 去重后月度合计`（逐月，±0.5）。任何无法解释为“完全重复事件”的丢失（跨子类、跨方向、整月整组）都会显式抛 `Q-TGA-012`；
+  4. **身份集合核对**：去重前后 `(年, 月, category, detail)` 集合不得减少；
+  5. 原有“去重后组件 == 按日聚合”的整体与逐月守恒保留。口径未变：只允许月内时点分布变化，月度总量不变。
+- **幂等与历史 run**：`find_success_run` / `create_run` 的身份键已包含 `model_version`（[tga_store.py#L155-L191](file:///Users/horsenli/Works/ChronoForge/scripts/tga_store.py#L155-L191)），因此提升 `MODEL_VERSION` 即可阻断旧逻辑 run 复用，无需把逻辑版本塞进 `config_hash`（最小可行方案；`config_hash` 只覆盖 taxonomy/calendar/model/scenarios，不含代码逻辑）。影响：
+  - 现存 **14 条 `tga-forecast-0.3.0` SUCCESS forecast run** 由旧逻辑生成，组件坍缩，**不可信，需以 0.4.0 重跑**。需重跑窗口（origin / cutoff）：`2026-11-02/2026-10-29`、`2026-11-03/2026-10-30`、`2026-11-04/2026-10-30`、`2026-11-04/2026-11-02`；
+  - **19 条 backtest run 记录（16 SUCCESS / 3 FAILED）** 的 `model_versions_json` 均含 `tga-forecast-0.3.0`，第九节回测/DM 结论在重跑前不应引用；重跑窗口为 `2026-09-01→2026-10-29`（stride 1）、`2023-11-01→2026-10-29`（stride 5）、`2023-11-01→2026-11-02`（stride 5 及各校准变体）；
+  - 旧 0.3.0 run 与旧回测分区**保留不删**（审计可追溯），但 `latest_success_run` 将取到新版本；报告按 `MODEL_VERSION` 过滤，旧回测数据自动不进入新报告；
+  - 0.4.0 新 run 已在 origin=2026-11-05、cutoff=2026-11-02 实跑成功（见验证）。
+- **测试（先失败后修复）**：
+  - 失败复现（修复前均 `assert 1 == 2` 失败）：`test_aggregate_preserves_multi_subcategory_baseline_rows`、`test_aggregate_preserves_shared_event_label_across_subcategories`；
+  - 真实数据第二层缺陷回归：`test_aggregate_preserves_inflow_outflow_baseline_rows`；
+  - 冲突身份负向：`test_aggregate_rejects_conflicting_event_identity`；
+  - 保留原事件去重用例 `test_aggregate_dedupes_same_event_and_conserves`。
+- **验证（2026-11-05 实跑）**：
+  - TGA 单测：`uv run pytest tests/unit/test_tga_forecast.py tests/unit/test_tga_common.py tests/unit/test_tga_backtest.py tests/unit/test_tga_report.py tests/unit/test_tga_reconstruct.py tests/unit/test_tga_leakage.py -q` → **56 passed**；
+  - 全量：`uv run pytest -q` → **1782 passed**；
+  - `uv run ruff check src tests scripts/tga_forecast.py` → **All checks passed**；
+  - `uv run mypy src` → **Success: no issues found in 82 source files**；
+  - `uv run lint-imports` → **2 kept, 0 broken**；
+  - 端到端 `uv run python scripts/tga_forecast.py` → 成功，`run=3349f9d395b9dd56-r1`，组件 **5,439 行**（1,813×3 情景）、预测 **177 行**（59 工作日×3 情景），T+7/T+14/T+30/T+60/T+90 三情景均正常输出。
+- **剩余风险**：历史 0.3.0 产物不可信（需按上述窗口重跑）；`_seasonal_flows` 的月度水平校准仍以 0.5–2.0 倍率截断，极端月份仍可能有偏差；本次只锁定“组件不丢”，不校正既有 0.3.0 数据。
+
+#### C-2 MEDIUM —— `config/tga` 存在 7 个死键，其中 `same_month_years` 与实现直接矛盾 ✅ 已核实
+
+- **位置**：[model.yaml L18-L19、L44-L48、L54-L55](file:///Users/horsenli/Works/ChronoForge/config/tga/model.yaml#L18-L55)、[calendar.yaml L61、L78](file:///Users/horsenli/Works/ChronoForge/config/tga/calendar.yaml#L61)
+- **证据**：在 `scripts/tga_*.py` 全量 grep，以下键**无读取处**（仅出现在测试 fixture 字典中）：
+  - `windows.monthly_median_weeks`、`windows.same_month_years`
+  - `issuance.layer2_confidence`、`issuance.layer3_confidence`（实际置信度来自 `model["confidence"]` 映射）
+  - `components.debt_events/tax/outlays/other` 四个开关
+  - `calendar.refund_season_months`、`outlay_cycles.federal_pay`
+- **直接矛盾**：`same_month_years` 注释写"回看年数 3"，而 [run_rate_and_month_rate L328-L332](file:///Users/horsenli/Works/ChronoForge/scripts/tga_forecast.py#L328-L332) 硬编码 `through - 365` 到 `through - 427`，只回看 **1 年**。
+- **影响**：调参者修改这些键会误以为行为已变，实际 no-op；但 YAML 变更会改变 `config_hash` → 触发一次无意义的新 forecast run，造成"配置生效"的错觉与历史 run 膨胀。
+- **修复建议**：要么让代码读取（`same_month_years` 改为按年循环），要么从 YAML 删除并注释说明；`components` 开关应接入 `compute_base_components` 或删除。
+
+#### TGA-3 MEDIUM —— `docs/tga/DECISIONS.md` 状态标签严重过期
+
+- **位置**：[DECISIONS.md L12-L25](file:///Users/horsenli/Works/ChronoForge/docs/tga/DECISIONS.md#L12-L25)
+- **证据**：
+  - D-TGA-05 写 `treasury_refunding` Phase 4 —— 实际 `src/chronoforge/connectors/treasury_refunding.py` 已存在并被 `_wiring` 引用（未跟踪）；
+  - D-TGA-06 写"读写脚本待 Phase 2/3" —— `scripts/tga_store.py`（692 行）已实现；
+  - D-TGA-10 写"Phase 3" —— `config/tga/calendar.yaml`（81 行）已存在；
+  - D-TGA-18 写"taxonomy.yaml 待 Phase 2" —— `config/tga/taxonomy.yaml` 已存在（281 行）。
+- **影响**：决策记录是 TGA 的权威口径来源，过期状态会让后续维护者误判"未实现"，甚至重复开发。
+- **修复建议**：按当前代码逐条更新状态列，并把 DECISIONS 的版本依据从 v1.2 更新到实现方案现版本。
+
+#### 其余正面结论（TGA）
+
+- 预测 → 回测 → 报告复用同一 `load_forecast_context` 与 `compute_base_components`，PIT 语义一致（L1275-L1296）；
+- `reports/` 与 `output/` 职责分离符合 D-TGA-17；
+- 日报已彻底改为情景口径，无残留"点位预测"结论（全文均为"情景锚点 / 条件路径 / 非点位预测"）；
+- 能力边界声明完整（"不优于 Naive、不构成交易建议、仅 T+7 档差距不显著"）；
+- 停更子类保护、月度守恒、CUSIP 去重、35 年回看、缺失公告剔除等此前踩过的坑均已按记忆中的教训实现。
+
+---
+
+## 5. 测试体系审计（`tests/`）
+
+### 5.1 CRITICAL
+
+#### A-1. deribit fixture 形状与生产 fetch 路径不一致 —— 重演 yahoo 教训 ✅ 已修复（2026-11-05）
+
+- **证据**：`_fetch_option_summary` / `_fetch_chart_data` 把**全量 JSON-RPC envelope** 存入 `RawBatch.payload`，但 `_normalize_options` 期望内层形状；`tests/fixtures/deribit/get_book_summary/happy.json` 与 `get_tradingview_chart_data/happy.json` 均为内层形状。`tests/integration/test_deribit.py`（约 L303-L312、L459）把 fixture 直喂 normalize，fetch 级 mock（约 L768-L837）也返回内层形状。
+- **影响**：生产 fetch→normalize 链路可静默产出 0 行而测试全绿（与 C2 同源）。历史上 yahoo 正因 fixture 用假形状导致"测试全过、normalize 静默丢全部数据"。
+- **修复建议**：fixture 存 **原始响应**（含 envelope），测试走 `fetch → normalize` 全链路；并对每条 canonical 断言**行数 > 0**。
+- **修复实现（2026-11-05）**：
+  - deribit fixtures 全部改为真实 JSON-RPC envelope：
+    - `get_tradingview_chart_data/{happy,empty}.json`：`result` 为 `ticks/open/high/low/close/volume/cost/continuation` 并行数组；
+    - `get_book_summary/happy.json`：`result` 为 BookSummary 列表；
+    - `get_instruments/{happy,empty}.json` 原本即 `result` 数组，保持；
+  - sec_edgar fixture 改为真实 companyfacts 四层 schema（`facts[taxon][concept].units[unit]` 观测列表）；
+  - 两个 fixture 目录新增 `SOURCE.md`，注明形状依据、核对日期（2026-11-05）与最小裁剪说明；
+  - 契约测试：`test_contract_chart_real_envelope`（deribit，2 条 + 时间/价格/标识）、`test_contract_companyfacts_real_schema`（sec，5 条 + 时间/数值/标识）；
+  - 负向测试：deribit 2 条（短数组告警、缺 `result` 抛错）+ book summary 旧形状抛错；sec_edgar 1 条（非空 facts 缺 `end/val` → 告警 + 抛错）。
+- **验证结果（2026-11-05）**：目标测试 83 passed；全量 1778 passed；SEC 真实端到端解析 25,598 行。其余连接器的 fixture 同源问题仍属 **A-3**，未在本次范围内。
+- **剩余风险**：Deribit 无法直连抓包，fixture 依据官方客户端模型而非逐字节抓包；建议后续在可联网环境补一次真实响应归档（脱敏后可入库）并加入 CI 契约门禁。
+
+### 5.2 HIGH
+
+| ID | 问题 | 证据 / 影响 |
+|---|---|---|
+| A-2 | e2e / quality 两层承诺存在但为空 | `tests/e2e/`、`tests/quality/` 仅 `.gitkeep`；`quality` / `smoke` marker 已注册但全仓无人使用；[09-testing-plan.md](file:///Users/horsenli/Works/ChronoForge/docs/design/09-testing-plan.md)、[07-testing-architecture.md](file:///Users/horsenli/Works/ChronoForge/docs/architecture/07-testing-architecture.md) 承诺的两层从未存在 → 发布门禁缺位 |
+| A-3 | fixtures 完整性与 README 承诺严重不符 | `tests/fixtures/README.md` 承诺 malformed / out-of-order / duplicated / late-arriving / corrected / large-volume 六种形态，实际**无任何文件**；deribit 三个 endpoint 全部缺 `error.json`；fred/observations 缺 error；yahoo 缺 dividend 与 429 且命名不一致（`error_no_result.json`）→ 异常路径回归能力接近为零 |
+
+### 5.3 MEDIUM
+
+- **A-4**：TC-C-015（SchemaError 触发熔断）无直接测试，仅有 `test_retry` 的"不重试"语义。
+- **A-5**：Q-GAP-001 的"分散缺失 → 区间合并"分支（[rules.py#L972](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/quality/rules.py#L972)）无测试，现有用例只覆盖连续缺失。
+- **A-6**：DST 切换日、分页上界 1000 / 下界 1 无边界测试（闰日、跨年界已有覆盖）。
+
+### 5.4 LOW
+
+- **A-7**：TC-Q-001~003 存在测试函数但未标注 TC-ID，无法与对照表机器校验。
+
+### 5.5 已核实无问题（正面结论）
+
+| 项 | 结论 |
+|---|---|
+| 失败恢复测试真实性 | ✅ 为真实 failure→restart→resume→validate：subprocess `os._exit(1)`、真实 SQLite/文件系统、ENOSPC 注入、fsync 边界 |
+| checkpoint 不超前 | ✅ TC-P-010 / TC-P-005 在真实 store 验证（但被 C1 的空产出路径绕过） |
+| 测试独立性 | ✅ connector 测试全部 mock httpx，无真实网络依赖 |
+| yahoo / fred fixture | ✅ 形状与解析路径一致，yahoo 教训已修复（`test_yahoo.py:220` 有 `len == 5` 防静默丢数断言） |
+| TC-Q-005 | ✅ 17 条规则成对覆盖满足 |
+
+---
+
+## 6. 脚本与配置审计
+
+### 6.1 CRITICAL
+
+#### B-1. `scripts/fdam_attention.py` 启动即死（SyntaxError）✅ 已修复（2026-11-05）
+
+- **证据（修复前）**：`py_compile` 实测 `SyntaxError: 'return' outside function`（line 1518）。文件 1,524 行；`if __name__ == "__main__"` 出现在 **L1240 与 L1521 两处**；L1242-L1518 为旧版内联卡片绘制残留死代码段，含 32 个 F821 未定义名（`fig` / `last_date` / `inf_idx` / `emp_idx` / `res_a` / `bt_full_summary` / `out_path` 等）。
+- **死代码核实依据（删除前逐项确认）**：
+  1. L1240-L1518 全部位于第一个 `if __name__ == "__main__": main()` 之后的 4 空格缩进块内，区间内**无任何顶层语句**（脚本检查 1,240–1,518 行的非注释、非缩进行仅 L1240 的 `if` 本身）；
+  2. 块内引用的 `fig` / `last_date` / `inf_idx` / `emp_idx` / `res_a` / `bt_full_summary` / `out_path` 在模块作用域均无定义（ruff 32 个 F821）；块内唯一函数 `ax_of`（L1258）与字典 `S`（L1249）也仅在块内定义/使用，文件其余部分无引用；
+  3. `main()` 在 L1117 调用 `build_card_payload`（L1135-L1237），L1128-L1132 把 payload JSON 交给 `card_renderer.render_card`；旧内联绘图无调用方，功能已被完整覆盖；
+  4. L1518 的 `return out_path` 处于非函数作用域，即 SyntaxError 的直接根因。
+- **删除范围**：L1240-L1520（重复的 `if __name__` + `main()` + L1242-L1518 死代码 + 多余空行），保留 L1521 起的正式入口；删除后文件 **1,524 → 1,243 行（净删 281 行）**。
+- **验证（2026-11-05 实跑）**：
+  - `python3 -m py_compile scripts/fdam_attention.py` → **exit 0**；
+  - `uv run ruff check scripts` → **F821 0、F706 0、E702 1**（[fdam_attention.py#L912](file:///Users/horsenli/Works/ChronoForge/scripts/fdam_attention.py#L912) 既有分号写法，在删除范围外）；`scripts/fdam_attention.py` 自身剩 **17 项既有风格问题**（E501×7、F541×6、I001、F401、E741、E702），全部位于删除范围外，属既有非本次范围；
+  - AST 结构检查：顶层 `return` 0 个、`__main__` 入口 1 个；以 matplotlib 桩执行模块导入 → **import OK，`main` 可调用**；
+  - 无 fdam 专项测试；全量 `uv run pytest -q` → **1782 passed**；`uv run mypy src` → **Success: no issues found in 82 source files**；`uv run lint-imports` → **2 kept, 0 broken**。
+- **功能回退风险**：无。删除段在语法上不可达且无外部引用；`main()` / `build_card_payload` / `card_renderer` 路径未改动。
+- **剩余风险（独立于 B-1）**：`matplotlib` 未在 [pyproject.toml](file:///Users/horsenli/Works/ChronoForge/pyproject.toml) 声明，项目环境直接运行 `python scripts/fdam_attention.py` 仍会 `ModuleNotFoundError: No module named 'matplotlib'`；需补依赖或移入可选 extra。fdam 仍无自动化测试，后续改动无回归保护。
+
+### 6.2 HIGH
+
+#### G-1. 整个 TGA 子系统未纳入版本控制，且修改态文件依赖未跟踪文件
+
+- **证据**：`git status --porcelain` = 38 个 `M` + 30 个 `??`。全部 **untracked** 的关键项包括：
+  - `scripts/tga_*.py`（7 个）、`scripts/register_treasury_datasets.py`、`scripts/tga_howto.md`
+  - `config/`（整个 TGA 配置目录）
+  - `src/chronoforge/connectors/treasury_fiscal.py`、`treasury_refunding.py`、`src/chronoforge/models/treasury.py`、`storage/migrations/0005_forecast_metadata.py`
+  - `docs/strategy/`、`docs/tga/`、TGA 全部单元/架构测试（7 个）、`tests/fixtures/treasury_fiscal/`
+  - `reports/`（每日生成的报告）
+- **影响**：已修改的 `registry/service.py`（L107-L118 引用 treasury 源）与 `cli/_wiring.py` 依赖上述未跟踪文件；**只提交 M 而不提交 ?? 会直接 ImportError**，主干不可构建。同时 TGA 全部工作存在丢失风险。
+- **修复建议**：一次成套提交（M + 相关 ?? 同批），提交前跑全量 pytest；`reports/` 与运行产物应先补 `.gitignore` 再提交（见 C-3）。
+
+### 6.3 MEDIUM
+
+- **C-2**：见 §4.2（TGA 死键，已核实）。
+- **C-3. `reports/` 未被 .gitignore 覆盖**：`output/` 已命中（[.gitignore#L56](file:///Users/horsenli/Works/ChronoForge/.gitignore#L56)），但 `reports/` 仍为 `??`，内含 `reports/tga/TGA_MODEL0_RECONSTRUCTION_2026-11-0{2,3,4}.md` 与 `reports/daily/TGA_Forecast_2026-11-0{2,3,4}.md` 6 份生成物 → 误提交风险。
+- **C-4. `config_hash` 对 `taxonomy.unmatched` 覆盖不全**：[tga_common.py#L189-L192](file:///Users/horsenli/Works/ChronoForge/scripts/tga_common.py#L189-L192) 仅哈希 `category` + `include_in_net`；修改 `flow_type` / `subcategory` / `confidence` / `is_subtotal` 不改变 hash → 违反 `model.yaml` 头部"任何变更 → 新 run"的约定。
+
+### 6.4 LOW
+
+- **B-2 / B-3 正面结论**：`hourly_update.sh` 与 `backfill_datasets.py` 符合 READY-006（默认 `WINDOW_SECONDS=21600`、do_round 传 `--window-seconds`、loop 模式 `--due-only`、mkdir 锁 + trap 释放）；6 个 `register_*.py` 全部幂等（`get_dataset` 预检 → `[SKIP]`）；scripts 无硬编码密钥或绝对路径。
+- **C-6**：`.gitignore` 全局 `*.txt` / `*.png` / `*.db` 可能吞掉未来需要的文档类 txt。
+- **C-7**：`tests/conftest.py` 无 settings fixture（文件内 DEF-002 注释自认）。
+
+---
+
+## 7. 文档一致性审计
+
+### 7.1 HIGH
+
+| ID | 位置 | 文档原文 | 代码事实 | 建议 |
+|---|---|---|---|---|
+| D-1 | [README.md#L80-L81](file:///Users/horsenli/Works/ChronoForge/README.md#L80-L81) 与 L84-L99 | "registry sync: 11 sources"，表格 11 行 | [service.py#L51-L119](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/registry/service.py#L51-L119) `DEFAULT_SOURCES` 为 **13** 个，缺 `treasury_fiscal`、`treasury_refunding` 两行 | 更新为 13 并补表格行 |
+| D-2 | [README.md#L518](file:///Users/horsenli/Works/ChronoForge/README.md#L518) | "Canonical type system — 27 types across 7 asset classes" | [enums.py#L19-L54](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/models/enums.py#L19-L54) `CanonicalType` 实测 **32** 个（Treasury / Prediction / Text / Entity / Instrument / Derived / Feature 未进入分类表） | 更新数量与分类表 |
+| D-3 | [TGA前瞻模型.md](file:///Users/horsenli/Works/ChronoForge/docs/strategy/TGA前瞻模型.md)（2,137 行） | 全文无"定位 / 情景 / output_type / 置信区间"等表述，仍是旧版"预测周期 7/14/30/60/90"概念稿 | 实现方案 v1.6 已改为"情景与事件解释"；代码输出 `output_type=scenario` | 在概念文档首部加"定位已变更"声明，或合并进实现方案避免双源 |
+
+### 7.2 MEDIUM
+
+- **D-4. README 环境变量表缺项**：[README.md#L571-L584](file:///Users/horsenli/Works/ChronoForge/README.md#L571-L584) 未列 `CHRONOFORGE_LOG_FORMAT`（auto/rich/json/test）与 `CHRONOFORGE_LOG_FILE`；[settings.py#L53-L80](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/config/settings.py#L53-L80) 实际支持。与"双 sink + profile 可覆盖"的既定约定脱节。
+- **D-5. 任务状态漂移**：`docs/implement/01-dispatch-log.md` 中 TGA-ACQ-002 等仍为 PENDING，而对应代码已落地（treasury 连接器、迁移 0005）；历史 2026-09 审计的 HIGH 项（熔断 half-open 恢复、`--all-due` 隔离）则已确认修复（[runner.py#L747-L818](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/pipeline/runner.py#L747-L818)、[pipeline_cmd.py#L121-L178](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/cli/pipeline_cmd.py#L121-L178)）。
+- **TGA-3**：见 §4.2（DECISIONS 状态过期）。
+
+### 7.3 LOW
+
+- **D-6**：`docs/` 下 20 处 TBD/TODO，分布于 17 个文件，集中在 `implement/tasks` 历史任务卡与 `docs/final-design-audit.md`，非核心行为阻塞项。
+- **D-7**：文件名错别字 `docs/编码钱最终整体审计审计要求.md`（应为"编码前"），且"审计审计"重复。
+
+### 7.4 已核实一致（正面结论）
+
+| 项 | 结论 |
+|---|---|
+| Pipeline 七阶段 | ✅ README、[05-pipeline.md](file:///Users/horsenli/Works/ChronoForge/docs/design/05-pipeline.md#L33-L43) 与 [runner.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/pipeline/runner.py#L747-L818) 三方一致（fetch→raw_append→validate→normalize→canonical→quality→runlog） |
+| 历史审计 HIGH 项 | ✅ 熔断冷却/half-open、`--all-due` 逐 dataset 隔离 + 失败汇总退出码均已修复 |
+| docs/design 与 docs/architecture | ✅ 抽查未发现直接矛盾表述 |
+| 未提交的 docs/design 改动 | ⚠️ 5 篇（02-data-models、03-storage、04-connectors、08-cli-config-security、10-task-manifest）+ `docs/final-design-audit.md` 处于修改态，需与 G-1 同批提交，否则文档与代码版本错位 |
+| TGA 日报口径 | ✅ 十个章节与"非点位预测"表述完整一致 |
+
+---
+
+## 8. 汇总统计与修复批次
+
+### 8.1 统计表
+
+| 级别 | 数量 | 分布 |
+|---|---|---|
+| CRITICAL | 6（现存 0） | 核心源码 3（C1/C2/C3 已修复）、测试 1（A-1 已修复）、脚本 1（B-1 已修复）、TGA 1（TGA-1 已修复） |
+| HIGH | 12 | 核心源码 6（H1–H6）、测试 2（A-2、A-3）、工程卫生 1（G-1）、文档 3（D-1–D-3） |
+| MEDIUM | 19 | 核心源码 10（M1–M10）、测试 3（A-4–A-6）、配置/卫生 4（C-2、C-3、C-4、C-7 计入 LOW 故为 3）、文档 3（D-4、D-5、TGA-3） |
+| LOW | 11 | L1–L6、A-7、C-6、C-7、D-6、D-7 |
+| 合计 | 48 | |
+
+> 说明：C-7 归入 LOW，MEDIUM 实为 19 = 10 + 3 + 3 + 3。
+
+### 8.2 优先级与修复批次
+
+#### P0（阻塞，必须先做；建议单个 PR 内按序完成）
+
+| 顺序 | 项 | 动作 | 验证 |
+|---|---|---|---|
+| 1 | ~~**C1**~~ | ~~normalize 非空批次产出 0 记录 → 抛错并阻止 cursor 推进~~ **已完成（2026-11-05）** | 2 条回归测试 + 全量 pytest 1772 passed + ruff/mypy 通过 |
+| 2 | ~~**TGA-1**~~ | ~~去重键加入 subcategory（或仅对 event_key 非空去重）~~ **已完成（2026-11-05）** | 4 条新增用例（2 条失败复现 + 流入/流出 + 冲突身份）+ TGA 56 passed + 全量 1782 passed + 端到端 5,439 组件行 |
+| 3 | ~~**C2 + A-1**~~ | ~~deribit 统一 envelope 解包；fixture 换真实响应；补 fetch→normalize 全链路断言~~ **已完成（2026-11-05）** | 契约 1 条 + 负向 3 条；deribit 集成测试 2 行 > 0 |
+| 4 | ~~**C3**~~ | ~~sec_edgar 按 companyfacts 真实 schema 重写；观测日取 `end`~~ **已完成（2026-11-05）** | 契约 1 条 + 负向 1 条；SEC 真实端到端 25,598 行 |
+| 5 | ~~**B-1**~~ | ~~删除 fdam 死代码段~~ **已完成（2026-11-05）** | `py_compile` 通过；`ruff check scripts` F821/F706 = 0、E702 = 1（既有）；全量 1782 passed |
+| 6 | **G-1 + C-3** | `reports/` 入 .gitignore；38 个 M 与 30 个 ?? 成套提交 | 干净克隆可 `pytest` 通过 |
+
+#### P1（正确性缺口，紧随其后）
+
+| 项 | 动作 |
+|---|---|
+| **H4** | treasury_fiscal 加 T+1 起点回退（与 sosovalue 一致） |
+| **H2 + M6** | ccxt / deribit / yahoo 统一 rewind + 未收盘过滤 |
+| **H5** | yahoo 限流公式改为 `_DEFAULT_RATE/60`（不乘超时） |
+| **H1 / H3** | funding 补 `endTime`；trades 补分页并修正 `order` 参数 |
+| **H6 / M1 / M3** | canonical 换名用"先写新分区再交换"或保留旧目录可回滚；raw 滚动前 fsync；0 行分支不虚报计数 |
+| **A-2 / A-3** | 补 e2e/quality 两层最小骨架与 fixtures 六形态（至少 malformed / duplicate / late-arriving） |
+
+#### P2（一致性与可维护性）
+
+| 项 | 动作 |
+|---|---|
+| M2 / M4 / M5 / M7 / M8 / M9 / M10 | 逐条修复（对账死代码、429 冷却、5xx 分类、FRED 修订回补、错误包装、交易日历、SEC 分页与 URL） |
+| A-4 / A-5 / A-6 / A-7 | 补测试并标注 TC-ID |
+| C-2 / C-4 | 清理 TGA 死键或接入代码；config_hash 覆盖 unmatched 全字段 |
+| D-1 ~ D-5、TGA-3 | 更新 README 数字与环境变量表、TGA 概念文档定位、DECISIONS 状态、dispatch-log 状态 |
+| L1 ~ L6、C-6、D-6、D-7 | 日志口径统一、空转规则、错误类型、性能与迁移幂等、文件名修订 |
+
+### 8.3 建议的修复-验证闭环
+
+每批修复后统一执行：
+
+```bash
+uv run ruff check src scripts tests
+uv run mypy src
+uv run lint-imports
+uv run pytest -q
+```
+
+对 C1/C2/C3/TGA-1 另需增加**数据回溯核对**：修复后按 `market_id` / `dataset_id` / `forecast_run` 统计 canonical 行数与数据库观测日数，确认历史缺口被重新采集且不产生重复。
+
+---
+
+## 9. 结论与后续动作
+
+### 9.1 结论
+
+ChronoForge 的基础工程质量（分层、类型、测试独立性、幂等回退、TGA 的 PIT 与情景口径改造）达到较高水准，本轮审计未发现架构性返工需求。**但当前不可进入发布或对外使用阶段**：6 项 CRITICAL 已全部修复，**现存 CRITICAL 为 0**；判定仍为 NOT READY，原因是 G6（版本库/成套提交）、G7（文档一致性）未通过，G3/G5 部分未通过。此前的"静默放大器"C1、两个连接器契约缺陷 C2/C3/A-1、TGA-1 组件坍缩以及 B-1 语法错误已于 2026-11-05 修复：C2/C3/A-1 以真实响应（SEC companyfacts 实测 25,598 行）与契约/负向测试锁住；TGA-1 以"仅事件去重 + 去重前后月度守恒"锁住，端到端实跑 5,439 行组件无丢失。历史上 yahoo fixture 假形状造成过同类事故，说明测试契约层（真实响应 → fetch → normalize）是必须补上的制度性缺口，而非一次性修复；本次仅覆盖 deribit/sec_edgar，其余连接器仍在 A-3 范围内。
+
+TGA 方面值得肯定：11 条硬性约束均已有落实证据，日报已彻底转为情景口径且能力边界如实声明；TGA-1 修复同时揭示并修正了"同子类流入/流出基线被合并"的第二层缺陷，旧 0.3.0 历史 run 与回测结论已标注为不可信、需重跑。
+
+### 9.2 后续动作清单
+
+1. P0 的 6 项 CRITICAL 已全部关闭；下一步执行 **G-1 的成套提交**并把 `reports/` 纳入忽略，随后处理 P1（H 级）与文档一致性 D-1/D-2/D-3；
+2. 建立"连接器契约测试"门禁：每个连接器必须有一条 `raw 响应样本 → fetch → normalize → 行数断言` 的用例，纳入 CI（deribit/sec_edgar 已具备，其余见 A-3）；
+3. 对既有数据做一次完整性回溯（treasury_fiscal、TGA forecast 产物，以及历史 run 中曾记成功的 deribit/sec_edgar checkpoint），量化历史缺口；**TGA 需以 0.4.0 重跑 4 个 forecast 窗口（2026-11-02/10-29、11-03/10-30、11-04/10-30、11-04/11-02）及 3 组 backtest 窗口（2026-09-01→10-29、2023-11-01→10-29、2023-11-01→11-02）**；
+4. 重新运行本报告 §2 的基线命令与 §4.1 约束矩阵，逐项勾销后复评 READY/NOT READY；
+5. 文档侧统一"单一口径来源"：TGA 以实现方案为准，概念文档只保留定位声明，避免双源漂移。
+
+### 9.3 复评建议
+
+完成 P0 + P1 后复评。复评通过条件：§1.6 的 G1–G7 全部为 ✅，且 P0/P1 条目全部关闭并有对应回归测试。
+
+---
+
+## 附录 A：关键文件索引
+
+| 主题 | 文件 |
+|---|---|
+| 审计要求 | [编码钱最终整体审计审计要求.md](file:///Users/horsenli/Works/ChronoForge/docs/编码钱最终整体审计审计要求.md) |
+| 管道入口 | [runner.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/pipeline/runner.py)、[cursor.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/pipeline/cursor.py) |
+| 存储 | [canonical.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/storage/canonical.py)、[raw.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/storage/raw.py)、[consistency.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/storage/consistency.py) |
+| 连接器 | [deribit.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/deribit.py)、[sec_edgar.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/sec_edgar.py)、[ccxt_bridge.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/ccxt_bridge.py)、[treasury_fiscal.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/treasury_fiscal.py)、[yahoo.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/yahoo.py) |
+| TGA | [tga_forecast.py](file:///Users/horsenli/Works/ChronoForge/scripts/tga_forecast.py)、[tga_backtest.py](file:///Users/horsenli/Works/ChronoForge/scripts/tga_backtest.py)、[tga_report.py](file:///Users/horsenli/Works/ChronoForge/scripts/tga_report.py)、[model.yaml](file:///Users/horsenli/Works/ChronoForge/config/tga/model.yaml)、[DECISIONS.md](file:///Users/horsenli/Works/ChronoForge/docs/tga/DECISIONS.md) |
+| 文档 | [README.md](file:///Users/horsenli/Works/ChronoForge/README.md)、[05-pipeline.md](file:///Users/horsenli/Works/ChronoForge/docs/design/05-pipeline.md)、[09-testing-plan.md](file:///Users/horsenli/Works/ChronoForge/docs/design/09-testing-plan.md) |
+| 脚本 | [fdam_attention.py](file:///Users/horsenli/Works/ChronoForge/scripts/fdam_attention.py)、[backfill_datasets.py](file:///Users/horsenli/Works/ChronoForge/scripts/backfill_datasets.py) |
+
+## 附录 B：复现命令
+
+```bash
+# 静态质量
+uv run ruff check src scripts tests --statistics
+uv run mypy src
+uv run lint-imports
+
+# 测试
+uv run pytest -q
+
+# 关键核实
+uv run python -c "import py_compile; py_compile.compile('scripts/fdam_attention.py', doraise=True)"
+uv run python -c "import ast; t=ast.parse(open('src/chronoforge/models/enums.py').read()); print(len([n for c in t.body if isinstance(c, ast.ClassDef) and c.name=='CanonicalType' for n in c.body if isinstance(n, ast.Assign)]))"
+git status --porcelain
+```

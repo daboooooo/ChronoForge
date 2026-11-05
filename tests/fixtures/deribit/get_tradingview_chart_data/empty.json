@@ -1,5 +1,17 @@
 {
-  "candles": [],
-  "instrument_name": "BTC-26SEP26-100000-C",
-  "resolution": "60"
+  "jsonrpc": "2.0",
+  "result": {
+    "status": "ok",
+    "ticks": [],
+    "open": [],
+    "high": [],
+    "low": [],
+    "close": [],
+    "volume": [],
+    "cost": [],
+    "continuation": null
+  },
+  "usIn": 0,
+  "usOut": 0,
+  "testnet": false
 }

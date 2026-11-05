@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 
 import httpx
 import pytest
+from structlog.testing import capture_logs
 
 from chronoforge.connectors.base import (
     CapabilityMatrix,
@@ -319,6 +320,70 @@ class TestNormalizeFundamentals:
             # taxon 必须包含 us-gaap 或 ifrs-full
             assert "us-gaap" in record.taxon or "ifrs-full" in record.taxon
 
+        conn.close()
+
+    def test_contract_companyfacts_real_schema(self) -> None:
+        """契约：真实 facts[taxon][concept].units[unit] → 5 条，关键字段正确。"""
+        cf_data = _load_companyfacts_fixture("happy.json")
+        conn, _ = _create_mock_connector(cf_data)
+
+        raw = RawBatch(
+            endpoint="/CIK0000325023/companyfacts.json",
+            payload=cf_data,
+            raw_meta={"cik": "0000325023"},
+        )
+        records = conn.normalize(raw)
+
+        assert len(records) == 5
+        assert all(isinstance(r, FUNDAMENTAL) for r in records)
+
+        by_key = {
+            (r.concept, r.observation_time.date()): r for r in records
+        }
+        assets_2024 = by_key[("Assets", date(2024, 9, 28))]
+        assert assets_2024.cik == "0000325023"
+        assert assets_2024.taxon == "us-gaap"
+        assert assets_2024.unit == "USD"
+        assert assets_2024.value == pytest.approx(364980000000.0)
+        assert assets_2024.fiscal_year == 2024
+        assert assets_2024.fiscal_period == "FY"
+        assert assets_2024.frame == "CY2024Q3I"
+        assert assets_2024.observation_time.hour == 23
+        conn.close()
+
+    def test_negative_companyfacts_missing_fields_raises(self) -> None:
+        """负向：非空 facts 但 observation 缺 end/val → 告警 + ProviderError。"""
+        payload = {
+            "cik": 320193,
+            "entityName": "Apple Inc.",
+            "facts": {
+                "us-gaap": {
+                    "Assets": {
+                        "units": {
+                            "USD": [{"fy": 2024, "fp": "FY"}]
+                        }
+                    }
+                }
+            },
+        }
+
+        conn, _ = _create_mock_connector(payload)
+        with capture_logs() as logs:
+            with pytest.raises(ProviderError, match="parsed 0 rows"):
+                conn.normalize(
+                    RawBatch(
+                        endpoint="/CIK0000320193/companyfacts.json",
+                        payload=payload,
+                        raw_meta={"cik": "0000320193"},
+                    )
+                )
+
+        summaries = [
+            e for e in logs if e["event"] == "connector.normalize_summary"
+        ]
+        assert summaries, "非空 payload 解析 0 行必须告警"
+        assert summaries[-1]["kept"] == 0
+        assert summaries[-1]["skipped"] >= 1
         conn.close()
 
 
@@ -793,6 +858,7 @@ class TestFetch:
 
         batches = list(conn.fetch(request))
         assert len(batches) == 1
+        assert batches[0].endpoint == "/api/xbrl/companyfacts/CIK0000325023.json"
         assert "companyfacts" in batches[0].endpoint
         conn.close()
 
@@ -850,10 +916,12 @@ class TestGWT:
         )
         records = conn.normalize(raw)
 
-        # Count total units across all concepts
+        # Count observations: facts[taxon][concept].units[unit] = [obs, ...]
         expected_count = sum(
-            len(concept_data.get("units", []))
-            for concept_data in cf_data.get("facts", {}).values()
+            len(observations)
+            for concepts in cf_data.get("facts", {}).values()
+            for concept_data in concepts.values()
+            for observations in concept_data.get("units", {}).values()
         )
         assert len(records) == expected_count
         assert all(isinstance(r, FUNDAMENTAL) for r in records)

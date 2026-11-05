@@ -75,7 +75,7 @@ CREATE TABLE schema_versions(
 
 **分层映射声明（审计 F-17）**：howto §15 的 Raw/Validated/Canonical/Derived 四层在本设计中映射为——Validated 层职责由 ValidateStage（结构校验执行）+ quality_flags（结果记录）承担，不单独落盘；物理分层 = Raw → Canonical → Derived 三层 + quality_flags 表，语义等价。
 
-**dataset_id 映射声明（审计 F-18）**：`dataset_id = {source_id}.{instrument}.{dataset_type[_timeframe]}`——howto §6.2 要求的 instrument/timeframe 维度编码于主键，checkpoints 以 (source_id, dataset_id) 定位。
+**dataset_id 映射声明（审计 F-18，2026-10-31 修订）**：`dataset_id = {source_id}_{dataset_type}`（下划线分隔），必须全局唯一；instrument/timeframe 维度编码在 dataset_type 内（如 `fred_series_WTREGEN`、`binance_spot_klines_1m`、`treasury_fiscal_dts_operating_cash_balance`）。原冻结点号格式 `{source_id}.{instrument}.{dataset_type}` 未被现网 registry 采用，现按实际约定同步。checkpoints 以 (source_id, dataset_id) 定位。
 
 **dataset 状态推导规则（审计 F-10，RunLogStage 终态时执行，按序判定）**：存在未处理 ERROR finding→`INCOMPLETE`；存在 QUARANTINED 记录→`QUARANTINED`；revision_supported 且修订扫描待处理→`REVISION_PENDING`；now − last_success_time > frequency×2→`STALE`；最新 run SUCCESS 且无 ERROR finding→`COMPLETE`；其余→`PARTIAL`。
 
@@ -121,7 +121,7 @@ class RawStore(Protocol):
 ```
 
 - `natural_key_cols` 由 `models` 按类型提供（`natural_key(CanonicalType) -> tuple[str,...]`，实现 D02 各"身份键"）
-- **revision 类**（NUMBER/FLOW/POSITION/POSITION_AGGREGATE）：natural key 含 `revision_time`，天然多版本追加，不走去重路径的"keep last"合并冲突（同一 (nk, revision_time) 重复才合并）
+- **revision 类**（NUMBER/FLOW/POSITION/POSITION_AGGREGATE/TREASURY_ANNOUNCEMENT）：natural key 含 `revision_time`，天然多版本追加，不走去重路径的"keep last"合并冲突（同一 (nk, revision_time) 重复才合并）
 
 **身份键逐类型对照表（冻结附件，审计 C-1 / §8）**：
 
@@ -156,6 +156,11 @@ class RawStore(Protocol):
 | INSTRUMENT | instrument_id |
 | DERIVED | name, computed_at |
 | FEATURE | name, computed_at |
+| TREASURY_ACCOUNT_BALANCE | source_id, observation_time, source_table, account_type_raw, src_line_nbr, balance_type |
+| TREASURY_CASH_FLOW | source_id, observation_time, source_table, transaction_type_raw, raw_category, src_line_nbr |
+| TREASURY_DEBT_TRANSACTION | source_id, observation_time, source_table, transaction_type_raw, security_market, security_type, security_type_desc, adjustment_type, src_line_nbr |
+| TREASURY_AUCTION | source_id, auction_key |
+| TREASURY_ANNOUNCEMENT † | source_id, publication_time, document_type, forecast_period_start, forecast_period_end, security_type, maturity_bucket, revision_time |
 
 † revision 类：natural key 含 `revision_time`。
 
@@ -181,6 +186,8 @@ SELECT * EXCLUDE (rn) FROM (
 
 - `QueryService` 用 `con.execute("SET VARIABLE asof = ?", [asof])` 绑定（D07）
 - 视图名 = canonical type 小写，与 dataset_registry 对齐；新增 type 时必须同步注册视图（architecture test 断言两者集合一致）
+- `REVISION_TYPES` 唯一来源为 `models/identity.py`；`views.py` 不再维护副本。`TREASURY_ANNOUNCEMENT` 的 as-of 分区键为 `source_id, publication_time, document_type, forecast_period_start, forecast_period_end`。
+- **TGA Derived 视图例外**：不写入 `meta/query.duckdb`；由 `scripts/tga_store.py` 在独立 `meta/tga.duckdb` 注册，且路径使用 `Settings.data_dir` 的绝对路径。原因是 `open_query_service()` 稳态返回只读连接，且 READY-005 只探测 canonical 视图。
 
 ## 5. 写入原子性协议（跨存储一致性，架构 08 §5）
 

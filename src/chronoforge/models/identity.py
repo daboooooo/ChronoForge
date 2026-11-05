@@ -43,6 +43,25 @@ _NATURAL_KEY_MAP: dict[CanonicalType, tuple[str, ...]] = {
     CanonicalType.NUMBER: ("source_id", "observation_time", "revision_time"),
     CanonicalType.FLOW: ("source_id", "observation_time", "revision_time"),
     CanonicalType.MACRO_EVENT: ("event_ref", "scheduled_time"),
+    # treasury.py（TGA 契约变更）
+    CanonicalType.TREASURY_ACCOUNT_BALANCE: (
+        "source_id", "observation_time", "source_table", "account_type_raw",
+        "src_line_nbr", "balance_type",
+    ),
+    CanonicalType.TREASURY_CASH_FLOW: (
+        "source_id", "observation_time", "source_table", "transaction_type_raw",
+        "raw_category", "src_line_nbr",
+    ),
+    CanonicalType.TREASURY_DEBT_TRANSACTION: (
+        "source_id", "observation_time", "source_table", "transaction_type_raw",
+        "security_market", "security_type", "security_type_desc", "adjustment_type",
+        "src_line_nbr",
+    ),
+    CanonicalType.TREASURY_AUCTION: ("source_id", "auction_key"),
+    CanonicalType.TREASURY_ANNOUNCEMENT: (
+        "source_id", "publication_time", "document_type", "forecast_period_start",
+        "forecast_period_end", "security_type", "maturity_bucket", "revision_time",
+    ),
     # fundamental.py
     CanonicalType.FUNDAMENTAL: ("entity_id", "concept", "observation_time"),
     CanonicalType.FILING: ("cik", "accession_number"),
@@ -101,6 +120,7 @@ REVISION_TYPES: frozenset[CanonicalType] = frozenset({
     CanonicalType.FLOW,
     CanonicalType.POSITION,
     CanonicalType.POSITION_AGGREGATE,
+    CanonicalType.TREASURY_ANNOUNCEMENT,
 })
 
 
@@ -132,6 +152,12 @@ _TIME_FIELD_MAP: dict[CanonicalType, str] = {
     CanonicalType.NUMBER: "observation_time",
     CanonicalType.FLOW: "observation_time",
     CanonicalType.FUNDAMENTAL: "observation_time",
+    # treasury.py（TGA 契约变更）
+    CanonicalType.TREASURY_ACCOUNT_BALANCE: "observation_time",
+    CanonicalType.TREASURY_CASH_FLOW: "observation_time",
+    CanonicalType.TREASURY_DEBT_TRANSACTION: "observation_time",
+    CanonicalType.TREASURY_AUCTION: "auction_date",
+    CanonicalType.TREASURY_ANNOUNCEMENT: "publication_time",
     # report_date
     CanonicalType.POSITION: "report_date",
     CanonicalType.POSITION_AGGREGATE: "report_date",

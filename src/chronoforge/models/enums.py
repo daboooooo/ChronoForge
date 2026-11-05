@@ -17,7 +17,7 @@ class QualityStatus(str, Enum):  # noqa: UP042
 
 
 class CanonicalType(str, Enum):  # noqa: UP042
-    """全部 Canonical Type（D02 §1，共 27 个，str 值与成员名相同）。"""
+    """全部 Canonical Type（D02 §1 + TGA 契约变更，共 32 个，str 值与成员名相同）。"""
 
     TICKER = "TICKER"
     TRADE = "TRADE"
@@ -33,6 +33,12 @@ class CanonicalType(str, Enum):  # noqa: UP042
     NUMBER = "NUMBER"
     FLOW = "FLOW"
     MACRO_EVENT = "MACRO_EVENT"
+    # treasury.py（TGA 契约变更）
+    TREASURY_ACCOUNT_BALANCE = "TREASURY_ACCOUNT_BALANCE"
+    TREASURY_CASH_FLOW = "TREASURY_CASH_FLOW"
+    TREASURY_DEBT_TRANSACTION = "TREASURY_DEBT_TRANSACTION"
+    TREASURY_AUCTION = "TREASURY_AUCTION"
+    TREASURY_ANNOUNCEMENT = "TREASURY_ANNOUNCEMENT"
     FUNDAMENTAL = "FUNDAMENTAL"
     FILING = "FILING"
     DOCUMENT = "DOCUMENT"

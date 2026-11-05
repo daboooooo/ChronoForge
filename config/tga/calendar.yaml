@@ -1,0 +1,81 @@
+# TGA 预测事件日历（Phase 3，依据实现方案 §6.5/§6.6 §10.2 §15.2）
+#
+# 约定：
+# - 年度人工复核（D-TGA-10）：每年 1 月对照 IRS Pub 509 复核税期日期；
+#   具体截止日如遇周末/假日顺延，由代码按联邦工作日日历自动顺延。
+# - 所有事件日历仅产生"事件窗口"，金额来自 DTS 历史分布（同事件相对日
+#   中位数曲线 + 趋势因子），不在本文件写死金额（§10.2：禁止散落业务常量）。
+# - federal_holidays 由 pandas USFederalHolidayCalendar 内置提供，不在此维护。
+#
+# 2026-11 校准（Phase 5 follow-up）：subcategory 名称改为 canonical DTS 实际
+# 分类（nonwithheld_seca / corporate / federal_tax_deposits / withheld_individual），
+# 原 individual_estimated 等命名在数据中不存在，导致税收事件层实际未生效。
+
+version: "2"
+
+# 日历层总开关（Phase 5 follow-up）：true=事件锚点曲线生效；false=退回纯
+# run_rate+same_month 基线（用于同口径对照，不影响 KNOWN_* 与发行校准）。
+# 回测结论：开启后在 T+14/T+30 有改善，但 T+60/T+90 明显恶化且 Bias 转正，
+# 不构成稳健改善，故默认关闭，仅保留为可选开关。
+enabled: false
+
+# 税收事件（§6.5 P0 事件层）
+tax_events:
+  # 季度预缴（个人 + 自雇 SECA）：1/4/6/9 月中旬；4 月同时是个税申报截止。
+  # 数据校验：nonwithheld_seca 的 4 月总额约为其他季月的 3.2 倍（2022-2025）。
+  - id: individual_estimated
+    due_dates: ["01-15", "04-15", "06-15", "09-15"]
+    subcategories: ["nonwithheld_seca"]
+    source: "IRS Pub 509"
+  # 企业季度预缴：4/6/9/12 月中旬（数据校验：corporate 4/9/12/6 月最高）。
+  - id: corporate_estimated
+    due_dates: ["04-15", "06-15", "09-15", "12-15"]
+    subcategories: ["corporate"]
+    source: "IRS Pub 509"
+  # 4 月个税年度申报截止（与 individual_estimated 同日，曲线样本合并）
+  - id: individual_filing
+    due_dates: ["04-15"]
+    subcategories: ["nonwithheld_seca"]
+    source: "IRS Pub 509"
+
+# 月度/半月度事件（新增）：按每月固定日生成事件锚点。
+# 方向与顺延规则：税→下一工作日；福利→上一工作日（财政部提前支付）。
+monthly_events:
+  # 月度存款税（FTD）：每月 15 日；数据校验 14-16 日日均显著高于其他日。
+  - id: monthly_tax_deposit
+    day_of_month: 15
+    shift: next
+    category: TAX
+    subcategories: ["federal_tax_deposits"]
+  # 半月光扣缴存款：每月 1 日与 15 日；数据校验 1/15-16 日出现峰值。
+  - id: semi_monthly_withholding
+    day_of_month: [1, 15]
+    shift: previous
+    category: TAX
+    subcategories: ["withheld_individual"]
+
+# 事件影响窗口（事件日前后各 N 个联邦工作日，§6.5 P0 步骤 2 的 -10..+10）
+event_window_business_days: 10
+
+# 退税季（REFUND 组件的季节性窗口，§6.7）
+refund_season_months: [1, 2, 3, 4]
+
+# 支出周期（§6.6 P0；仅列可识别固定周期的项目，其余走通用日分布）
+outlay_cycles:
+  social_security:
+    rule: nth_weekday_of_month
+    weekday: 2        # 0=Mon ... 2=Wed
+    ordinals: [2, 3, 4]   # 每月第 2/3/4 个周三（第 5 个出现时并入当月支付，不单列）
+    subcategory: social_security
+  # 月初福利（新增）：SSI/VA 在每月 1 日集中支付；遇非工作日提前。
+  # 退休/医保/HHS grants 虽也在月初有峰，但同时存在月中大额支付，纳入
+  # 月初事件会压低其余日期，故只保留支付日最集中的两个子类。
+  first_of_month:
+    rule: day_of_month
+    day_of_month: 1
+    shift: previous
+    subcategories: ["ssi", "veterans"]
+  federal_pay:
+    rule: biweekly
+    anchor: null      # P0 不做双周锚定，走通用日分布；Phase 4 再启用
+    subcategory: null

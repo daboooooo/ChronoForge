@@ -16,17 +16,12 @@ from __future__ import annotations
 import duckdb
 
 from chronoforge.models.enums import CanonicalType
+from chronoforge.models.identity import REVISION_TYPES
 
 # ── revision_supported 类型（D02 §2 身份键含 revision_time）─────────────
 
-# 这些类型的 natural_key 含 revision_time，需要 as-of 点时视图。
-REVISION_TYPES: frozenset[CanonicalType] = frozenset({
-    CanonicalType.NUMBER,
-    CanonicalType.FLOW,
-    CanonicalType.POSITION,
-    CanonicalType.POSITION_AGGREGATE,
-})
-
+# REVISION_TYPES 唯一来源为 models/identity.py（此前 views 内部副本已移除），
+# 避免新增 revision 类型时 canonical 写入生效但 as-of 视图漏注册。
 
 # ── partition_time_field 映射（复用 canonical 层的分区时间字段）─────────
 
@@ -38,6 +33,11 @@ _PARTITION_TIME_FIELD_MAP: dict[CanonicalType, str] = {
     CanonicalType.FLOW: "source_id, observation_time",
     CanonicalType.POSITION: "contract, report_date",
     CanonicalType.POSITION_AGGREGATE: "contract, report_date",
+    # 公告类：按公告期间与文档维度去重，保留每个期间的最新 revision。
+    CanonicalType.TREASURY_ANNOUNCEMENT: (
+        "source_id, publication_time, document_type, "
+        "forecast_period_start, forecast_period_end"
+    ),
 }
 
 

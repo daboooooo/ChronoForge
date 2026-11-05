@@ -65,6 +65,10 @@ class TestPublishTimeUtc:
             "alternative": (8, 10),
             "coinmetrics": (8, 10),
             "coinmarketcap": (8, 10),
+            # DTS 每工作日约 16:00 ET（保守取 21:00 UTC = 北京次日 05:00）
+            "treasury_fiscal": (5, 0),
+            # 季度再融资新闻稿（UTC 15:15 = 北京 23:15）
+            "treasury_refunding": (23, 15),
         }
         assert set(SOURCE_PUBLISH_TIME_UTC) == set(beijing)
         for source_id, (hour, minute) in beijing.items():

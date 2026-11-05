@@ -37,6 +37,10 @@ import pandas as pd  # noqa: E402
 from chronoforge.cli._wiring import open_meta, open_query_service  # noqa: E402
 from chronoforge.config.settings import Settings  # noqa: E402
 
+# ── 路径锚定 ─────────────────────────────────────────────────────────
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+OUTPUT_DIR = PROJECT_ROOT / "output"
+
 # ── 常量 ─────────────────────────────────────────────────────────────
 DATASET_BTC_EFFR = "fred_series_EFFR"
 BTC_ENTITY = "CCXT-BINANCE:BTCUSDT:USDT:SPOT"
@@ -371,8 +375,8 @@ def parse_args() -> argparse.Namespace:
                    help="回看年数（默认 2）")
     p.add_argument("--start", type=str, default=None,
                    help="起始日期 YYYY-MM-DD")
-    p.add_argument("--output", type=str, default="./btc_etf_flow.png",
-                   help="输出 PNG 路径")
+    p.add_argument("--output", type=str, default=None,
+                   help="输出 PNG 路径（默认 output/btc_etf_flow.png）")
     p.add_argument("--show", action="store_true",
                    help="存图后弹窗显示")
     return p.parse_args()
@@ -392,7 +396,12 @@ def main() -> None:
     stats = flow_stats(frame["etf_flow"])
     corr = correlation_analysis(frame)
 
-    output = Path(args.output)
+    if args.output is None:
+        output = OUTPUT_DIR / "btc_etf_flow.png"
+    else:
+        output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
     plot(frame, stats, corr, output)
     report(frame, stats, corr, output)
 

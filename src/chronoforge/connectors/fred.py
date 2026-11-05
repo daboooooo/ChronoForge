@@ -27,7 +27,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -235,7 +235,7 @@ class FREDConnector(DataConnector):
         seen_rows: set[tuple[str, str]] = set()
         merged_rows: list[dict[str, Any]] = []
 
-        for rt_start, rt_end in windows:
+        for w_start, w_end in windows:
             params: dict[str, Any] = {
                 "series_id": series_id,
                 "api_key": self._api_key,
@@ -245,12 +245,12 @@ class FREDConnector(DataConnector):
                 params["observation_start"] = obs_start
             if obs_end:
                 params["observation_end"] = obs_end
-            if rt_start:
+            if w_start:
                 # 全 vintage 历史：同 observation 日期可回多行（每次修订一行），
                 # normalize 折叠为当前值快照
-                params["realtime_start"] = rt_start
-            if rt_end:
-                params["realtime_end"] = rt_end
+                params["realtime_start"] = w_start
+            if w_end:
+                params["realtime_end"] = w_end
 
             data = self._get_json("/series/observations", params, series_id)
             if merged_payload is None:
@@ -355,7 +355,7 @@ class FREDConnector(DataConnector):
                 },
             )
 
-        return response.json()
+        return cast(dict[str, Any], response.json())
 
     def _fetch_release_dates(self) -> list[dict[str, Any]]:
         """获取 FRED 发布日历（D04 §4.6）。

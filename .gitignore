@@ -52,3 +52,8 @@ Thumbs.db
 
 # trae
 .trae/
+.trae-html-share-packages/
+output/
+
+# 生成物报告（审计 C-3：reports/ 下均为可再生产物，不入库）
+reports/

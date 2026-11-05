@@ -1,0 +1,72 @@
+{
+  "data": [
+    {
+      "record_date": "2024-03-08",
+      "security_type": "Bill",
+      "security_term": "8-Week",
+      "reopening": "Yes",
+      "cusip": "912797JW8",
+      "offering_amt": "90000000000",
+      "announcemt_date": "2024-03-12",
+      "auction_date": "2024-03-14",
+      "issue_date": "2024-03-19"
+    },
+    {
+      "record_date": "2024-03-08",
+      "security_type": "Bill",
+      "security_term": "4-Week",
+      "reopening": "Yes",
+      "cusip": "912797JN8",
+      "offering_amt": "95000000000",
+      "announcemt_date": "2024-03-12",
+      "auction_date": "2024-03-14",
+      "issue_date": "2024-03-19"
+    },
+    {
+      "record_date": "2024-03-08",
+      "security_type": "Bill",
+      "security_term": "52-Week",
+      "reopening": "No",
+      "cusip": "912797KJ5",
+      "offering_amt": "46000000000",
+      "announcemt_date": "2024-03-14",
+      "auction_date": "2024-03-19",
+      "issue_date": "2024-03-21"
+    }
+  ],
+  "meta": {
+    "labels": {
+      "record_date": "Record Date",
+      "security_type": "Security Type",
+      "security_term": "Security Term",
+      "reopening": "Reopening",
+      "cusip": "CUSIP",
+      "offering_amt": "Offering Amount",
+      "announcemt_date": "Announcement Date",
+      "auction_date": "Auction Date",
+      "issue_date": "Issue Date"
+    },
+    "dataTypes": {
+      "record_date": "DATE",
+      "security_type": "STRING",
+      "security_term": "STRING",
+      "reopening": "STRING",
+      "cusip": "STRING",
+      "offering_amt": "CURRENCY",
+      "announcemt_date": "DATE",
+      "auction_date": "DATE",
+      "issue_date": "DATE"
+    },
+    "dataFormats": {
+      "record_date": "YYYY-MM-DD",
+      "security_type": "String",
+      "security_term": "String",
+      "reopening": "String",
+      "cusip": "String",
+      "offering_amt": "$10.20",
+      "announcemt_date": "YYYY-MM-DD",
+      "auction_date": "YYYY-MM-DD",
+      "issue_date": "YYYY-MM-DD"
+    }
+  }
+}

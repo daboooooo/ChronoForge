@@ -272,6 +272,15 @@ def _get_config(dataset_id: str) -> dict[str, int | str]:
         # CoinMarketCap 全市场快照（coinmarketcap_*）：全窗口 diff
         # （连接器内部按 5 年分片拉全窗口 + T+1 结算回退 1 天）
         return WINDOW_CONFIG["fred_series"]
+    if dataset_id.startswith("treasury_fiscal_dts_"):
+        # DTS 日表：按 30 天窗口、回看 5 天捕获修订/补发
+        return {"overlap_seconds": 5 * 86400, "chunk_size_seconds": 30 * 86400}
+    if dataset_id.startswith("treasury_fiscal_auction_"):
+        # 拍卖结果/公告：按 30 天窗口、回看 5 天捕获结果 null→数值修订
+        return {"overlap_seconds": 5 * 86400, "chunk_size_seconds": 30 * 86400}
+    if dataset_id.startswith("treasury_refunding_"):
+        # 季度公告：每次 run 抓最新文档（connector 自身全量幂等），全窗口 diff
+        return WINDOW_CONFIG["fred_series"]
     if _TYPE_TOKEN_RE.search(dataset_id):
         # klines 语义：overlap=1h，chunk=24h（同 binance_*_klines / ccxt_ohlcv）
         return {"overlap_seconds": 3600, "chunk_size_seconds": 86400}

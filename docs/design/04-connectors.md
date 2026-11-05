@@ -183,15 +183,42 @@ HTTP 映射：401/403→AuthError；429→RateLimitError；400/404/422→Provide
 | 错误映射 | 429/401/403 先于 body 解析判定（错误页非 JSON） |
 | continuity_model | ALWAYS_OPEN |
 
+### 4.12 treasury_fiscal（PUBLIC，U.S. Treasury Fiscal Data）
+
+| 项 | 规格 |
+|---|---|
+| endpoints | DTS: `operating_cash_balance` / `deposits_withdrawals` / `public_debt_transactions` / `public_debt_cash_basis` / `inter_agency_tax_transfers` / `income_tax_refunds`；拍卖: `auctions_query` / `upcoming_auctions` |
+| 分页 | `page[size]=10000` + `page[number]`，循环到 `meta.total-pages`；`sort=record_date` |
+| 限流 | 60 req/min（1/s），burst=10；429 尊重 `Retry-After`，5xx 退避 |
+| 单位 | DTS 原生 USD millions；拍卖原生 USD → normalize `/1e6` |
+| 时间语义 | DTS observation=`record_date 00:00Z`；历史 release=`下一联邦工作日 + 21:00 UTC`（`update_schedule`）标 ESTIMATED；拍卖 release=公告日/拍卖日 |
+| 历史分期 | Table I/II 账户名三段：`Federal Reserve Account`（≤2021-09-30）、单行 `Treasury General Account (TGA)`（2021-10-01–2022-04-15）、四行 TGA（≥2022-04-18）；单行拆 OPENING/CLOSING |
+| schema 漂移 | `_REQUIRED_FIELDS` 每页首行校验，缺字段 → `SchemaError` |
+| available_from | DTS 2005-10-03；拍卖结果 1979-11-15；upcoming 2024-03-08；Table IV 2023-02-14 |
+| continuity_model | DTS `TRADING_CALENDAR`；拍卖 `EVENT_BASED` |
+| 数据集注册 | `scripts/register_treasury_datasets.py`（下划线 dataset_id） |
+
+### 4.13 treasury_refunding（PUBLIC，Quarterly Refunding）
+
+| 项 | 规格 |
+|---|---|
+| endpoints | `https://home.treasury.gov/policy-issues/financing-the-government/quarterly-refunding`（索引页 + HTML/PDF） |
+| 采集 | 索引页抓取文档链接；HTML/PDF 原样落盘，PDF 存 `data/raw/treasury_refunding/documents/{sha256}.pdf` + `.meta.json` |
+| 解析 | HTML 表格 → `HTML_TABLE`；PDF 文本 → `PDF_TEXT`；人工 override → `MANUAL`，带 `extraction_confidence` |
+| 版本 | 同一 forecast period 的多次公告按 `revision_time` 追加，禁止覆盖；回测按 `publication_time <= cutoff` |
+| 失败 | 解析失败 → `Q-TGA-010` 告警并保留原文；不得用 LLM 猜数字写核心表 |
+| continuity_model | `EVENT_BASED` |
+| 阶段 | Phase 4（Phase 1 可先建骨架） |
+
 ## 5. 注册表初始化
 
 `registry/service.py` 提供 `bootstrap_defaults()`：将 §4 各源规格写入 source_registry（含 license 摘要、rate_limit_json），幂等（ON CONFLICT UPDATE）。CLI `chronoforge registry sync` 暴露。
 
-当前 `DEFAULT_SOURCES` 共 **11 条**：`binance_spot` / `binance_futures` / `deribit` / `ccxt` / `yahoo` / `fred` / `sec_edgar` / `sosovalue` / `alternative` / `coinmetrics` / `coinmarketcap`。
+当前 `DEFAULT_SOURCES` 共 **12 条**：`binance_spot` / `binance_futures` / `deribit` / `ccxt` / `yahoo` / `fred` / `sec_edgar` / `sosovalue` / `alternative` / `coinmetrics` / `coinmarketcap` / `treasury_fiscal`。`treasury_refunding` 计划 Phase 4 加入。
 
 > **下线源不会自动清理**：`bootstrap_defaults` 是 upsert，已下线源的 `source_registry` 残留行需手工 `DELETE`（如 `livecoinwatch` 清理时即如此处理）。
 
-数据集（dataset_registry）侧的登记不走 `registry sync`，而由各源的注册脚本完成（幂等、含 `available_from` 与窗口预检）——`scripts/register_{sosovalue_etfs,alternative_fng,coinmetrics_metrics,coinmarketcap_dominance}.py`。
+数据集（dataset_registry）侧的登记不走 `registry sync`，而由各源的注册脚本完成（幂等、含 `available_from` 与窗口预检）——`scripts/register_{sosovalue_etfs,alternative_fng,coinmetrics_metrics,coinmarketcap_dominance}.py`、`scripts/register_treasury_datasets.py`。
 
 ## 6. 测试依据（D09 TC-C 组）
 

@@ -1,0 +1,91 @@
+# TGA 预测情景配置（Phase 4，依据实现方案 §6.8/§9.2/§9.3/§10.2）
+#
+# 约定（D-TGA-11 / §6.8）：
+# - 情景只作用于 source_type 非 KNOWN_* 的预测类组件；已知事件绝不调整。
+# - 数值为组件级乘法因子（1.0 = 不调整）；调整记录于组件 scenario_adjustment 列。
+# - 参数变更 → config_hash 变化 → 新 forecast run，不覆盖历史。
+# Bullish/Bearish 是流动性情景标签，不是资产价格预测（原规范 §9.3）。
+#
+# 定位（v1.6）：每个情景输出的是**条件路径 / 情景锚点**，不是点位预测，
+# 也不提供可用于交易的置信区间。triggers/key_drivers/interpretation 供日报与
+# 下游说明"现在怎么读、什么信号换挡"；不参与数值计算。
+
+version: "1"
+
+scenarios:
+  base:
+    label: 基准
+    description: 基准情景（使用已公布计划与历史季节性，不调整）
+    usage: scenario_anchor          # 下游：条件路径锚点，不可当点位预测消费
+    confidence: exploratory         # 未经样本外显著优于基准验证
+    triggers:
+      - 未来 6 周拍卖公告与再融资计划按已公布节奏落地，净融资无超预期偏离
+      - DTS 税收与福利现金流未连续偏离同月历史区间
+    key_drivers:
+      - DEBT_ISSUANCE
+      - DEBT_REDEMPTION
+      - TAX
+      - BENEFIT
+    interpretation: 已公布事件 + 历史节奏的自然延续；用于解释余额由哪些事件驱动，不代表到期点位。
+    switch_signals:
+      - 税收连续走弱或净融资低于公告节奏（转宽松情景观察）
+      - 税收超预期或净融资高于公告节奏（转收紧情景观察）
+    tax_adjustment: 0.00
+    outlay_adjustment: 0.00
+    issuance_adjustment: 0.00
+    redemption_adjustment: 0.00
+
+  liquidity_easing:
+    label: 宽松
+    description: 流动性宽松情景（税收弱、支出强、净融资低 → TGA 下降）
+    usage: scenario_anchor
+    confidence: exploratory
+    triggers:
+      - 税收收入连续低于同月季节基线（退税走强或缴税偏弱）
+      - 短期国债净融资低于已公告节奏，或赎回结算集中
+      - 财政部现金余额假设明显高于当前余额路径
+    key_drivers:
+      - TAX
+      - REFUND
+      - DEBT_ISSUANCE
+      - DEBT_REDEMPTION
+    interpretation: 余额下行条件路径；用于回答"若税收走弱且净融资偏低，余额会被哪些事件压低"。
+    switch_signals:
+      - 税收回到季节区间且净融资恢复公告节奏（回落基准情景）
+    tax_adjustment: -0.05
+    outlay_adjustment: 0.05
+    issuance_adjustment: -0.05
+    redemption_adjustment: 0.00
+
+  liquidity_tightening:
+    label: 收紧
+    description: 流动性收紧情景（税收强、支出弱、净融资高 → TGA 上升）
+    usage: scenario_anchor
+    confidence: exploratory
+    triggers:
+      - 税收收入连续高于同月季节基线（缴税日集中或退税偏弱）
+      - 短期国债净融资高于已公告节奏，或赎回结算偏少
+      - 财政部现金余额假设明显低于当前余额路径
+    key_drivers:
+      - TAX
+      - DEBT_ISSUANCE
+      - DEBT_REDEMPTION
+      - BENEFIT
+    interpretation: 余额上行条件路径；用于回答"若税收走强且净融资偏高，余额会被哪些事件抬高"。
+    switch_signals:
+      - 税收回到季节区间且净融资回到公告节奏（回落基准情景）
+    tax_adjustment: 0.05
+    outlay_adjustment: -0.05
+    issuance_adjustment: 0.05
+    redemption_adjustment: 0.00
+
+# 类别 → 情景参数映射（未列出的类别按 outlay 处理）
+category_params:
+  tax: [TAX, REFUND]
+  issuance: [DEBT_ISSUANCE]
+  redemption: [DEBT_REDEMPTION]
+  # outlay: BENEFIT / INTEREST / OTHER / UNCLASSIFIED（其余全部）
+
+limits:
+  max_abs_adjustment: 0.20     # 防止极端情景（§6.8 规则）
+  apply_to_known: false        # 必须为 false（D-TGA-11 硬约束）

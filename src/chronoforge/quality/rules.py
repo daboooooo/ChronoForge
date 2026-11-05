@@ -13,10 +13,11 @@ import json
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Literal, cast
 
 from chronoforge.exceptions import StorageError
+from chronoforge.models.base import BaseRecord
 from chronoforge.models.derivatives import (
     GREEKS,
     IMPLIED_VOLATILITY,
@@ -35,6 +36,12 @@ from chronoforge.models.market import (
 )
 from chronoforge.models.positioning import POSITION
 from chronoforge.models.prediction import PREDICTION_PRICE
+from chronoforge.models.treasury import (
+    TREASURY_ACCOUNT_BALANCE,
+    TREASURY_AUCTION,
+    TREASURY_CASH_FLOW,
+    TREASURY_DEBT_TRANSACTION,
+)
 
 from .continuity import expected_grid, parse_frequency_seconds
 from .report import GapContext, QualityFinding, QualityReport
@@ -1190,10 +1197,238 @@ class QRev001Rule(QualityRule):
         return findings
 
 
+# ── Q-TGA 规则（TGA 子系统）────────────────────────────────────────────
+
+
+class QTga001Rule(QualityRule):
+    """Q-TGA-001：同一观测日必须同时存在 TGA Opening/Closing 余额行。"""
+
+    @property
+    def rule_id(self) -> str:
+        return "Q-TGA-001"
+
+    @property
+    def applies_to(self) -> frozenset[CanonicalType] | Literal["ALL"]:
+        return frozenset({CanonicalType.TREASURY_ACCOUNT_BALANCE})
+
+    @property
+    def severity(self) -> Literal["ERROR", "WARNING", "INFO"]:
+        return "ERROR"
+
+    def check(
+        self,
+        records: Sequence[dict[str, object]],
+        canonical_type: CanonicalType,
+        *,
+        context: GapContext | None = None,
+    ) -> list[QualityFinding]:
+        by_date: dict[object, set[str]] = {}
+        for rec in records:
+            obs = rec.get("observation_time")
+            by_date.setdefault(obs, set()).add(str(rec.get("balance_type")))
+        findings = []
+        for obs, types in by_date.items():
+            missing = {"OPENING", "CLOSING"} - types
+            if missing:
+                findings.append(QualityFinding(
+                    record_key=str(obs),
+                    rule_id=self.rule_id,
+                    severity=self.severity,
+                    detail=json.dumps({"missing_balance_types": sorted(missing)}),
+                ))
+        return findings
+
+
+class QTga002Rule(QualityRule):
+    """Q-TGA-002：Opening_t 应约等于上一交易日 Closing_{t-1}（批内可校验时）。"""
+
+    @property
+    def rule_id(self) -> str:
+        return "Q-TGA-002"
+
+    @property
+    def applies_to(self) -> frozenset[CanonicalType] | Literal["ALL"]:
+        return frozenset({CanonicalType.TREASURY_ACCOUNT_BALANCE})
+
+    @property
+    def severity(self) -> Literal["ERROR", "WARNING", "INFO"]:
+        return "WARNING"
+
+    def check(
+        self,
+        records: Sequence[dict[str, object]],
+        canonical_type: CanonicalType,
+        *,
+        context: GapContext | None = None,
+    ) -> list[QualityFinding]:
+        by_date: dict[object, dict[str, float]] = {}
+        for rec in records:
+            obs = rec.get("observation_time")
+            btype = str(rec.get("balance_type"))
+            amount = rec.get("amount_usd_millions")
+            if isinstance(amount, (int, float)):
+                by_date.setdefault(obs, {})[btype] = float(amount)
+        findings = []
+        ordered = sorted(by_date.keys(), key=lambda v: str(v))
+        previous: object | None = None
+        for obs in ordered:
+            current = by_date[obs]
+            if previous is not None and "OPENING" in current:
+                prev_close = by_date[previous].get("CLOSING")
+                if prev_close is not None and abs(current["OPENING"] - prev_close) > 1e-9:
+                    findings.append(QualityFinding(
+                        record_key=str(obs),
+                        rule_id=self.rule_id,
+                        severity=self.severity,
+                        detail=json.dumps({
+                            "opening": current["OPENING"],
+                            "previous_closing": prev_close,
+                        }),
+                    ))
+            previous = obs
+        return findings
+
+
+class QTga007Rule(QualityRule):
+    """Q-TGA-007：金额单位/量级异常（防止 USD 与 USD millions 混用）。"""
+
+    @property
+    def rule_id(self) -> str:
+        return "Q-TGA-007"
+
+    @property
+    def applies_to(self) -> frozenset[CanonicalType] | Literal["ALL"]:
+        return frozenset({
+            CanonicalType.TREASURY_ACCOUNT_BALANCE,
+            CanonicalType.TREASURY_CASH_FLOW,
+            CanonicalType.TREASURY_DEBT_TRANSACTION,
+        })
+
+    @property
+    def severity(self) -> Literal["ERROR", "WARNING", "INFO"]:
+        return "ERROR"
+
+    def check(
+        self,
+        records: Sequence[dict[str, object]],
+        canonical_type: CanonicalType,
+        *,
+        context: GapContext | None = None,
+    ) -> list[QualityFinding]:
+        findings = []
+        for rec in records:
+            issues: list[str] = []
+            unit = rec.get("original_unit")
+            if unit != "USD_MILLIONS":
+                issues.append(f"unexpected original_unit={unit!r}")
+            for field in ("amount_usd_millions", "original_value"):
+                value = rec.get(field)
+                if isinstance(value, (int, float)):
+                    if not math.isfinite(value):
+                        issues.append(f"{field} is NaN/Inf")
+                    elif abs(value) > 1e9:
+                        issues.append(f"{field} magnitude too large ({value})")
+                else:
+                    issues.append(f"{field} is not numeric")
+            if issues:
+                findings.append(QualityFinding(
+                    record_key=_extract_nk(rec, canonical_type),
+                    rule_id=self.rule_id,
+                    severity=self.severity,
+                    detail=json.dumps({"issues": issues}),
+                ))
+        return findings
+
+
+class QTga008Rule(QualityRule):
+    """Q-TGA-008：拍卖日期非法（maturity <= issue 或 issue < announcement）。"""
+
+    @property
+    def rule_id(self) -> str:
+        return "Q-TGA-008"
+
+    @property
+    def applies_to(self) -> frozenset[CanonicalType] | Literal["ALL"]:
+        return frozenset({CanonicalType.TREASURY_AUCTION})
+
+    @property
+    def severity(self) -> Literal["ERROR", "WARNING", "INFO"]:
+        return "ERROR"
+
+    def check(
+        self,
+        records: Sequence[dict[str, object]],
+        canonical_type: CanonicalType,
+        *,
+        context: GapContext | None = None,
+    ) -> list[QualityFinding]:
+        findings = []
+        for rec in records:
+            issues: list[str] = []
+            issue_date = rec.get("issue_date")
+            announcement = rec.get("announcement_date")
+            maturity = rec.get("maturity_date")
+            if isinstance(issue_date, date) and isinstance(announcement, date):
+                if issue_date < announcement:
+                    issues.append("issue_date < announcement_date")
+            if isinstance(issue_date, date) and isinstance(maturity, date):
+                if maturity <= issue_date:
+                    issues.append("maturity_date <= issue_date")
+            if issues:
+                findings.append(QualityFinding(
+                    record_key=_extract_nk(rec, canonical_type),
+                    rule_id=self.rule_id,
+                    severity=self.severity,
+                    detail=json.dumps({"issues": issues}),
+                ))
+        return findings
+
+
+class QTga009Rule(QualityRule):
+    """Q-TGA-009：拍卖已过 issue_date 但 total_accepted 仍缺失（或状态为 RESULT 但金额为空）。"""
+
+    @property
+    def rule_id(self) -> str:
+        return "Q-TGA-009"
+
+    @property
+    def applies_to(self) -> frozenset[CanonicalType] | Literal["ALL"]:
+        return frozenset({CanonicalType.TREASURY_AUCTION})
+
+    @property
+    def severity(self) -> Literal["ERROR", "WARNING", "INFO"]:
+        return "WARNING"
+
+    def check(
+        self,
+        records: Sequence[dict[str, object]],
+        canonical_type: CanonicalType,
+        *,
+        context: GapContext | None = None,
+    ) -> list[QualityFinding]:
+        findings = []
+        for rec in records:
+            if rec.get("total_accepted_usd_millions") is not None:
+                continue
+            issue_date = rec.get("issue_date")
+            is_past_issue = isinstance(issue_date, date) and issue_date < date.today()
+            if str(rec.get("data_status")) == "RESULT" or is_past_issue:
+                findings.append(QualityFinding(
+                    record_key=_extract_nk(rec, canonical_type),
+                    rule_id=self.rule_id,
+                    severity=self.severity,
+                    detail=json.dumps({
+                        "issue_date": str(issue_date),
+                        "data_status": str(rec.get("data_status")),
+                    }),
+                ))
+        return findings
+
+
 # ── 辅助函数 ──────────────────────────────────────────────────────────
 
 # Q-SCHEMA-001 可做 Pydantic 重建校验的类型（有模型即校验，无模型跳过）
-_SCHEMA_TYPE_MAP: dict[CanonicalType, type] = {
+_SCHEMA_TYPE_MAP: dict[CanonicalType, type[BaseRecord]] = {
     CanonicalType.OHLCV: OHLCV,
     CanonicalType.TRADE: TRADE,
     CanonicalType.TICKER: TICKER,
@@ -1207,6 +1442,10 @@ _SCHEMA_TYPE_MAP: dict[CanonicalType, type] = {
     CanonicalType.POSITION: POSITION,
     CanonicalType.FILING: FILING,
     CanonicalType.LIQUIDATION_AGGREGATE: LIQUIDATION_AGGREGATE,
+    CanonicalType.TREASURY_ACCOUNT_BALANCE: TREASURY_ACCOUNT_BALANCE,
+    CanonicalType.TREASURY_CASH_FLOW: TREASURY_CASH_FLOW,
+    CanonicalType.TREASURY_DEBT_TRANSACTION: TREASURY_DEBT_TRANSACTION,
+    CanonicalType.TREASURY_AUCTION: TREASURY_AUCTION,
 }
 
 
@@ -1298,3 +1537,8 @@ register_rule(QGap002Rule())
 register_rule(QOHLC001Rule())
 register_rule(QCross001Rule())
 register_rule(QRev001Rule())
+register_rule(QTga001Rule())
+register_rule(QTga002Rule())
+register_rule(QTga007Rule())
+register_rule(QTga008Rule())
+register_rule(QTga009Rule())

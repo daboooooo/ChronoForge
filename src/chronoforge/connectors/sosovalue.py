@@ -191,7 +191,7 @@ class SoSoValueConnector(DataConnector):
             {"symbol": symbol, "country_code": country_code},
         )
         data = body.get("data") or []
-        return list(data)  # type: ignore[arg-type]
+        return list(data)
 
     # ------------------------------------------------------------------
     # fetch

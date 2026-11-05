@@ -23,6 +23,10 @@ EXPECTED_TABLES = {
     "schema_versions",
     # 迁移 0003（QUERY-003，D07 §3）：research_snapshot 表
     "research_snapshot",
+    # 迁移 0005（TGA 子系统）：预测/回测运行元数据与异常处置
+    "forecast_runs",
+    "backtest_runs",
+    "tga_anomaly",
 }
 
 

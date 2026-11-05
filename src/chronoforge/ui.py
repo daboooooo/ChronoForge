@@ -76,12 +76,15 @@ _BOOL_STYLES: dict[bool, str] = {True: "bold green", False: "bright_black"}
 
 def status_text(value: Any) -> Text:
     """按 run 状态着色的 Text（未知状态不着色）。"""
-    return Text(str(value), style=STATUS_STYLES.get(str(value)))
+    label = str(value)
+    # Rich 运行时接受 style=None；类型存根未声明 None，故局部忽略。
+    return Text(label, style=STATUS_STYLES.get(label))  # type: ignore[arg-type]
 
 
 def severity_text(value: Any) -> Text:
     """按质量 severity 着色的 Text。"""
-    return Text(str(value), style=SEVERITY_STYLES.get(str(value)))
+    label = str(value)
+    return Text(label, style=SEVERITY_STYLES.get(label))  # type: ignore[arg-type]
 
 
 def bool_text(value: Any) -> Text:

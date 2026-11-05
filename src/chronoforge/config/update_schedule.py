@@ -34,6 +34,11 @@ SOURCE_PUBLISH_TIME_UTC: dict[str, tuple[int, int]] = {
     "alternative": (0, 10),
     "coinmetrics": (0, 10),
     "coinmarketcap": (0, 10),
+    # U.S. Treasury Fiscal Data：DTS 每个工作日约 16:00 ET 发布（20/21 UTC，
+    # 保守取 21:00 UTC = 北京次日 05:00）；拍卖结果随拍卖日更新。
+    "treasury_fiscal": (21, 0),
+    # Quarterly Refunding：公告通常于再融资日（2/5/8/11 月初）约 10:15 ET 发布
+    "treasury_refunding": (15, 15),
 }
 
 # 未显式配置的数据源默认发布时刻（UTC）：北京时间 00:00 → 16:00 UTC

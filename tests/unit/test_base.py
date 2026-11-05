@@ -74,9 +74,9 @@ def test_provenance_missing_field_rejected(missing_field: str) -> None:
 
 
 def test_canonical_type_member_roundtrip() -> None:
-    """CanonicalType 全枚举遍历：成员数 == 27，str 值与名相同且 str(value) 往返。"""
+    """CanonicalType 全枚举遍历：成员数 == 32，str 值与名相同且 str(value) 往返。"""
     members = list(CanonicalType)
-    assert len(members) == 27
+    assert len(members) == 32
     for member in members:
         assert member.value == member.name
         # str 值往返：str(value) 能还原同一成员

@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import math
 import re
+from collections import defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import httpx
+import structlog
 
 from chronoforge.connectors.base import (
     CapabilityMatrix,
@@ -45,6 +47,8 @@ from chronoforge.models.quality import QualityFinding, QualityReport
 # SEC EDGAR 限流：≤10 req/s（D04 §4.7）
 _DEFAULT_RATE = 10.0
 _DEFAULT_BURST = 10
+
+logger = structlog.get_logger()
 
 
 @dataclass(frozen=True)
@@ -199,22 +203,28 @@ class SECEdgarConnector(DataConnector):
         """
         self._rate_limiter.acquire(1)
 
+        # 真实 companyfacts endpoint 为 /api/xbrl/companyfacts/CIK##########.json；
+        # /submissions/CIK{cik}/companyfacts.json 实测 404（2026-11-05）。
+        # base_url 指向 /submissions，必须用绝对 URL 覆盖，否则会被拼接成
+        # /submissions/api/xbrl/...（实测 404）。
+        companyfacts_path = f"/api/xbrl/companyfacts/CIK{cik}.json"
+        companyfacts_url = f"https://data.sec.gov{companyfacts_path}"
         try:
-            response = self._client.get(f"/CIK{cik}/companyfacts.json")
+            response = self._client.get(companyfacts_url)
         except httpx.TransportError as e:
             raise TransportError(
                 f"sec_edgar: companyfacts request failed: {e}",
                 context={
                     "source": "sec_edgar",
-                    "endpoint": f"/CIK{cik}/companyfacts.json",
+                    "endpoint": companyfacts_path,
                     "cik": cik,
                 },
             ) from e
 
-        self._handle_response(response, cik, "/CIK{cik}/companyfacts.json")
+        self._handle_response(response, cik, companyfacts_path)
         data = response.json()
         return RawBatch(
-            endpoint=f"/CIK{cik}/companyfacts.json",
+            endpoint=companyfacts_path,
             payload=data,
             raw_meta={"http_status": response.status_code, "cik": cik},
         )
@@ -406,87 +416,149 @@ class SECEdgarConnector(DataConnector):
     ) -> list[BaseRecord]:
         """将 companyfacts 响应转为 FUNDAMENTAL 记录（D04 §4.7）。
 
-        Args:
-            payload: companyfacts API 响应。
-            cik: CIK 号码。
+        真实结构（2026-11-05 依据 SEC data.sec.gov companyfacts API 实测）：
 
-        Returns:
-            FUNDAMENTAL 记录列表。
+            facts[taxonomy][concept]["units"][unit] = [
+                {"end": "2023-09-30", "val": 352755000000,
+                 "accn": "0000320193-23-000106", "fy": 2023, "fp": "FY",
+                 "form": "10-K", "filed": "2023-11-03",
+                 "frame": "CY2023Q3I"}  # frame 可选
+            ]
+
+        units 是以单位（USD/shares）为键的 object，不是 list；观测日与数值
+        分别来自 end/val；i/f/$ 与 taxonomy.entry.url 均不存在。
         """
-        facts = payload.get("facts", {})
+        facts = payload.get("facts")
+        if facts is None:
+            raise ProviderError(
+                "sec_edgar: companyfacts payload missing facts object",
+                context={"source": "sec_edgar", "cik": cik},
+            )
+        if not isinstance(facts, dict):
+            raise ProviderError(
+                "sec_edgar: companyfacts facts is not an object",
+                context={"source": "sec_edgar", "cik": cik},
+            )
+        if not facts:
+            return []
+
         records: list[FUNDAMENTAL] = []
+        skipped: dict[str, int] = defaultdict(int)
         entity_id = f"CIK{cik.zfill(10)}"
         now = datetime.now(UTC).replace(tzinfo=None)
 
-        for concept, concept_data in facts.items():
-            if not isinstance(concept_data, dict):
+        for taxon, concepts in facts.items():
+            if not isinstance(concepts, dict):
+                skipped["taxonomy_not_object"] += 1
                 continue
 
-            for unit_data in concept_data.get("units", []):
-                if not isinstance(unit_data, dict):
+            for concept, concept_data in concepts.items():
+                if not isinstance(concept_data, dict):
+                    skipped["concept_not_object"] += 1
                     continue
 
-                # 解析 us-gaap/ifrs-full taxon
-                taxonomy = unit_data.get("taxonomy", {})
-                if isinstance(taxonomy, dict):
-                    taxon = taxonomy.get("entry", {}).get("url", "")
-                else:
-                    taxon = ""
-
-                # 解析日期：i=year, f=month (1-12)
-                year_str = unit_data.get("i", "")
-                month_str = unit_data.get("f", "")
-
-                if not year_str or not month_str:
+                units = concept_data.get("units")
+                if not isinstance(units, dict):
+                    skipped["units_not_object"] += 1
                     continue
 
-                try:
-                    year = int(year_str)
-                    month = int(month_str)
-                    observation_time = datetime(
-                        year=year, month=month,
-                        day=28, hour=23, minute=59, second=59
-                    )
-                except (ValueError, TypeError):
-                    continue
+                for unit, observations in units.items():
+                    if not isinstance(observations, list):
+                        skipped["observations_not_list"] += 1
+                        continue
 
-                # 解析 value（SEC API 用 "$" 键）
-                value_raw = unit_data.get("$", unit_data.get("value"))
-                if value_raw is None:
-                    continue
-                value_str = str(value_raw)
-                try:
-                    value = float(value_str)
-                except (ValueError, TypeError):
-                    continue
+                    for obs in observations:
+                        if not isinstance(obs, dict):
+                            skipped["observation_not_object"] += 1
+                            continue
 
-                if not math.isfinite(value):
-                    continue
+                        end_str = obs.get("end")
+                        value_raw = obs.get("val")
+                        if not end_str or value_raw is None:
+                            skipped["missing_end_or_val"] += 1
+                            continue
 
-                unit = unit_data.get("u", "USD")
-                frame = unit_data.get("frame")
+                        try:
+                            observation_time = datetime.fromisoformat(
+                                str(end_str)
+                            ).replace(hour=23, minute=59, second=59)
+                        except (ValueError, TypeError):
+                            skipped["invalid_end"] += 1
+                            continue
 
-                fundamental = FUNDAMENTAL(
-                    schema_version="1.0",
-                    source="sec_edgar",
-                    source_id=cik,
-                    source_timestamp=observation_time,
-                    ingest_timestamp=now,
-                    raw_record_id=f"sec_edgar:{cik}:{concept}:{year_str}-{month_str}",
-                    quality_status=QualityStatus.VALID,
-                    quality_reason=None,
-                    entity_id=entity_id,
-                    cik=cik,
-                    concept=concept,
-                    taxon=taxon,
-                    unit=unit,
-                    observation_time=observation_time,
-                    value=value,
-                    fiscal_year=year,
-                    fiscal_period=str(month),
-                    frame=frame or "",
-                )
-                records.append(fundamental)
+                        try:
+                            value = float(value_raw)
+                        except (ValueError, TypeError):
+                            skipped["invalid_val"] += 1
+                            continue
+
+                        if not math.isfinite(value):
+                            skipped["non_finite_val"] += 1
+                            continue
+
+                        fiscal_year_raw = obs.get("fy")
+                        try:
+                            fiscal_year = int(str(fiscal_year_raw))
+                        except (ValueError, TypeError):
+                            fiscal_year = observation_time.year
+                        if not 2000 < fiscal_year < 2100:
+                            skipped["invalid_fiscal_year"] += 1
+                            continue
+
+                        accn = str(obs.get("accn") or "")
+                        frame = str(obs.get("frame") or "")
+                        fiscal_period = str(obs.get("fp") or "")
+
+                        fundamental = FUNDAMENTAL(
+                            schema_version="1.0",
+                            source="sec_edgar",
+                            source_id=cik,
+                            source_timestamp=observation_time,
+                            ingest_timestamp=now,
+                            raw_record_id=(
+                                f"sec_edgar:{cik}:{taxon}:{concept}:"
+                                f"{unit}:{end_str}:{accn}"
+                            ),
+                            quality_status=QualityStatus.VALID,
+                            quality_reason=None,
+                            entity_id=entity_id,
+                            cik=cik,
+                            concept=concept,
+                            taxon=taxon,
+                            unit=str(unit),
+                            observation_time=observation_time,
+                            value=value,
+                            fiscal_year=fiscal_year,
+                            fiscal_period=fiscal_period,
+                            frame=frame,
+                        )
+                        records.append(fundamental)
+
+        for reason, count in skipped.items():
+            logger.warning(
+                "connector.normalize_skip",
+                source="sec_edgar",
+                cik=cik,
+                reason=reason,
+                count=count,
+            )
+        if skipped:
+            logger.warning(
+                "connector.normalize_summary",
+                source="sec_edgar",
+                cik=cik,
+                kept=len(records),
+                skipped=sum(skipped.values()),
+                reasons=dict(skipped),
+            )
+
+        if not records:
+            # 非空 facts 但解析 0 行：不允许静默空产出；抛可诊断错误，
+            # 交由 pipeline 的 normalize 失败率门禁（C1）处置。
+            raise ProviderError(
+                "sec_edgar: companyfacts parsed 0 rows from non-empty facts",
+                context={"source": "sec_edgar", "cik": cik},
+            )
 
         return list[BaseRecord](records)
 
@@ -600,22 +672,32 @@ class SECEdgarConnector(DataConnector):
                     if acc_numbers and len(acc_numbers) > 0:
                         return str(acc_numbers[-1])
 
-                # companyfacts 格式
+                # companyfacts 格式：facts[taxon][concept]["units"][unit] = [...]
                 facts = payload.get("facts", {})
                 if isinstance(facts, dict) and facts:
-                    # 取最后一个 fact 的最后一条
-                    last_concept_data = None
-                    for concept_data in facts.values():
-                        if isinstance(concept_data, dict):
-                            last_concept_data = concept_data
-                    if last_concept_data:
-                        items = last_concept_data.get("units", [])
-                        if items and len(items) > 0:
-                            last_item = items[-1]
-                            if isinstance(last_item, dict):
-                                year = str(last_item.get("i", ""))
-                                month = str(last_item.get("f", ""))
-                                return f"{year}-{month}"
+                    last_end: str | None = None
+                    for concepts in facts.values():
+                        if not isinstance(concepts, dict):
+                            continue
+                        for concept_data in concepts.values():
+                            if not isinstance(concept_data, dict):
+                                continue
+                            units = concept_data.get("units")
+                            if not isinstance(units, dict):
+                                continue
+                            for observations in units.values():
+                                if not isinstance(observations, list):
+                                    continue
+                                for obs in observations:
+                                    if isinstance(obs, dict) and obs.get("end"):
+                                        last_end = str(obs["end"])
+                    if last_end:
+                        try:
+                            return datetime.fromisoformat(
+                                last_end
+                            ).strftime("%Y-%m")
+                        except ValueError:
+                            return None
 
         elif isinstance(raw, list) and raw and len(raw) > 0:
             last_record = raw[-1]

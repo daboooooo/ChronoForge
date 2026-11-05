@@ -45,6 +45,11 @@ from chronoforge.models.macro import FLOW, NUMBER
 # Fixture paths
 _FIXTURES = Path(__file__).parent.parent / "fixtures" / "sosovalue"
 
+# 固定日期会在 30 天回看窗口滑过后失效，默认窗口用相对日期保持测试长期可跑。
+_TODAY = datetime.now(UTC).replace(tzinfo=None)
+_DEFAULT_END = _TODAY - timedelta(days=2)
+_DEFAULT_START = _TODAY - timedelta(days=6)
+
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
@@ -97,8 +102,8 @@ def _create_mock_connector(
 
 def _summary_request(
     metric: str = "total_net_inflow",
-    start: datetime | None = datetime(2026, 9, 20),
-    end: datetime | None = datetime(2026, 9, 24),
+    start: datetime | None = _DEFAULT_START,
+    end: datetime | None = _DEFAULT_END,
 ) -> FetchRequest:
     """构造 summary-history FetchRequest。"""
     return FetchRequest(
@@ -118,8 +123,8 @@ def _summary_request(
 def _ticker_request(
     ticker: str = "IBIT",
     metric: str = "net_inflow",
-    start: datetime | None = datetime(2026, 9, 20),
-    end: datetime | None = datetime(2026, 9, 24),
+    start: datetime | None = _DEFAULT_START,
+    end: datetime | None = _DEFAULT_END,
 ) -> FetchRequest:
     """构造 etf-history FetchRequest。"""
     return FetchRequest(
@@ -178,8 +183,11 @@ class TestFetch:
         call = mock_client.get.call_args
         assert call.args[0] == "/etfs/summary-history"
         params = call.kwargs["params"]
-        assert params["start_date"] == "2026-09-19"  # 09-20 回退 1 天
-        assert params["end_date"] == "2026-09-24"
+        # 起点回退 1 天重采 T+1 结算值
+        assert params["start_date"] == (
+            _DEFAULT_START.date() - timedelta(days=1)
+        ).isoformat()
+        assert params["end_date"] == _DEFAULT_END.date().isoformat()
         assert params["symbol"] == "BTC"
         assert params["country_code"] == "US"
         assert params["limit"] == 300
@@ -198,16 +206,19 @@ class TestFetch:
             _mock_response(200, {"code": 0, "message": "success", "data": []})
         )
         batches = list(
-            conn.fetch(_summary_request(start=datetime(2026, 9, 1)))
+            conn.fetch(_summary_request(start=_TODAY - timedelta(days=20)))
         )
         assert len(batches) == 2
         calls = mock_client.get.call_args_list
-        # 起点 09-01 回退 1 天 = 08-31；子区间 1：08-31..09-15；
-        # 子区间 2：09-16..09-24（无重叠）
-        assert calls[0].kwargs["params"]["start_date"] == "2026-08-31"
-        assert calls[0].kwargs["params"]["end_date"] == "2026-09-15"
-        assert calls[1].kwargs["params"]["start_date"] == "2026-09-16"
-        assert calls[1].kwargs["params"]["end_date"] == "2026-09-24"
+        # 起点回退 1 天；子区间 1 = 回退起点..+15 天；子区间 2 = 次日..end（无重叠）
+        rollback_start = (_TODAY - timedelta(days=20)).date() - timedelta(days=1)
+        first_end = rollback_start + timedelta(days=15)
+        assert calls[0].kwargs["params"]["start_date"] == rollback_start.isoformat()
+        assert calls[0].kwargs["params"]["end_date"] == first_end.isoformat()
+        assert calls[1].kwargs["params"]["start_date"] == (
+            first_end + timedelta(days=1)
+        ).isoformat()
+        assert calls[1].kwargs["params"]["end_date"] == _DEFAULT_END.date().isoformat()
 
     def test_ticker_history_path_and_meta(self) -> None:
         """etf-history：URL path 拼接 + raw_meta 带 ticker。"""

@@ -41,9 +41,7 @@ from chronoforge.connectors.errors import (
 from chronoforge.connectors.ratelimit import RateLimiter
 from chronoforge.models.base import BaseRecord
 from chronoforge.models.derivatives import (
-    IMPLIED_VOLATILITY,
     OPTION,
-    DataTier,
     Interval,
 )
 from chronoforge.models.enums import CanonicalType, QualityStatus
@@ -309,9 +307,15 @@ class DeribitConnector(DataConnector):
             if not isinstance(data, dict):
                 raise ProviderError(f"deribit: unexpected chart response type: {type(data)}")
 
-            # Deribit returns chart data in "candles" key
-            candles = data.get("candles", [])
-            if not candles:
+            # 真实响应为 JSON-RPC envelope；result 才是图表数据（并行数组）
+            result = data.get("result")
+            if not isinstance(result, dict):
+                raise ProviderError(
+                    "deribit: chart response missing JSON-RPC result object"
+                )
+
+            ticks = result.get("ticks")
+            if not isinstance(ticks, list) or not ticks:
                 break
 
             yield RawBatch(
@@ -324,10 +328,10 @@ class DeribitConnector(DataConnector):
                 },
             )
 
-            # Pagination: use last candle's timestamp as start for next page
+            # Pagination: use last tick as start for next page
             # 审计 SR-08：步进按 resolution 计算（60000 硬编码 1m 假设使
             # 1D 分辨率同一根 K 线重复返回约 1440 次/天，请求放大三个数量级）
-            last_ts = int(candles[-1]["timestamp"])
+            last_ts = int(ticks[-1])
             params["start_timestamp"] = last_ts + int(resolution) * 60_000
             # If end is set and we've passed it, stop
             if request.end is not None:
@@ -436,85 +440,93 @@ class DeribitConnector(DataConnector):
     def _normalize_options(self, payload: dict[str, Any]) -> list[BaseRecord]:
         """Normalize get_book_summary payload to OPTION records（D04 §4.3）。
 
-        Deribit get_book_summary returns a dict with keys like BTC, ETH, etc.
-        Each key maps to a list of option summaries.
+        真实响应为 JSON-RPC envelope，result 是 BookSummary 列表
+        （2026-11-05 依据 Deribit v2 get_book_summary_by_currency 文档 /
+        docs.rs deribit-http 0.7 BookSummary）：字段含 instrument_name、
+        base_currency、mark_price、bid_price、ask_price、open_interest、
+        mark_iv、last_update_time。
         """
         records: list[OPTION] = []
         skipped: dict[str, int] = defaultdict(int)
         now = datetime.now(UTC).replace(tzinfo=None)
 
-        for currency, options in payload.items():
-            if currency == "kind":  # Skip metadata
+        result = payload.get("result")
+        if not isinstance(result, list):
+            raise ProviderError(
+                "deribit: get_book_summary response missing JSON-RPC result list"
+            )
+
+        for opt in result:
+            if not isinstance(opt, dict):
+                skipped["item_not_object"] += 1
                 continue
-            if not isinstance(options, list):
+
+            currency = str(opt.get("base_currency") or "")
+            instrument_name = opt.get("instrument_name", "<unknown>")
+            try:
+                if not instrument_name or instrument_name == "<unknown>":
+                    raise ProviderError("missing instrument_name")
+
+                parsed = parse_deribit(instrument_name)
+                market_id = cast(str, parsed["market_id"])
+
+                # Deribit book summary fields（显式 null → None，不伪造 0）
+                mark_price = _quote_float(opt.get("mark_price"))
+                bid = _quote_float(opt.get("bid_price"))
+                ask = _quote_float(opt.get("ask_price"))
+                # 未平仓合约数：源端恒为数值；null/缺失按 0 处理
+                open_interest = float(opt.get("open_interest") or 0.0)
+
+                # event_time: use last_update_time if available, else now
+                last_update_ms = opt.get("last_update_time")
+                if last_update_ms is not None:
+                    event_time = datetime.fromtimestamp(
+                        int(last_update_ms) / 1000, tz=UTC
+                    ).replace(tzinfo=None)
+                else:
+                    event_time = now
+
+                # IV fields
+                parsed_ot = parsed.get("option_type")
+                if parsed_ot:
+                    option_type = OptionType(parsed_ot)
+                else:
+                    option_type = OptionType.CALL
+
+                record = OPTION(
+                    schema_version="1.0",
+                    source="deribit",
+                    source_id=instrument_name,
+                    source_timestamp=event_time,
+                    ingest_timestamp=now,
+                    raw_record_id=f"deribit:option:{instrument_name}:{event_time.isoformat()}",
+                    quality_status=QualityStatus.VALID,
+                    quality_reason=None,
+                    market_id=market_id,
+                    instrument_id=cast(str, parsed["instrument_id"]),
+                    event_time=event_time,
+                    underlying=cast(str, parsed["underlying"]),
+                    expiry=cast(date, parsed["expiry"]),
+                    strike=cast(float, parsed["strike"]),
+                    option_type=option_type,
+                    settlement_asset="USD",
+                    mark_price=mark_price,
+                    bid=bid,
+                    ask=ask,
+                    open_interest=open_interest,
+                )
+                records.append(record)
+            except (KeyError, ValueError, TypeError, ProviderError) as exc:
+                reason = f"{type(exc).__name__}: {exc}"
+                logger.warning(
+                    "connector.normalize_skip",
+                    source="deribit",
+                    currency=currency,
+                    instrument_name=instrument_name,
+                    reason=reason,
+                )
+                skipped[reason] += 1
                 continue
-
-            for opt in options:
-                instrument_name = opt.get("instrument_name", "<unknown>")
-                try:
-                    if not instrument_name or instrument_name == "<unknown>":
-                        raise ProviderError("missing instrument_name")
-
-                    parsed = parse_deribit(instrument_name)
-                    market_id = cast(str, parsed["market_id"])
-
-                    # Deribit book summary fields（显式 null → None，不伪造 0）
-                    mark_price = _quote_float(opt.get("mark_price"))
-                    bid = _quote_float(opt.get("bid_price"))
-                    ask = _quote_float(opt.get("ask_price"))
-                    # 未平仓合约数：源端恒为数值；null/缺失按 0 处理
-                    open_interest = float(opt.get("open_interest") or 0.0)
-
-                    # event_time: use last_update_time if available, else now
-                    last_update_ms = opt.get("last_update_time")
-                    if last_update_ms is not None:
-                        event_time = datetime.fromtimestamp(
-                            int(last_update_ms) / 1000, tz=UTC
-                        ).replace(tzinfo=None)
-                    else:
-                        event_time = now
-
-                    # IV fields
-                    parsed_ot = parsed.get("option_type")
-                    if parsed_ot:
-                        option_type = OptionType(parsed_ot)
-                    else:
-                        option_type = OptionType.CALL
-
-                    record = OPTION(
-                        schema_version="1.0",
-                        source="deribit",
-                        source_id=instrument_name,
-                        source_timestamp=event_time,
-                        ingest_timestamp=now,
-                        raw_record_id=f"deribit:option:{instrument_name}:{event_time.isoformat()}",
-                        quality_status=QualityStatus.VALID,
-                        quality_reason=None,
-                        market_id=market_id,
-                        instrument_id=cast(str, parsed["instrument_id"]),
-                        event_time=event_time,
-                        underlying=cast(str, parsed["underlying"]),
-                        expiry=cast(date, parsed["expiry"]),
-                        strike=cast(float, parsed["strike"]),
-                        option_type=option_type,
-                        settlement_asset="USD",
-                        mark_price=mark_price,
-                        bid=bid,
-                        ask=ask,
-                        open_interest=open_interest,
-                    )
-                    records.append(record)
-                except (KeyError, ValueError, TypeError, ProviderError) as exc:
-                    reason = f"{type(exc).__name__}: {exc}"
-                    logger.warning(
-                        "connector.normalize_skip",
-                        source="deribit",
-                        currency=currency,
-                        instrument_name=instrument_name,
-                        reason=reason,
-                    )
-                    skipped[reason] += 1
-                    continue
 
         if skipped:
             logger.warning(
@@ -530,31 +542,42 @@ class DeribitConnector(DataConnector):
     def _normalize_chart(
         self, payload: dict[str, Any], raw_meta: dict[str, Any] | None = None
     ) -> list[BaseRecord]:
-        """Normalize get_tradingview_chart_data payload to OHLCV/IV records.
+        """Normalize get_tradingview_chart_data payload to OHLCV records.
 
-        Deribit chart response format:
+        真实响应为 JSON-RPC envelope（2026-11-05 依据 Deribit v2
+        get_tradingview_chart_data 文档 / docs.rs deribit-http 0.7
+        TradingViewChartData）：
+
         {
-            "candles": [
-                {
-                    "timestamp": 1234567890000,
-                    "close": 100.0,
-                    "open": 99.0,
-                    "high": 101.0,
-                    "low": 98.0,
-                    "volume": 100.0,
-                    "iv": 0.5,
-                    "mark_iv": 0.51,
-                }
-            ]
+          "jsonrpc": "2.0",
+          "result": {
+            "status": "ok",
+            "ticks": [1672444800000, ...],
+            "open": [...], "high": [...], "low": [...],
+            "close": [...], "volume": [...], "cost": [...],
+            "continuation": null,
+          },
+          "usIn": ..., "usOut": ..., "testnet": false,
         }
+
+        result 内是并行数组而非 candles 列表；instrument_name 不在 result 中，
+        必须由 raw_meta 带入。chart 响应不含 IV。
         """
         records: list[BaseRecord] = []
+        skipped: dict[str, int] = defaultdict(int)
         now = datetime.now(UTC).replace(tzinfo=None)
 
-        instrument_name = payload.get("instrument_name", "")
-
+        instrument_name = str((raw_meta or {}).get("instrument_name") or "")
         if not instrument_name:
-            return records
+            raise ProviderError(
+                "deribit: instrument_name missing in raw_meta for chart data"
+            )
+
+        result = payload.get("result")
+        if not isinstance(result, dict):
+            raise ProviderError(
+                "deribit: chart response missing JSON-RPC result object"
+            )
 
         # interval 是 OHLCV 身份键组成部分（D02 §2 L43），缺失/非法必须熔断
         resolution = (raw_meta or {}).get("resolution")
@@ -568,29 +591,41 @@ class DeribitConnector(DataConnector):
                 f"deribit: unsupported chart resolution: {resolution}"
             )
 
-        try:
-            parsed = parse_deribit(instrument_name)
-            market_id = cast(str, parsed["market_id"])
-        except ProviderError:
+        parsed = parse_deribit(instrument_name)
+        market_id = cast(str, parsed["market_id"])
+
+        ticks = result.get("ticks")
+        if not isinstance(ticks, list):
+            raise ProviderError(
+                "deribit: chart result missing ticks array"
+            )
+        if not ticks:
             return records
 
-        for candle in payload.get("candles", []):
+        arrays = {
+            "open": result.get("open"),
+            "high": result.get("high"),
+            "low": result.get("low"),
+            "close": result.get("close"),
+            "volume": result.get("volume"),
+        }
+
+        for i, ts_raw in enumerate(ticks):
             try:
-                ts_ms = int(candle["timestamp"])
+                ts_ms = int(ts_raw)
                 event_time = datetime.fromtimestamp(
                     ts_ms / 1000, tz=UTC
                 ).replace(tzinfo=None)
 
-                open_val = float(candle["open"])
-                high_val = float(candle["high"])
-                low_val = float(candle["low"])
-                close_val = float(candle["close"])
-                volume_val = float(candle["volume"])
+                values: dict[str, float] = {}
+                for name, arr in arrays.items():
+                    if not isinstance(arr, list) or i >= len(arr):
+                        raise KeyError(f"{name} array shorter than ticks")
+                    values[name] = float(arr[i])
 
                 # Validate finite
-                values = [open_val, high_val, low_val, close_val, volume_val]
-                if not all(math.isfinite(v) for v in values):
-                    continue
+                if not all(math.isfinite(v) for v in values.values()):
+                    raise ValueError("non-finite OHLCV value")
 
                 # Create OHLCV record
                 record = OHLCV(
@@ -605,43 +640,34 @@ class DeribitConnector(DataConnector):
                     market_id=market_id,
                     event_time=event_time,
                     interval=interval_enum,
-                    open=open_val,
-                    high=high_val,
-                    low=low_val,
-                    close=close_val,
-                    volume=volume_val,
+                    open=values["open"],
+                    high=values["high"],
+                    low=values["low"],
+                    close=values["close"],
+                    volume=values["volume"],
                 )
                 records.append(record)
 
-                # Also create IMPLIED_VOLATILITY if iv field present
-                iv_val_raw = candle.get("iv")
-                if iv_val_raw is not None:
-                    iv_val = float(iv_val_raw)
-                    if math.isfinite(iv_val) and 0 <= iv_val <= 5:
-                        mark_iv = float(candle.get("mark_iv", iv_val)) \
-                            if candle.get("mark_iv") is not None else None
-                        iv_record = IMPLIED_VOLATILITY(
-                            schema_version="1.0",
-                            source="deribit",
-                            source_id=f"{instrument_name}:iv:{ts_ms}",
-                            source_timestamp=event_time,
-                            ingest_timestamp=now,
-                            raw_record_id=f"deribit:iv:{instrument_name}:{ts_ms}",
-                            quality_status=QualityStatus.VALID,
-                            quality_reason=None,
-                            instrument_id=cast(str, parsed["instrument_id"]),
-                            event_time=event_time,
-                            iv=iv_val,
-                            mark_iv=mark_iv,
-                            bid_iv=None,
-                            ask_iv=None,
-                            implied_forward=None,
-                            data_tier=DataTier.FULL,
-                        )
-                        records.append(iv_record)
+            except (KeyError, ValueError, TypeError) as exc:
+                reason = f"{type(exc).__name__}: {exc}"
+                logger.warning(
+                    "connector.normalize_skip",
+                    source="deribit",
+                    instrument_name=instrument_name,
+                    index=i,
+                    reason=reason,
+                )
+                skipped[reason] += 1
 
-            except (KeyError, ValueError, TypeError):
-                continue
+        if skipped:
+            logger.warning(
+                "connector.normalize_summary",
+                source="deribit",
+                instrument_name=instrument_name,
+                kept=len(records),
+                skipped=sum(skipped.values()),
+                reasons=dict(skipped),
+            )
 
         return records
 
@@ -704,17 +730,15 @@ class DeribitConnector(DataConnector):
 
             if endpoint == "/public/get_book_summary_by_currency" and isinstance(payload, dict):
                 # Option summary: use a marker based on number of instruments
-                total = 0
-                for value in payload.values():
-                    if isinstance(value, list):
-                        total += len(value)
+                result = payload.get("result")
+                total = len(result) if isinstance(result, list) else 0
                 return f"deribit:options:{total}" if total > 0 else None
 
             if endpoint == "/public/get_tradingview_chart_data" and isinstance(payload, dict):
-                candles = payload.get("candles", [])
-                if candles:
-                    last_ts = int(candles[-1]["timestamp"])
-                    return str(last_ts)
+                result = payload.get("result")
+                ticks = result.get("ticks") if isinstance(result, dict) else None
+                if isinstance(ticks, list) and ticks:
+                    return str(int(ticks[-1]))
                 return None
 
         elif isinstance(raw, list) and raw:

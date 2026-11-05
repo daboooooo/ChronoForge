@@ -1,0 +1,74 @@
+# TGA 预测模型配置（Phase 3，依据实现方案 §6/§10.2/§15.2）
+#
+# 约定：
+# - 本文件任何变更 → config_hash 变化 → 新 forecast run，不覆盖历史（§6.8 规则 4）。
+# - 情景参数在 scenarios.yaml（Phase 4）；Phase 3 固定 base 情景，不调整任何现金流。
+# - bands 为 P0 简化区间（按 source_type 的相对带宽），Phase 5 用 Walk-forward
+#   残差分位数校准后替换（§12 Phase 4 任务 5 / §6.10）。
+
+version: "1"
+
+# 预测周期：Phase 4 起输出 5 档（§12 Phase 4；90 天档发行侧以节奏外推为主，
+# 报告中标注"参考区间"性质，Refunding 输入随季度增量累积后可信度提升）
+horizons: [7, 14, 30, 60, 90]
+
+# 历史统计窗口（周）
+windows:
+  recent_run_rate_weeks: 4        # 近期运行率（§6.5 P0 步骤 4 / §6.7）
+  monthly_median_weeks: 13        # 中期中位数窗口
+  same_month_years: 3             # 同月同日历史中位数回看年数
+  trend_months: 12                # 趋势因子回看月数
+  interest_baseline_weeks: 13     # 付息非事件日基线窗口
+  coupon_baseline_weeks: 26       # 历史付息日历标记窗口
+
+# 趋势因子截断（防止小基数月份趋势爆表，§6.5 P0 步骤 3）
+trend_cap: [0.8, 1.2]
+
+# 区间：predicted ± band × |predicted|（P0 简化；KNOWN_FINAL 为确定值）
+bands:
+  KNOWN_FINAL: 0.0
+  KNOWN_PROVISIONAL: 0.05
+  SEASONAL: 0.5
+  STATISTICAL: 0.5
+  UNCLASSIFIED: 1.0
+
+# 置信度评分（§6.10，用于报告构成展示）
+confidence:
+  KNOWN_FINAL: 1.0
+  KNOWN_PROVISIONAL: 0.8
+  SEASONAL: 0.5
+  STATISTICAL: 0.5
+  UNCLASSIFIED: 0.2
+
+# 组件开关（§6.1 组件协议）
+components:
+  debt_events: true      # 发行/到期（三层）+ 付息
+  tax: true              # TAX + REFUND
+  outlays: true          # BENEFIT
+  other: true            # OTHER + UNCLASSIFIED（双向）
+
+# 国债发行预测（§6.3）
+issuance:
+  cadence_history_weeks: 104       # 发行节奏统计回看窗口
+  offering_median_count: 8         # 规模中位数取最近 N 次同类发行
+  layer3_confidence: 0.4           # 未公告层置信度
+  layer2_confidence: 0.7           # 已公告未结果层置信度
+  cadence_dedupe_days: 3           # Layer 3 与已知事件去重容差（天）
+  # Layer 3 节奏外推校准（Phase 5 回测结论：默认 none，保持 7/14/30 原行为）
+  # - none：原逻辑（median_gap 外推 + 最近 N 次发行规模中位数）
+  # - trailing_scale：按 (type,term) 近 trailing_weeks 实际发行/外推隐含发行
+  #   的比例缩放规模（错误回灌校正；截断 scale_cap，PIT：仅用 cutoff 前数据）
+  # - seasonal_window：用去年同日历窗口（−364 天）的真实发行日期重放，
+  #   规模仍取当前窗口中位数（只修正节奏，不做水平平移；无样本时回退 none）
+  calibration:
+    mode: none
+    trailing_weeks: 26
+    scale_cap: [0.75, 1.35]
+  coupon_frequencies:              # 付息频率解析（§6.4）
+    Semi-Annual: 2
+    Quarterly: 4
+    Monthly: 12
+
+# 守恒与告警阈值（§9.1 Q-TGA-012/013/014）
+limits:
+  cutoff_stale_days: 7             # Q-TGA-013：cutoff 落后今天超过 N 天告警

@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
+from structlog.testing import capture_logs
 
 from chronoforge.connectors.base import (
     CapabilityMatrix,
@@ -298,8 +299,17 @@ class TestNormalizeInstruments:
 class TestNormalizeOptions:
     """get_book_summary → OPTION normalize 测试（TC-C-003）。"""
 
-    def test_normalize_options_happy_path(self) -> None:
+    def test_normalize_options_happy_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Given book_summary fixture When normalize Then OPTION records correct."""
+        # 冻结连接器内 today()：fixture 的 2026-09-26 到期日在测试运行时可能已过期，
+        # 到期标记属 Q-RANGE-003 的另一条用例，不干扰本 happy-path 断言。
+        class _FixedDate(date):
+            @classmethod
+            def today(cls) -> date:
+                return date(2026, 9, 1)
+
+        monkeypatch.setattr("chronoforge.connectors.deribit.date", _FixedDate)
+        monkeypatch.setattr("chronoforge.models.derivatives.date", _FixedDate)
         payload = _load_fixture("get_book_summary/happy.json")
         raw_meta = {
             "http_status": 200,
@@ -361,13 +371,14 @@ class TestNormalizeOptions:
         回归：显式 null 曾触发 float(None) TypeError 导致整条丢失。
         """
         payload = {
-            "kind": "option",
-            "BTC": [
+            "jsonrpc": "2.0",
+            "result": [
                 {
                     "ask_price": 0.0001,
                     "bid_price": None,
                     "mark_price": 1e-08,
                     "instrument_name": "BTC-24SEP26-85000-C",
+                    "base_currency": "BTC",
                     "open_interest": 192.9,
                     "volume": 0.0,
                 },
@@ -397,13 +408,14 @@ class TestNormalizeOptions:
         回归：len=6 曾落入 else 抛 ProviderError 被整条丢弃。
         """
         payload = {
-            "kind": "option",
-            "BTC": [
+            "jsonrpc": "2.0",
+            "result": [
                 {
                     "ask_price": 0.05,
                     "bid_price": 0.01,
                     "mark_price": 0.03,
                     "instrument_name": "BTC-2OCT26-100000-C",
+                    "base_currency": "BTC",
                     "open_interest": 5.0,
                 },
                 {
@@ -411,6 +423,7 @@ class TestNormalizeOptions:
                     "bid_price": None,
                     "mark_price": 0.03,
                     "instrument_name": "BTC-9OCT26-100000-P",
+                    "base_currency": "BTC",
                     "open_interest": 0.0,
                 },
             ],
@@ -436,6 +449,31 @@ class TestNormalizeOptions:
         assert late.expiry == date(2026, 10, 9)
         assert late.bid is None
         assert late.open_interest == 0.0
+        conn.close()
+
+    def test_negative_book_summary_old_dict_shape_raises(
+        self,
+    ) -> None:
+        """负向：非空 payload 无 JSON-RPC result（旧 dict 形状）→ ProviderError。"""
+        payload = {
+            "kind": "option",
+            "BTC": [
+                {
+                    "instrument_name": "BTC-26SEP26-100000-C",
+                    "mark_price": 1499.75,
+                }
+            ],
+        }
+
+        conn, _ = _create_mock_connector()
+        with pytest.raises(ProviderError, match="result list"):
+            conn.normalize(
+                RawBatch(
+                    endpoint="/public/get_book_summary_by_currency",
+                    payload=payload,
+                    raw_meta={"http_status": 200, "currency": "BTC"},
+                )
+            )
         conn.close()
 
 
@@ -464,8 +502,8 @@ class TestNormalizeChart:
             )
         )
 
-        # 2 OHLCV records + 2 IMPLIED_VOLATILITY records
-        assert len(records) == 4
+        # 真实 chart 响应不含 IV：2 根 K 线 → 2 条 OHLCV
+        assert len(records) == 2
 
         # Count OHLCV records
         ohlcv_records = [r for r in records if isinstance(r, OHLCV)]
@@ -508,6 +546,97 @@ class TestNormalizeChart:
         )
 
         assert len(records) == 0
+        conn.close()
+
+    def test_contract_chart_real_envelope(self) -> None:
+        """契约：真实 JSON-RPC 并行数组 → 2 条 OHLCV，时间/价格/标识正确。"""
+        payload = _load_fixture("get_tradingview_chart_data/happy.json")
+        raw_meta = {
+            "http_status": 200,
+            "instrument_name": "BTC-26SEP26-100000-C",
+            "resolution": "60",
+        }
+
+        conn, _ = _create_mock_connector()
+        records = conn.normalize(
+            RawBatch(
+                endpoint="/public/get_tradingview_chart_data",
+                payload=payload,
+                raw_meta=raw_meta,
+            )
+        )
+
+        assert len(records) == 2
+        assert all(isinstance(r, OHLCV) for r in records)
+        second = records[1]
+        expected_ts = datetime.fromtimestamp(
+            1672448400000 / 1000, tz=UTC
+        ).replace(tzinfo=None)
+        assert second.event_time == expected_ts
+        assert second.source_id == "BTC-26SEP26-100000-C:1672448400000"
+        assert second.market_id == "DERIBIT:BTC-26SEP26-100000-C:OPTION"
+        assert second.close == pytest.approx(16600.0, rel=1e-6)
+        assert second.volume == pytest.approx(120.3, rel=1e-6)
+        conn.close()
+
+    def test_negative_chart_short_arrays_warn_not_silent(self) -> None:
+        """负向：非空 ticks 但 OHLC 数组缺失 → normalize_summary 告警非静默。"""
+        payload = {
+            "jsonrpc": "2.0",
+            "result": {
+                "status": "ok",
+                "ticks": [1672444800000],
+                "open": [16500.0],
+                "high": [16600.0],
+                "low": [16450.0],
+                "close": [],
+                "volume": [],
+                "continuation": None,
+            },
+        }
+        raw_meta = {
+            "http_status": 200,
+            "instrument_name": "BTC-26SEP26-100000-C",
+            "resolution": "60",
+        }
+
+        conn, _ = _create_mock_connector()
+        with capture_logs() as logs:
+            records = conn.normalize(
+                RawBatch(
+                    endpoint="/public/get_tradingview_chart_data",
+                    payload=payload,
+                    raw_meta=raw_meta,
+                )
+            )
+
+        assert records == []
+        summaries = [
+            e for e in logs if e["event"] == "connector.normalize_summary"
+        ]
+        assert summaries, "非空 payload 解析 0 行必须告警"
+        assert summaries[-1]["kept"] == 0
+        assert summaries[-1]["skipped"] >= 1
+        conn.close()
+
+    def test_negative_chart_missing_result_raises(self) -> None:
+        """负向：非空 envelope 缺 result → ProviderError（非静默空产出）。"""
+        payload = {"jsonrpc": "2.0", "usIn": 0, "usOut": 0}
+        raw_meta = {
+            "http_status": 200,
+            "instrument_name": "BTC-26SEP26-100000-C",
+            "resolution": "60",
+        }
+
+        conn, _ = _create_mock_connector()
+        with pytest.raises(ProviderError, match="result"):
+            conn.normalize(
+                RawBatch(
+                    endpoint="/public/get_tradingview_chart_data",
+                    payload=payload,
+                    raw_meta=raw_meta,
+                )
+            )
         conn.close()
 
 
@@ -759,28 +888,42 @@ class TestChartPagination:
     def test_fetch_chart_data_pagination(self) -> None:
         """Given chart data with 2 pages When fetch Then cursor advances correctly."""
         page1 = {
-            "candles": [
-                {
-                    "timestamp": 1672444800000,
-                    "open": 16500.0, "close": 16550.0,
-                    "high": 16600.0, "low": 16450.0,
-                    "volume": 100.0, "iv": 0.65, "mark_iv": 0.66,
-                }
-            ],
-            "instrument_name": "BTC-PERP",
-            "resolution": "60",
+            "jsonrpc": "2.0",
+            "result": {
+                "status": "ok",
+                "ticks": [1672444800000],
+                "open": [16500.0],
+                "high": [16600.0],
+                "low": [16450.0],
+                "close": [16550.0],
+                "volume": [100.0],
+                "cost": [1650000.0],
+                "continuation": None,
+            },
         }
         page2 = {
-            "candles": [
-                {
-                    "timestamp": 1672448400000,
-                    "open": 16550.0, "close": 16600.0,
-                    "high": 16650.0, "low": 16500.0,
-                    "volume": 120.0, "iv": 0.64, "mark_iv": 0.65,
-                }
-            ],
-            "instrument_name": "BTC-PERP",
-            "resolution": "60",
+            "jsonrpc": "2.0",
+            "result": {
+                "status": "ok",
+                "ticks": [1672448400000],
+                "open": [16550.0],
+                "high": [16650.0],
+                "low": [16500.0],
+                "close": [16600.0],
+                "volume": [120.0],
+                "cost": [1992000.0],
+                "continuation": None,
+            },
+        }
+        empty_page = {
+            "jsonrpc": "2.0",
+            "result": {
+                "status": "ok",
+                "ticks": [],
+                "open": [], "high": [], "low": [],
+                "close": [], "volume": [], "cost": [],
+                "continuation": None,
+            },
         }
 
         resp1 = _mock_response(
@@ -793,8 +936,13 @@ class TestChartPagination:
             json_data=page2,
             url="https://www.deribit.com/api/v2",
         )
+        resp3 = _mock_response(
+            status_code=200,
+            json_data=empty_page,
+            url="https://www.deribit.com/api/v2",
+        )
 
-        mock_client = _mock_client([resp1, resp2])
+        mock_client = _mock_client([resp1, resp2, resp3])
 
         with patch.object(
             DeribitConnector, "__init__", lambda self, s: None
@@ -835,20 +983,33 @@ class TestChartPagination:
         """
         ts = 1672444800000  # 2023-01-01T00:00:00Z
         page1 = {
-            "candles": [
-                {
-                    "timestamp": ts,
-                    "open": 16500.0, "close": 16550.0,
-                    "high": 16600.0, "low": 16450.0,
-                    "volume": 100.0, "iv": 0.65, "mark_iv": 0.66,
-                }
-            ],
-            "instrument_name": "BTC-PERP",
-            "resolution": "1440",
+            "jsonrpc": "2.0",
+            "result": {
+                "status": "ok",
+                "ticks": [ts],
+                "open": [16500.0],
+                "high": [16600.0],
+                "low": [16450.0],
+                "close": [16550.0],
+                "volume": [100.0],
+                "cost": [1650000.0],
+                "continuation": None,
+            },
+        }
+        empty_page = {
+            "jsonrpc": "2.0",
+            "result": {
+                "status": "ok",
+                "ticks": [],
+                "open": [], "high": [], "low": [],
+                "close": [], "volume": [], "cost": [],
+                "continuation": None,
+            },
         }
 
         resp1 = _mock_response(status_code=200, json_data=page1)
-        mock_client = _mock_client([resp1])  # 队列耗尽后返回空 candles → break
+        resp2 = _mock_response(status_code=200, json_data=empty_page)
+        mock_client = _mock_client([resp1, resp2])  # 第 3 次队列耗尽 → 空页
 
         with patch.object(
             DeribitConnector, "__init__", lambda self, s: None
@@ -1082,8 +1243,8 @@ class TestGWT:
             )
         )
 
-        # 2 OHLCV + 2 IV records
-        assert len(records) == 4
+        # 真实 chart 响应不含 IV：2 根 K 线 → 2 条 OHLCV
+        assert len(records) == 2
         ohlcv_records = [r for r in records if isinstance(r, OHLCV)]
         assert len(ohlcv_records) == 2
         conn.close()

@@ -425,6 +425,22 @@ class ValidateStage:
 # ---------------------------------------------------------------------------
 
 
+def _payload_units(payload: object) -> int:
+    """估算单个 raw 批次的待处理记录数（失败调用无法取得真实条数时的下界）。
+
+    payload 形状由连接器决定：多数源为 list；部分为分页/JSON-RPC 包装 dict。
+    识别常见行数组键取其长度，未知形状按 1 个单元计，保证分母不为 0。
+    """
+    if isinstance(payload, (list, tuple)):
+        return max(len(payload), 1)
+    if isinstance(payload, dict):
+        for key in ("rows", "data", "result", "observations", "values"):
+            value = payload.get(key)
+            if isinstance(value, (list, tuple)) and value:
+                return len(value)
+    return 1
+
+
 class NormalizeStage:
     """Stage 4：connector.normalize → BaseRecord + provenance 注入（D05 §1）。
 
@@ -432,8 +448,10 @@ class NormalizeStage:
       error_count + errors，不中断
     - 成功记录注入 raw_record_id / ingest_timestamp（UTC naive）；
       schema_version 保持模型已有值
-    - 错误率 = errors/total > settings.normalize_error_threshold（total>0）
-      → QualityError
+    - 错误率 = 失败记录数/(成功记录数+失败记录数) >
+      settings.normalize_error_threshold → QualityError
+    - 失败调用无法回传记录数，按 payload 单元数（下界）计入分子/分母，
+      避免全失败时分母退化为 0 而短路阈值判定（审计 C1）
     """
 
     name = "normalize"
@@ -441,11 +459,16 @@ class NormalizeStage:
     def execute(self, ctx: RunContext) -> StageResult:
         result = StageResult()
         ingest_now = datetime.now(UTC).replace(tzinfo=None)
+        # 失败调用的记录数不可得 → 以 payload 单元数作下界，与成功记录同口径
+        failed_units = 0
+        # provenance 注入/序列化的记录级失败（已计入 input_count，避免与批次失败重复计数）
+        record_errors = 0
         for _chunk, batch, raw_ref in ctx._raw_refs:
             try:
                 records = ctx.connector.normalize(batch)
             except Exception as exc:  # 记录级失败不中断（D05 §1）
                 result.error_count += 1
+                failed_units += _payload_units(batch.payload)
                 result.errors.append(
                     f"normalize failed for {raw_ref.raw_record_id}: "
                     f"{type(exc).__name__}: {exc}"
@@ -460,6 +483,7 @@ class NormalizeStage:
                     type_name = type(rec).__name__
                 except Exception as exc:  # provenance 注入/序列化失败不中断
                     result.error_count += 1
+                    record_errors += 1
                     result.errors.append(
                         f"provenance inject failed: {type(exc).__name__}: {exc}"
                     )
@@ -470,10 +494,15 @@ class NormalizeStage:
                 if isinstance(schema_version, str) and schema_version:
                     ctx._schema_version = schema_version
 
-        total = result.input_count
-        if total > 0 and result.error_count / total > ctx.settings.normalize_error_threshold:
+        # 分母 = 成功返回的记录数 + 失败调用的下界记录数（不可为 0）
+        attempted = result.input_count + failed_units
+        attempted_errors = record_errors + failed_units
+        if (
+            attempted > 0
+            and attempted_errors / attempted > ctx.settings.normalize_error_threshold
+        ):
             raise QualityError(
-                f"normalize error rate {result.error_count}/{total} exceeds "
+                f"normalize error rate {attempted_errors}/{attempted} exceeds "
                 f"threshold {ctx.settings.normalize_error_threshold}",
                 context={"stage": self.name, "dataset_id": ctx.dataset_id},
             )

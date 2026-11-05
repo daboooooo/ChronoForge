@@ -2,7 +2,7 @@
 
 状态：READY（可派发）/ DISPATCHED（已派发）/ IN_PROGRESS（执行中）/ IN_REVIEW（验收中）/ DONE（完成）/ BLOCKED（受阻，见任务记录）/ FAILED（验收失败）。
 
-## 1. 任务状态总表（含子任务，依据 D10 §10 派发 DAG）
+## 1. 任务状态总表（含子任务，依据 D10 §11 派发 DAG）
 
 | Task ID | 层 | 标题 | 状态 | 派发时间 | 完成时间 | 记录 |
 |---|---|---|---|---|---|---|
@@ -53,6 +53,14 @@
 | READY-003 | L4 | QueryService LIMIT/超时防护（SR-10） | DONE | 2026-09-21 | 2026-09-22 | [tasks/READY-003.md](tasks/READY-003.md) |
 | READY-004 | L6 | CLI 资源生命周期 ExitStack（SR-11） | DONE | 2026-09-21 | 2026-09-22 | [tasks/READY-004.md](tasks/READY-004.md) |
 | READY-005 | L6 | open_query_service 并发窗口消除（SR-16） | DONE | 2026-09-21 | 2026-09-22 | [tasks/READY-005.md](tasks/READY-005.md) |
+| TGA-RESEARCH-001 | TGA | Fiscal Data Phase 0 探测/数据字典/fixtures | DONE | 2026-10-31 | 2026-10-31 | 补登记（D10 §10；无独立任务单） |
+| TGA-CONTRACT-001 | TGA | 5 个 Treasury Type + 迁移 0005 + D02/D03 | DONE | 2026-10-31 | 2026-10-31 | 补登记（D10 §10） |
+| TGA-ACQ-001 | TGA | treasury_fiscal connector/窗口/接线/注册脚本 | DONE（8 数据集已注册，回填待执行） | 2026-10-31 | 2026-10-31 | 补登记（D10 §10） |
+| TGA-QUAL-001 | TGA | Q-TGA-001/002/007/008/009 | DONE | 2026-10-31 | 2026-10-31 | 补登记（D10 §10） |
+| TGA-ACQ-002 | TGA | treasury_refunding connector | PENDING | — | — | 计划 Phase 4 |
+| TGA-RECON-001..004 | TGA | Model 0 重建/对账 | PENDING | — | — | 计划 Phase 2 |
+| TGA-STORE-001 | TGA | ForecastStore + `meta/tga.duckdb` | PENDING | — | — | 计划 Phase 2 |
+| TGA-FCST-001..006 / TGA-SCEN-001 / TGA-BT-001..003 / TGA-OPS/REPORT/EXPORT-001 | TGA | 预测/情景/回测/自动化/报告/导出 | PENDING | — | — | 计划 Phase 3–6 |
 
 ## 2. 派发事件流水
 
@@ -124,6 +132,7 @@
 | 2026-09-22 | 采集就绪审计修复收口（R2-01~R2-08，[review/2026-09-22-acquisition-readiness-audit.md](../review/2026-09-22-acquisition-readiness-audit.md)） | P0：R2-01 熔断冷却期 half-open（`is_circuit_open(cooldown_seconds=)` 消费 `circuit_opened_at`，探测失败刷新重新计时 + settings `circuit_cooldown_s`（默认 1800s）+ `pipeline circuit-reset --dataset` 运维命令 + `pipeline.circuit_half_open` 事件入词表）；R2-02 `--all-due` 逐 dataset ChronoForgeError 隔离 + 失败汇总退出码 1。P1：R2-04 D05 chunk 级重试接线（FetchStage 经 `retry(max_retries=settings.retry_max)` 消费 retry.py 死代码；conftest autouse patch `retry._sleep` 屏蔽测试退避，test_retry.py 改 patch `_sleep`）；R2-03 startup_repair 并发护栏（`cleanup_orphans(min_age_seconds=)` 年龄护栏 + `reconcile(stale_run_timeout_seconds=)` 租约护栏共用 `stale_run_timeout_seconds`（默认 3600s）+ `open_meta(repair=)` 收敛修复至写入口 run/replay，读命令跳过）。P2：R2-05 历史 0 批次 chunk → `warning_count` + `pipeline.empty_history_chunk` 日志（偏差：不落 quality_flags，避免污染 D06 冻结规则注册表——语义为 run 级观测而非记录级 finding）；R2-06 yahoo `utcfromtimestamp` → `fromtimestamp(ts, UTC)`；R2-07 build_runner 的 RawStore 入 ExitStack（第 5 参 stack）+ replay 直建 RawStore 注册；R2-08 cron 模板文档化立 READY-006（DONE，方案 A 模板固定带 --window-seconds）；R2-09 设计决策无需修复。存量测试适配：tcp004/sr03 fetch 调用数改增量断言、tcp010/ready001_resume 计数含重试、FakeConnector 注入键改 chunk 序号 + 新增 fail_attempts、consistency full_path 回拨时间适配护栏语义；新增 14 用例（pipeline 6 + cli 3 + consistency guards 4 + retry 语义随存量）；复跑：全量 **1399 passed / 0 failed**（基线 1385 + 新增 14），ruff All checks passed，mypy Success（72 文件），lint-imports 2 kept / 0 broken；git commit PENDING（随 READY-001~006 待统一提交） |
 | 2026-10-21 | 新增数据源落地（sosovalue / alternative / coinmetrics / coinmarketcap）+ livecoinwatch 下线清理 → DONE | 新增 4 个 connector（`connectors/{sosovalue,alternative,coinmetrics,coinmarketcap}.py`）+ 4 个注册脚本（`scripts/register_{sosovalue_etfs,alternative_fng,coinmetrics_metrics,coinmarketcap_dominance}.py`，幂等 + `_get_config` 窗口预检 + available_from + 失败退出码 1）+ 接线（registry `DEFAULT_SOURCES` 11 源 / `cli/_wiring.py` / `pipeline/windows.py` 前缀回退 full_window / `config/settings.py` / `config/update_schedule.py` 发布时刻 00:10 UTC）；8 个 NUMBER 数据集注册并全历史回填（alternative_fng_btc 3179 行、coinmarketcap_btc_dominance 4916 行、coinmetrics 6 个数据集 3946/3946/3000/2944/6499/6499 行，全部 status=COMPLETE）；T+1 结算语义（observation=D 00:00:00，release=revision=D+1 00:00:00，fetch 起点回退 1 天，当天未冻结行跳过 → 重采幂等）；livecoinwatch 彻底清理（connector + 注册脚本 + 集成测试 + fixture + settings/.env/registry/windows/_wiring/update_schedule 引用 + `source_registry` 残留行 DELETE，registry sync 稳定输出 11 sources）；复跑：三源集成测试 78 passed，全量 **1666 passed / 3 failed**（3 failed 为存量日期依赖问题：sosovalue 硬编码日期过期 ×2、deribit OPTIONS 质量断言 ×1），ruff/mypy 存量错误均在未改动文件；git commit PENDING |
 | 2026-10-22 | 注册脚本实跑 + 数据验证 → DONE，发现并修复 USDT 历史缺口 | 3 个注册脚本实跑全部幂等（新增 0 / 已存在 8 / 失败 0，exit 0）；`registry sync` 11 sources，8 个数据集 status=COMPLETE、checkpoint 0 失败无熔断；**源侧 vs canonical 逐数据集比对（走 connector fetch/normalize 实链路）：8/8 值偏差 = 0**；发现 `coinmetrics_usdt_supply` / `coinmetrics_usdt_market_cap` 声明 available_from=2016-01-01，但 Coin Metrics 源端实际可回溯到 2014-10-06（源 4398 行 vs 库 3946 行，缺 451 天），其余 7 个数据集的 available_from 与源端起点逐日吻合 → 修 spec 为 2014-10-06 + 注册脚本新增 available_from 漂移对齐（`[UPDATE]` 分支，汇总加「已更新」计数）+ `--mode backfill --start 2014-10-05` 回填（canonical output 451 新行，duplicate 3947 幂等 upsert）+ 8 个数据集 incremental 补最新日；复核：行数 == 去重观测日数、0 非 VALID、T+1 语义 100% 满足（release = revision = observation + 1d）、缺口全部定位为源侧（alternative 2018-04 源端无数据；coinmarketcap 2020-05-18~20 源端值为 0 被 `non_positive_value` 过滤）；git commit PENDING |
+| 2026-10-31 | TGA 子系统补登记：D10 §10 任务组 + D02/D03/D04 契约同步 + treasury_fiscal 代码修复 | TGA-RESEARCH/CONTRACT/ACQ/QUAL 已落地；修正 DTS 三段账户映射、余额自然键、dataset_id 下划线约定、as-of 视图与 Derived catalog、未分类公式、is_subtotal、发布时刻、schema 漂移熔断、Q-TGA-009；8 个 treasury 数据集已注册；全量 **1716 passed / 0 failed**，ruff/mypy/lint-imports 全绿；历史回填待执行 |
 
 ## 3. Design Issue 登记
 

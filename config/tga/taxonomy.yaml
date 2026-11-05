@@ -1,0 +1,281 @@
+# TGA taxonomy — DTS Table II 原始分类 → 归一分类（Phase 2 唯一事实源）
+#
+# 规则按序匹配（自上而下，首条命中生效）；
+# match_type: prefix（默认，忽略大小写）/ contains / regex。
+# transaction_type 限定可选（Deposits / Withdrawals），缺省不限。
+#
+# 语义（依据 docs/strategy/TGA前瞻模型-实现方案.md §3.3/§5.2/§6.5-6.7）：
+# - Table II 是 TGA 现金台账：除小计行外所有叶级行 include_in_net=true，
+#   含跨表引用类（Public Debt (Table III-B)/FTD (Table IV) 等）——它们是
+#   台账的真实现金流；跨表重复判定只标 is_duplicate_candidate（重建脚本）。
+# - Table IV（内部转移）/ Table V（退税）数据集行由重建脚本固定
+#   include_in_net=false，不经过本文件。
+# - 未命中 → unmatched 规则：UNCLASSIFIED，include_in_net=true，不丢弃。
+
+version: "1.0"
+taxonomy_version: "tga-taxonomy-1.0"
+
+rules:
+  # ── 1. 小计行：不进入叶级求和 ─────────────────────────────────────
+  - match: "Sub-Total"
+    match_type: prefix
+    category: SUBTOTAL
+    flow_type: OTHER
+    include_in_net: false
+    is_subtotal: true
+    confidence: 1.0
+
+  # ── 2. 源生未分类行：保留并计入净现金流（§5.2 规则 7） ─────────────
+  - match: "Unclassified"
+    match_type: prefix
+    category: UNCLASSIFIED
+    flow_type: UNCLASSIFIED
+    include_in_net: true
+    confidence: 0.1
+
+  # ── 3. 退税 / IRS 现金返还（先于 Taxes 泛匹配） ────────────────────
+  - match: "Refund|Economic Impact Payment|Advanced Child Tax Credit"
+    match_type: regex
+    category: REFUND
+    flow_type: REFUND
+    include_in_net: true
+    confidence: 0.95
+
+  # ── 4. 公共债务（现金口径；与 IIIA/IIIB 交叉校验，不重复剔除） ─────
+  - match: "Public Debt"
+    match_type: prefix
+    transaction_type: Deposits
+    category: DEBT_ISSUANCE
+    flow_type: DEBT_ISSUANCE
+    include_in_net: true
+    confidence: 0.95
+  - match: "Public Debt"
+    match_type: prefix
+    transaction_type: Withdrawals
+    category: DEBT_REDEMPTION
+    flow_type: DEBT_REDEMPTION
+    include_in_net: true
+    confidence: 0.95
+
+  # ── 5. 利息（付息日历对应组件） ───────────────────────────────────
+  - match: "Interest"
+    match_type: prefix
+    category: INTEREST
+    flow_type: INTEREST
+    include_in_net: true
+    confidence: 0.95
+
+  # ── 6. 税收（先于 BENEFIT 的 Unemployment 泛匹配） ─────────────────
+  - match: "Taxes - Withheld Individual/FICA"
+    match_type: prefix
+    category: TAX
+    flow_type: TAX
+    subcategory: withheld_individual
+    include_in_net: true
+    confidence: 0.95
+  - match: "Taxes - Non Withheld Ind/SECA|Individual Income and Employment Taxes"
+    match_type: regex
+    category: TAX
+    flow_type: TAX
+    subcategory: nonwithheld_seca
+    include_in_net: true
+    confidence: 0.95
+  - match: "Taxes - Corporate Income"
+    match_type: prefix
+    category: TAX
+    flow_type: TAX
+    subcategory: corporate
+    include_in_net: true
+    confidence: 0.95
+  - match: "Unemployment|FUTA"
+    match_type: regex
+    category: TAX
+    flow_type: TAX
+    subcategory: unemployment
+    include_in_net: true
+    confidence: 0.9
+  - match: "Customs|Excise"
+    match_type: regex
+    category: TAX
+    flow_type: TAX
+    subcategory: customs_excise
+    include_in_net: true
+    confidence: 0.9
+  - match: "Estate and Gift|Estate, Gift"
+    match_type: regex
+    category: TAX
+    flow_type: TAX
+    subcategory: estate_gift
+    include_in_net: true
+    confidence: 0.9
+  - match: "FTD"
+    match_type: contains
+    category: TAX
+    flow_type: TAX
+    subcategory: federal_tax_deposits
+    include_in_net: true
+    confidence: 0.9
+  - match: "Taxes - Railroad Retirement"
+    match_type: prefix
+    category: TAX
+    flow_type: TAX
+    subcategory: railroad_retirement
+    include_in_net: true
+    confidence: 0.9
+  - match: "Taxes"
+    match_type: prefix
+    category: TAX
+    flow_type: TAX
+    subcategory: other
+    include_in_net: true
+    confidence: 0.85
+
+  # ── 7. 福利支出（社保/医保/医助/退伍/退休/营养援助） ───────────────
+  - match: "Supplemental Security Income"
+    match_type: contains
+    category: BENEFIT
+    flow_type: BENEFIT
+    subcategory: ssi
+    include_in_net: true
+    confidence: 0.95
+  - match: "Social Security|^SSA -"
+    match_type: regex
+    category: BENEFIT
+    flow_type: BENEFIT
+    subcategory: social_security
+    include_in_net: true
+    confidence: 0.95
+  - match: "Medicare"
+    match_type: contains
+    category: BENEFIT
+    flow_type: BENEFIT
+    subcategory: medicare
+    include_in_net: true
+    confidence: 0.95
+  - match: "Medicaid"
+    match_type: contains
+    category: BENEFIT
+    flow_type: BENEFIT
+    subcategory: medicaid
+    include_in_net: true
+    confidence: 0.95
+  - match: "Veterans|^VA |^VA -"
+    match_type: regex
+    category: BENEFIT
+    flow_type: BENEFIT
+    subcategory: veterans
+    include_in_net: true
+    confidence: 0.9
+  - match: "SNAP|Food Stamps|Nutrition|Needy Families|TANF"
+    match_type: regex
+    category: BENEFIT
+    flow_type: BENEFIT
+    subcategory: nutrition_tanf
+    include_in_net: true
+    confidence: 0.9
+  - match: "Unemployment|Lost Wage"
+    match_type: regex
+    category: BENEFIT
+    flow_type: BENEFIT
+    subcategory: unemployment_benefits
+    include_in_net: true
+    confidence: 0.9
+  - match: "Retirement|Pension|Thrift Savings|Federal Employee Insurance|Federal Employees Insurance"
+    match_type: regex
+    category: BENEFIT
+    flow_type: BENEFIT
+    subcategory: retirement_insurance
+    include_in_net: true
+    confidence: 0.85
+  - match: "RRB - Benefit|Benefit Payments"
+    match_type: regex
+    category: BENEFIT
+    flow_type: BENEFIT
+    subcategory: other_benefits
+    include_in_net: true
+    confidence: 0.85
+  - match: "^HHS -|^Health and Human Services"
+    match_type: regex
+    category: BENEFIT
+    flow_type: BENEFIT
+    subcategory: hhs_grants
+    include_in_net: true
+    confidence: 0.85
+
+  # ── 8. 其他/运行（杂项机构、薪酬、供应商、转移） ──────────────────
+  - match: "Transfers from Depositaries|Transfers to Depositaries|Transfers from Federal Reserve Account|Transfers to Federal Reserve Account"
+    match_type: regex
+    category: OTHER
+    flow_type: OPERATING
+    subcategory: depositary_transfers
+    include_in_net: true
+    confidence: 0.9
+  - match: "Change in Balance of Uncollected Funds"
+    match_type: prefix
+    category: OTHER
+    flow_type: OPERATING
+    subcategory: uncollected_funds
+    include_in_net: true
+    confidence: 0.8
+  - match: "Federal Reserve Earnings"
+    match_type: prefix
+    category: OTHER
+    flow_type: OPERATING
+    subcategory: federal_reserve_earnings
+    include_in_net: true
+    confidence: 0.95
+  - match: "Federal Salaries"
+    match_type: prefix
+    category: OTHER
+    flow_type: OPERATING
+    subcategory: federal_salaries
+    include_in_net: true
+    confidence: 0.95
+  - match: "Defense Vendor|DoD - Military Active Duty"
+    match_type: regex
+    category: OTHER
+    flow_type: OPERATING
+    subcategory: defense_pay
+    include_in_net: true
+    confidence: 0.9
+  - match: "Coronavirus Relief|Emergency Rental|Airline Worker|Air Carrier Worker|ESF - Economic Recovery"
+    match_type: regex
+    category: OTHER
+    flow_type: OPERATING
+    subcategory: pandemic_relief
+    include_in_net: true
+    confidence: 0.85
+  - match: "Other Deposits|Other Withdrawals"
+    match_type: regex
+    category: OTHER
+    flow_type: OPERATING
+    subcategory: other
+    include_in_net: true
+    confidence: 0.5
+
+  # ── 机构杂项兜底：语义上属于 §6.7 Other Outlays / Other Deposits 组件，
+  #    为"已识别但不单列"的机构收支，非未识别流（UNCLASSIFIED 仅源生行）。
+  - match: ".*"
+    match_type: regex
+    transaction_type: Deposits
+    category: OTHER
+    flow_type: OPERATING
+    subcategory: agency_misc
+    include_in_net: true
+    confidence: 0.5
+  - match: ".*"
+    match_type: regex
+    transaction_type: Withdrawals
+    category: OTHER
+    flow_type: OPERATING
+    subcategory: agency_misc
+    include_in_net: true
+    confidence: 0.5
+
+  # ── 未命中：UNCLASSIFIED（保留原值、计入净现金流、不丢弃） ─────────
+unmatched:
+  category: UNCLASSIFIED
+  flow_type: UNCLASSIFIED
+  include_in_net: true
+  is_subtotal: false
+  confidence: 0.1

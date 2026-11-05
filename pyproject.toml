@@ -20,6 +20,7 @@ dependencies = [
     "polars>=1.0",                # 批量
     "structlog>=24.1",            # 结构化日志（实施基线）
     "rich>=15,<16",               # 终端渲染（日志/表格/进度统一入口）
+    "pyyaml>=6,<7",               # TGA taxonomy/calendar YAML 配置（TGA §10.2）
 ]
 
 [project.optional-dependencies]

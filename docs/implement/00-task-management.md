@@ -50,7 +50,7 @@ READY → DISPATCHED → IN_PROGRESS → IN_REVIEW → DONE
 
 ## 5. 派发规则
 
-1. 顺序：D10 §10 拓扑序（L0→L6）；同层任务可并行派发（file_ownership 无交集）
+1. 顺序：D10 §11 拓扑序（L0→L6）；同层任务可并行派发（file_ownership 无交集）
 2. Agent 输入自足性：任务单 + design_refs 所引章节 + D01 公共约定 = 全部所需；Agent 不得依赖未派发任务的实现
 3. Agent 边界：严守 D10 §0.2（可决定 How 5 类 / 不可决定 What 9 类）；发现 Contract 问题 → 停止实现并报告，禁止自行改契约
 4. 并行约束：并行任务不得修改同一文件（台账登记 ownership，冲突即驳回）；一律不执行 git

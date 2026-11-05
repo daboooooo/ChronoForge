@@ -238,5 +238,88 @@
         "unit": "Index 1990-01=100",
         "desc": "VIX指数(1月波动率预期)", "role": "市场波动率预期",
         "comment": "VIX指数是1月波动率的预期，用于衡量市场风险"
+    },
+
+    "PCEPI": {
+        "id": "PCEPI", "freq": "monthly", "data_type": "index",
+        "unit": "Index 2017=100",
+        "desc": "PCE价格指数(季调, 个人消费支出链型价格指数)",
+        "role": "总体通胀衡量(BEA首选)",
+        "comment": "美联储货币政策决策首选通胀指标。BEA发布，覆盖消费支出全篮子，包括住房和医疗。官方起始1959-01"
+    },
+    "PCEPILFE": {
+        "id": "PCEPILFE", "freq": "monthly", "data_type": "index",
+        "unit": "Index 2017=100",
+        "desc": "核心PCE价格指数(季调, 剔除食品和能源)",
+        "role": "核心通胀趋势(美联储更关注)",
+        "comment": "美联储更关注的核心通胀指标，剔除波动大的食品和能源。官方起始1959-01"
+    },
+    "GDPDEF": {
+        "id": "GDPDEF", "freq": "quarterly", "data_type": "index",
+        "unit": "Index 2017=100",
+        "desc": "GDP价格平减指数(季调)",
+        "role": "总体经济价格水平",
+        "comment": "覆盖整个经济的价格平减指数，包含政府支出、投资等，比 CPI/PCE 范围更广。官方起始1947-Q1"
+    },
+    "T5YIE": {
+        "id": "T5YIE", "freq": "daily", "data_type": "rate", "unit": "%",
+        "desc": "5年期盈亏平衡通胀率(5-Year Breakeven Inflation Rate)",
+        "role": "中期市场通胀预期",
+        "comment": "5年期名义国债收益率 - 5年期TIPS实际收益率。反映市场对未来5年平均通胀的预期。官方起始2003-01-02"
+    },
+    "MICH": {
+        "id": "MICH", "freq": "monthly", "data_type": "index",
+        "unit": "Index 1966-01=100",
+        "desc": "密歇根大学消费者信心指数(长期通胀预期, 5-10年)",
+        "role": "消费者长期通胀预期",
+        "comment": "密歇根大学消费者调查中，对未来5-10年通胀的预期中位数。反映消费者通胀预期是否锚定。官方起始1979-01"
+    },
+
+    "UNRATE": {
+        "id": "UNRATE", "freq": "monthly", "data_type": "rate", "unit": "%",
+        "desc": "失业率(季调)", "role": "核心就业指标",
+        "comment": "BLS家庭调查发布。失业率 = 失业人数 / 劳动力人数。官方起始1948-01"
+    },
+    "PAYEMS": {
+        "id": "PAYEMS", "freq": "monthly", "data_type": "index", "unit": "千人",
+        "desc": "非农就业人数(季调, 私营+政府)",
+        "role": "就业总量基准(BLS机构调查)",
+        "comment": "BLS机构调查发布的非农就业总人数。美国最重要的月度经济指标之一。官方起始1939-01"
+    },
+    "CIVPART": {
+        "id": "CIVPART", "freq": "monthly", "data_type": "rate", "unit": "%",
+        "desc": "劳动参与率(季调, 民用非机构人口)",
+        "role": "劳动力供给变化",
+        "comment": "劳动参与率 = (就业+失业) / 民用非机构人口。反映劳动力供给变化，2000年后长期下行。官方起始1948-01"
+    },
+    "EMRATIO": {
+        "id": "EMRATIO", "freq": "monthly", "data_type": "rate", "unit": "%",
+        "desc": "就业人口比(季调)",
+        "role": "劳动人口就业比例",
+        "comment": "就业人口比 = 就业人数 / 民用非机构人口。比失业率更稳定反映就业实际情况。官方起始1948-01"
+    },
+    "ICSA": {
+        "id": "ICSA", "freq": "weekly", "data_type": "index", "unit": "人",
+        "desc": "初次申请失业救济人数(季调, 周度)",
+        "role": "裁员趋势领先指标",
+        "comment": "DOL周度发布。初次申请失业救济人数，反映近期裁员规模。官方起始1967-01"
+    },
+    "CCSA": {
+        "id": "CCSA", "freq": "weekly", "data_type": "index", "unit": "人",
+        "desc": "持续申请失业救济人数(季调, 周度)",
+        "role": "失业再就业难度",
+        "comment": "DOL周度发布。持续领取失业救济人数，反映失业人员再就业难度。官方起始1967-01"
+    },
+    "JTS1000JOL": {
+        "id": "JTS1000JOL", "freq": "monthly", "data_type": "index", "unit": "千人",
+        "desc": "JOLTS职位空缺数(季调, 全部私有+政府)",
+        "role": "劳动力需求指标",
+        "comment": "BLS JOLTS调查发布。职位空缺数 / 失业率 = 贝弗里奇曲线位置。官方起始2000-12"
+    },
+    "CES0500000003": {
+        "id": "CES0500000003", "freq": "monthly", "data_type": "rate", "unit": "$/小时",
+        "desc": "平均时薪(全部私营部门, 季调)",
+        "role": "工资增长压力",
+        "comment": "BLS机构调查发布。私营部门平均时薪，观察工资通胀压力。官方起始1964-01"
     }
 }

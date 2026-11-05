@@ -323,10 +323,10 @@ class TestRegistryCommands:
         for _ in range(2):
             result = runner.invoke(app, ["registry", "sync"])
             assert result.exit_code == 0, result.output
-            assert "11 sources" in result.output
+            assert "13 sources" in result.output
         assert meta.connection.execute(
             "SELECT COUNT(*) FROM source_registry"
-        ).fetchone()[0] == 11
+        ).fetchone()[0] == 13
 
     def test_sync_restores_edited_row(
         self, cli_env: dict[str, Path], meta: MetaStore
@@ -351,6 +351,7 @@ class TestRegistryCommands:
             "binance_spot", "binance_futures", "deribit", "ccxt",
             "yahoo", "fred", "sec_edgar", "sosovalue",
             "alternative", "coinmetrics", "coinmarketcap",
+            "treasury_fiscal", "treasury_refunding",
         }
         fred = next(r for r in rows if r["source_id"] == "fred")
         assert fred["access_type"] == "PUBLIC_WITH_KEY"

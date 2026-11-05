@@ -2,6 +2,8 @@
 
 依据：架构 03。本文件字段级定义全部 Canonical Type，实施者据此编写 `models/`，测试者据此构造合法/非法样例。
 
+> 变更记录：2026-10-31 新增 5 个 TGA Canonical Type（D-TGA-03 / D-TGA-14），见 §2 `treasury.py`；`TREASURY_ACCOUNT_BALANCE` 身份键含 `balance_type`。
+
 ## 1. 基础结构（models/base.py）
 
 ```python
@@ -28,6 +30,11 @@ class CanonicalType(str, Enum):
     IMPLIED_VOLATILITY="IMPLIED_VOLATILITY"; GREEKS="GREEKS"
     LIQUIDATION_EVENT="LIQUIDATION_EVENT"; LIQUIDATION_AGGREGATE="LIQUIDATION_AGGREGATE"
     NUMBER="NUMBER"; FLOW="FLOW"; MACRO_EVENT="MACRO_EVENT"
+    TREASURY_ACCOUNT_BALANCE="TREASURY_ACCOUNT_BALANCE"
+    TREASURY_CASH_FLOW="TREASURY_CASH_FLOW"
+    TREASURY_DEBT_TRANSACTION="TREASURY_DEBT_TRANSACTION"
+    TREASURY_AUCTION="TREASURY_AUCTION"
+    TREASURY_ANNOUNCEMENT="TREASURY_ANNOUNCEMENT"
     FUNDAMENTAL="FUNDAMENTAL"; FILING="FILING"; DOCUMENT="DOCUMENT"
     POSITION="POSITION"; POSITION_AGGREGATE="POSITION_AGGREGATE"
     PREDICTION_MARKET="PREDICTION_MARKET"; PREDICTION_PRICE="PREDICTION_PRICE"
@@ -66,6 +73,18 @@ class CanonicalType(str, Enum):
 **NUMBER**（存量/序列指标，FRED）：source_id=series_id、observation_time、release_time、revision_time(默认=release_time)、value(float|None 可为缺失)、units、seasonal_adjustment、vintage_date。身份键 = series_id+observation_time+revision_time
 **FLOW**：同 NUMBER + period_start/period_end
 **MACRO_EVENT**：event_ref(CPI/FOMC…)、scheduled_time、actual_time、actual/forecast/previous
+
+### treasury.py（TGA 子系统，2026-10-31）
+
+**TREASURY_ACCOUNT_BALANCE**：observation_time、account_type_raw、balance_type(`OPENING|CLOSING|TOTAL_DEPOSITS|TOTAL_WITHDRAWALS`)、amount_usd_millions、original_value、original_unit、is_tga、source_table(`I`)、src_line_nbr、release_time、release_time_source(`OBSERVED|ESTIMATED`)。身份键 = source_id+observation_time+source_table+account_type_raw+src_line_nbr+balance_type。历史单行（≤2022-04-15）同一源行拆 OPENING/CLOSING 两条；`Federal Reserve Account` 为 2021-09-30 前的 TGA 行名。
+
+**TREASURY_CASH_FLOW**：observation_time、account_type_raw、transaction_type_raw、source_table(`II|IV|V`)、raw_category、raw_category_desc、category、subcategory、flow_type(`TAX|DEBT_ISSUANCE|DEBT_REDEMPTION|INTEREST|BENEFIT|OPERATING|REFUND|INTERNAL|OTHER|UNCLASSIFIED`)、direction(`INFLOW|OUTFLOW|INTERNAL|UNKNOWN`)、amount_usd_millions、original_value、original_unit、is_internal_transfer、is_duplicate_candidate、is_subtotal、include_in_net、classification_confidence(0–1)、taxonomy_version、src_line_nbr、release_time、release_time_source。身份键 = source_id+observation_time+source_table+transaction_type_raw+raw_category+src_line_nbr。
+
+**TREASURY_DEBT_TRANSACTION**：observation_time、source_table(`IIIA|IIIB`)、transaction_type_raw(`Issues|Redemptions`)、security_market、security_type、security_type_desc、adjustment_type、amount_basis(`FACE|CASH_ADJUSTMENT`)、amount_usd_millions、original_value、original_unit、is_marketable、is_internal、src_line_nbr、release_time、release_time_source。身份键 = source_id+observation_time+source_table+transaction_type_raw+security_market+security_type+security_type_desc+adjustment_type+src_line_nbr。
+
+**TREASURY_AUCTION**：auction_key(`cusip:auction_date:data_status`；无 cusip 用 `type:term:auction_date:data_status`)、cusip、security_type、security_term、announcement_date、auction_date、issue_date、maturity_date、offering_amount_usd_millions、total_accepted_usd_millions、total_tendered_usd_millions、interest_rate、high_yield、price_per_100、interest_payment_frequency、is_reopening、is_cmb、is_tips、is_frn、currently_outstanding_usd_millions、data_status(`ANNOUNCED|RESULT`)、release_time、release_time_source。身份键 = source_id+auction_key。ANNOUNCED 与 RESULT 是两条不同身份，不是 revision。
+
+**TREASURY_ANNOUNCEMENT**：publication_time、document_type(`REFUNDING_STATEMENT|BORROWING_ESTIMATE|FINANCING_REQUIREMENT|CASH_BALANCE_ASSUMPTION|TBAC|OTHER`)、forecast_period_start/end、security_type、maturity_bucket、borrowing_estimate_usd_millions、cash_balance_assumption_usd_millions、financing_requirement_usd_millions、source_url、extraction_method(`HTML_TABLE|PDF_TEXT|MANUAL`)、extraction_confidence(0–1)、revision_time、release_time、release_time_source。身份键 = source_id+publication_time+document_type+forecast_period_start+forecast_period_end+security_type+maturity_bucket+revision_time（revision 类）。
 
 ### fundamental.py
 
@@ -111,6 +130,9 @@ class CanonicalType(str, Enum):
 | OHLCV/TRADE/TICKER/FUNDING/OI/ORDERBOOK/LIQ.* | ● | | | | ● |
 | OPTION/IV/GREEKS | ● | | | | ● |
 | NUMBER/FLOW | | ● | ● | ● | ● |
+| TREASURY_ACCOUNT_BALANCE / CASH_FLOW / DEBT_TRANSACTION | | ● | ● | | ● |
+| TREASURY_AUCTION | ●(auction_date) | | ● | | ● |
+| TREASURY_ANNOUNCEMENT | ●(publication_time) | | ● | ● | ● |
 | MACRO_EVENT | ●(scheduled) | | actual_time | | ● |
 | FILING | | ●(period end) | ●(filing_date) | | ● |
 | POSITION | | ●(report_date) | ● | ● | ● |

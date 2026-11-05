@@ -189,14 +189,15 @@ def _make_position(
 class TestArchitecture:
     """规则注册表架构测试。"""
 
-    def test_all_17_rules_registered(self):
-        """所有 17 条规则已注册。"""
+    def test_all_rules_registered(self):
+        """所有规则已注册（17 条通用 + 5 条 TGA）。"""
         rule_ids = {r.rule_id for r in get_all_rules()}
         expected = {
             "Q-DRIFT-001", "Q-SCHEMA-001", "Q-PROV-001", "Q-NULL-001",
             "Q-TS-001", "Q-TS-002", "Q-TS-003", "Q-DUP-001", "Q-SEQ-001",
             "Q-RANGE-001", "Q-RANGE-002", "Q-RANGE-003", "Q-GAP-001",
             "Q-GAP-002", "Q-OHLC-001", "Q-CROSS-001", "Q-REV-001",
+            "Q-TGA-001", "Q-TGA-002", "Q-TGA-007", "Q-TGA-008", "Q-TGA-009",
         }
         assert rule_ids == expected
 
@@ -1008,3 +1009,49 @@ class TestReportJsonSchema:
         report = QualityReport(findings=[finding], rule_id="Q-SCHEMA-001")
         data = json.loads(report.to_json())
         assert data["rule_id"] == "Q-SCHEMA-001"
+
+
+# ── Q-TGA-009（拍卖结果缺失）──────────────────────────────────────────────
+
+
+def _auction_record(**overrides) -> dict:
+    base = {
+        "source_id": "912797VA2",
+        "auction_key": "912797VA2:2024-01-10:ANNOUNCED",
+        "issue_date": date(2024, 1, 16),
+        "auction_date": date(2024, 1, 10),
+        "data_status": "ANNOUNCED",
+        "total_accepted_usd_millions": None,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_q_tga_009_flags_past_auction_without_result() -> None:
+    rule = get_rule("Q-TGA-009")
+    assert rule is not None
+    findings = rule.check(
+        [_auction_record()], CanonicalType.TREASURY_AUCTION
+    )
+    assert len(findings) == 1
+    assert findings[0].rule_id == "Q-TGA-009"
+    assert findings[0].severity == "WARNING"
+
+
+def test_q_tga_009_ignores_future_auction_or_complete_result() -> None:
+    rule = get_rule("Q-TGA-009")
+    assert rule is not None
+    future = _auction_record(
+        auction_key="912797VA2:2099-01-10:ANNOUNCED",
+        auction_date=date(2099, 1, 10),
+        issue_date=date(2099, 1, 16),
+    )
+    complete = _auction_record(
+        auction_key="912797VA2:2024-01-10:RESULT",
+        data_status="RESULT",
+        total_accepted_usd_millions=95_000.0,
+    )
+    findings = rule.check(
+        [future, complete], CanonicalType.TREASURY_AUCTION
+    )
+    assert findings == []

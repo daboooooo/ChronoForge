@@ -64,13 +64,13 @@ acceptance:
   - Given NaN 价格 Then 拒绝（isfinite）
 ```
 
-### MODEL-002 27 Canonical Type schema
+### MODEL-002 27 + TGA 5 Canonical Type schema
 
 ```yaml
 task_id: MODEL-002
 title: 全部 Canonical Type 字段级 schema + natural_key()
 design_refs: [D02 §2/§4/§5]
-responsibility: 实现 27 个 Canonical Type（market/derivatives/macro/fundamental/positioning/prediction/text/reference/derived）
+responsibility: 实现 27 个基础 Canonical Type（market/derivatives/macro/fundamental/positioning/prediction/text/reference/derived）；5 个 Treasury Type 由 TGA-CONTRACT-001 扩展
 scope: [src/chronoforge/models/{market,derivatives,macro,fundamental,positioning,prediction,text,reference,derived}.py, tests/unit/test_types.py]
 non_goals: [InstrumentResolver 解析逻辑（MODEL-003）, 质量规则（VALIDATION 域）, 存储序列化]
 inputs: [{name: BaseRecord, from: MODEL-001}]
@@ -509,7 +509,27 @@ acceptance:
   - Given pytest -m "not smoke" Then 本地与 CI 结果一致（无网络依赖）
 ```
 
-## 10. 派发顺序（依赖 DAG 拓扑层，同层可并行）
+## 10. TGA 域（TGA 子系统，2026-10-31 登记）
+
+任务定义依据 `docs/strategy/TGA前瞻模型-实现方案.md` v1.2；详细任务单在派发时按 §0 模板展开，状态与 `docs/implement/01-dispatch-log.md` 同步。
+
+| task_id | title | design_refs | dependencies | file_ownership | status |
+|---|---|---|---|---|---|
+| TGA-RESEARCH-001 | Phase 0 Fiscal Data 探测 + 数据字典/fixtures | TGA 方案 §3.8/§15.3 | 无 | `scripts/tga_probe.py`、`docs/tga/`、`tests/fixtures/treasury_fiscal/` | DONE |
+| TGA-CONTRACT-001 | 5 个 Treasury Type + D02/D03 + 迁移 0005 | TGA 方案 §4.1–§4.4；D02 §2；D03 §1/§3 | TGA-RESEARCH-001 | `models/treasury.py`、`models/enums.py`、`models/identity.py`、`storage/canonical.py`、`storage/migrations/` | DONE |
+| TGA-ACQ-001 | treasury_fiscal connector（DTS/拍卖/历史分期） | TGA 方案 §3；D04 §4.12 | TGA-CONTRACT-001 | `connectors/treasury_fiscal.py`、`pipeline/windows.py`、`cli/_wiring.py`、`registry/service.py`、`config/update_schedule.py`、`scripts/register_treasury_datasets.py` | DONE |
+| TGA-ACQ-002 | treasury_refunding connector（HTML/PDF 版本化） | TGA 方案 §3.5；D04 §4.13 | TGA-ACQ-001 | `connectors/treasury_refunding.py`、`scripts/register_treasury_datasets.py` | PENDING（Phase 4） |
+| TGA-QUAL-001 | 记录级 Q-TGA-001/002/007/008/009 | TGA 方案 §9.1；D06 | TGA-CONTRACT-001 | `quality/rules.py`、`tests/unit/test_quality_rules.py` | DONE |
+| TGA-RECON-001..004 | Model 0 余额/现金台账/债务口径/残差对账 | TGA 方案 §5 | TGA-ACQ-001、TGA-QUAL-001 | `scripts/tga_common.py`、`scripts/tga_reconstruct.py` | PENDING（Phase 2） |
+| TGA-STORE-001 | ForecastStore + Derived Parquet + `meta/tga.duckdb` | TGA 方案 §4.5/§4.4 | TGA-RECON-001 | `scripts/tga_store.py` | PENDING（Phase 2） |
+| TGA-FCST-001..006 | 事件/税收/发行/到期/付息/支出/聚合预测 | TGA 方案 §6 | TGA-RECON-001、TGA-STORE-001 | `scripts/tga_forecast.py`、`scripts/tga_common.py` | PENDING（Phase 3） |
+| TGA-SCEN-001 | 三情景与组件级调整 | TGA 方案 §6.8 | TGA-FCST-001..006 | `scripts/tga_forecast.py`、`config/tga/scenarios.yaml` | PENDING（Phase 4） |
+| TGA-BT-001..003 | Walk-forward / 指标 / 误差归因 / Leak Sentinel | TGA 方案 §7 | TGA-FCST-001..006 | `scripts/tga_backtest.py`、`tests/unit/test_tga_leakage.py` | PENDING（Phase 5） |
+| TGA-OPS-001 | `tga_daily.py` 到期闸门/锁/调度接入 | TGA 方案 §10.3 | TGA-FCST、TGA-BT | `scripts/tga_daily.py`、`scripts/hourly_update.sh` | PENDING（Phase 6） |
+| TGA-REPORT-001 | 日报 Markdown/JSON + 回测报告 | TGA 方案 §8 | TGA-FCST、TGA-BT | `scripts/tga_report.py`、`reports/` | PENDING（Phase 6） |
+| TGA-EXPORT-001 | 对外流动性 JSON + schema 版本 | TGA 方案 §8.2 | TGA-REPORT-001 | `scripts/tga_export_liquidity.py` | PENDING（Phase 6） |
+
+## 11. 派发顺序（依赖 DAG 拓扑层，同层可并行）
 
 ```
 L0: MODEL-001, INFRA-001
@@ -519,6 +539,9 @@ L3: STORAGE-004, STORAGE-005, ACQUISITION-002, VALIDATION-002, DATA-SOURCE-001~0
 L4: PIPELINE-001, QUERY-001
 L5: QUERY-002, QUERY-003
 L6: CLI-001（集成联调 + architecture test 全量生效）
+TGA: TGA-RESEARCH-001 → TGA-CONTRACT-001 → TGA-ACQ-001 → TGA-QUAL-001
+     → TGA-RECON-001..004 → TGA-STORE-001 → TGA-FCST-001..006
+     → TGA-SCEN-001 / TGA-BT-001..003 → TGA-OPS/REPORT/EXPORT-001
 ```
 
 接手测试（review spec §C 判断标准）：任一任务单的 Agent 中途停止，另一 Agent 可凭该单 + design_refs 所引文档 + 已有契约测试无缝接管。
