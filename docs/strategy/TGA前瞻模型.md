@@ -8,6 +8,15 @@
 **预测周期：** 7天、14天、30天、60天、90天  
 **开发原则：** 官方数据优先、现金流可解释、预测结果可回测、数据来源可追溯。
 
+> **定位变更（2026-11-05，对应实现方案 v1.6）**：本文档是原始需求/概念规范，落地口径以
+> [`docs/strategy/TGA前瞻模型-实现方案.md`](TGA前瞻模型-实现方案.md) 为准。模型定位已由"点位预测"调整为
+> **情景与事件解释**——T+7～T+90 数值是**情景锚点 / 条件路径**，不是点位预测，也不是置信区间。
+> 目标：解释余额由哪些事件驱动、在各情景假设下走向哪条路径、什么触发条件会换挡。
+> 非目标：不给出到期日点位、不输出情景概率、不自动判定当前情景。
+> 使用边界：样本外证据显示主模型不优于 Naive（0.4.0 重跑全档显著更差），不用于交易决策或流动性择时。
+> 机器可读产物带 `output_type=scenario` / `usage=scenario_anchor` / `confidence=exploratory` / `drivers`，
+> 下游必须检查 `output_type`，不得按点位预测消费。
+
 ---
 
 # 第一章 项目目标
@@ -1691,13 +1700,16 @@ TGA_Forecast_YYYY-MM-DD.md
 
 但是必须为后续美元流动性模型提供标准化接口。
 
-建议输出：
+建议输出（`tga_predicted` / `tga_lower` / `tga_upper` 为情景锚点与情景带，不是点位预测或置信区间；下游按 `output_type` 判断消费方式）：
 
 ```json
 {
   "forecast_date": "YYYY-MM-DD",
   "data_cutoff_date": "YYYY-MM-DD",
-  "model_version": "1.0.0",
+  "model_version": "tga-forecast-0.4.0",
+  "output_type": "scenario",
+  "usage": "scenario_anchor",
+  "confidence": "exploratory",
   "scenario": "base",
   "forecast": [
     {
@@ -1705,7 +1717,8 @@ TGA_Forecast_YYYY-MM-DD.md
       "tga_predicted": 0,
       "tga_lower": 0,
       "tga_upper": 0,
-      "daily_net_cashflow": 0
+      "daily_net_cashflow": 0,
+      "drivers": "DEBT_ISSUANCE|TAX|BENEFIT"
     }
   ]
 }

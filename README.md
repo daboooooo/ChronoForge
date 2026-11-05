@@ -78,10 +78,10 @@ HTTPS_PROXY=http://127.0.0.1:7897 chronoforge pipeline run --dataset btcusdt-ohl
 
 ```bash
 chronoforge registry sync
-# Output: source_registry bootstrapped: 11 sources
+# Output: source_registry bootstrapped: 13 sources
 ```
 
-This populates `source_registry` in the SQLite metadata store with 11 pre-configured sources:
+This populates `source_registry` in the SQLite metadata store with 13 pre-configured sources:
 
 | source_id | Access Type | Description |
 |-----------|-------------|-------------|
@@ -96,6 +96,8 @@ This populates `source_registry` in the SQLite metadata store with 11 pre-config
 | `alternative` | PUBLIC | Alternative.me Fear & Greed Index |
 | `coinmetrics` | PUBLIC | Coin Metrics community asset-metrics (key optional) |
 | `coinmarketcap` | PUBLIC | CoinMarketCap global metrics (BTC dominance, market caps) |
+| `treasury_fiscal` | PUBLIC | U.S. Treasury Fiscal Data API (DTS, auctions, MTS) |
+| `treasury_refunding` | PUBLIC | U.S. Treasury Quarterly Refunding announcements |
 
 ### Step 2: Register Datasets
 
@@ -504,6 +506,7 @@ chronoforge pipeline run --dataset btcusdt-ohlcv-1h --mode incremental
 │                    Data Sources                          │
 │  Binance │ Deribit │ CCXT │ Yahoo │ FRED │ SEC EDGAR      │
 │  SoSoValue │ Alternative │ Coin Metrics │ CoinMarketCap    │
+│  U.S. Treasury (Fiscal Data / Quarterly Refunding)        │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -515,13 +518,14 @@ chronoforge pipeline run --dataset btcusdt-ohlcv-1h --mode incremental
 | **Canonical** | Parquet (partitioned by `year`/`month`, hive partitioning) | Normalized, typed, queryable data |
 | **Meta** | SQLite (`meta_dir/`) | Registry, run logs, checkpoints, quality flags |
 
-**Canonical type system** — 27 types across 7 asset classes:
+**Canonical type system** — 32 types (9 groups):
 
 | Class | Types |
 |-------|-------|
 | **Market Data** | OHLCV, TRADE, TICKER, ORDERBOOK, FUNDING, OPEN_INTEREST |
 | **Derivatives** | OPTION, IMPLIED_VOLATILITY, GREEKS, LIQUIDATION_EVENT, LIQUIDATION_AGGREGATE |
 | **Macro** | NUMBER, FLOW, MACRO_EVENT |
+| **Treasury (TGA)** | TREASURY_ACCOUNT_BALANCE, TREASURY_CASH_FLOW, TREASURY_DEBT_TRANSACTION, TREASURY_AUCTION, TREASURY_ANNOUNCEMENT |
 | **Fundamental** | FUNDAMENTAL, FILING, DOCUMENT |
 | **Positioning** | POSITION, POSITION_AGGREGATE |
 | **Prediction Markets** | PREDICTION_MARKET, PREDICTION_PRICE |
@@ -574,13 +578,23 @@ cp .env.example .env
 | `CHRONOFORGE_DATA_DIR` | `./data` | Raw/Canonical/Derived data root |
 | `CHRONOFORGE_META_DIR` | `./meta` | SQLite metadata directory |
 | `CHRONOFORGE_LOG_LEVEL` | `INFO` | Log level (DEBUG/INFO/WARNING/ERROR) |
+| `CHRONOFORGE_LOG_FORMAT` | `auto` | Log render profile (`auto`/`rich`/`json`/`test`; auto = rich on TTY, JSON when piped) |
+| `CHRONOFORGE_LOG_FILE` | *(empty)* | JSONL rotating log file; empty = terminal only |
 | `CHRONOFORGE_HTTP_TIMEOUT` | `30` | HTTP timeout in seconds |
 | `CHRONOFORGE_RETRY_MAX` | `5` | Max retry attempts (exponential backoff) |
+| `CHRONOFORGE_CIRCUIT_COOLDOWN_S` | `1800` | Circuit-breaker cooldown before a half-open probe run |
 | `CHRONOFORGE_QUALITY_BLOCK` | `Q-SCHEMA-001,Q-PROV-001` | Quality rules that block ingestion |
+| `CHRONOFORGE_NORMALIZE_ERROR_THRESHOLD` | `0.10` | Normalize error-rate threshold |
+| `CHRONOFORGE_QUERY_MAX_ROWS` | `200000` | Default query row limit (hard cap on `query()`) |
+| `CHRONOFORGE_OHLCV_CHUNK_BARS` | `200` | Target bars per OHLCV chunk for long intervals |
+| `CHRONOFORGE_VERSION` | `0.1.0` | Version embedded in logs / SEC User-Agent |
+| `CHRONOFORGE_RATE_OVERRIDES` | `{}` | JSON rate-limiter overrides (test injection) |
 | `FRED_API_KEY` | *(empty)* | FRED API key (required for `fred` source) |
 | `SOSOVALUE_API_KEY` | *(empty)* | SoSoValue API key (required for `sosovalue` source) |
 | `COINMETRICS_API_KEY` | *(empty)* | Coin Metrics API key (optional — community tier is keyless; needed for paid-only metrics) |
-| `CHRONOFORGE_SEC_CONTACT` | *(empty)* | SEC EDGAR contact email |
+| `CHRONOFORGE_SEC_CONTACT` | *(required)* | SEC EDGAR contact email (missing → `ConfigError`) |
+| `CCXT_BINANCE_API_KEY` / `_SECRET` | *(empty)* | CCXT Binance credentials (optional) |
+| `CCXT_OKX_API_KEY` / `_SECRET` / `_PASSPHRASE` | *(empty)* | CCXT OKX credentials (optional) |
 | `HTTPS_PROXY` | *(empty)* | HTTP proxy for API access (e.g., ClashVerge on port 7897) |
 
 > The `alternative` and `coinmarketcap` sources need **no key** — the public endpoints used
@@ -691,13 +705,16 @@ chronoforge/
 │   │   ├── sosovalue.py        # US spot-crypto ETF flows
 │   │   ├── alternative.py      # Fear & Greed Index
 │   │   ├── coinmetrics.py      # On-chain / supply asset metrics
-│   │   └── coinmarketcap.py    # Global metrics (BTC dominance, market cap)
+│   │   ├── coinmarketcap.py    # Global metrics (BTC dominance, market cap)
+│   │   ├── treasury_fiscal.py  # U.S. Treasury Fiscal Data (DTS/auctions/MTS)
+│   │   └── treasury_refunding.py  # Quarterly Refunding announcements
 │   ├── models/                 # Canonical data models
 │   │   ├── base.py             # BaseRecord (schema + provenance + quality)
-│   │   ├── enums.py            # CanonicalType enum (27 types)
+│   │   ├── enums.py            # CanonicalType enum (32 types)
 │   │   ├── market.py           # OHLCV, TRADE, TICKER, etc.
 │   │   ├── derivatives.py
 │   │   ├── macro.py
+│   │   ├── treasury.py         # Treasury (TGA) canonical types
 │   │   └── ...
 │   ├── storage/                # Storage layer
 │   │   ├── meta.py             # MetaStore (SQLite: registry, run_log, checkpoints)

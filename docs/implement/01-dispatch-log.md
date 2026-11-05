@@ -55,12 +55,13 @@
 | READY-005 | L6 | open_query_service 并发窗口消除（SR-16） | DONE | 2026-09-21 | 2026-09-22 | [tasks/READY-005.md](tasks/READY-005.md) |
 | TGA-RESEARCH-001 | TGA | Fiscal Data Phase 0 探测/数据字典/fixtures | DONE | 2026-10-31 | 2026-10-31 | 补登记（D10 §10；无独立任务单） |
 | TGA-CONTRACT-001 | TGA | 5 个 Treasury Type + 迁移 0005 + D02/D03 | DONE | 2026-10-31 | 2026-10-31 | 补登记（D10 §10） |
-| TGA-ACQ-001 | TGA | treasury_fiscal connector/窗口/接线/注册脚本 | DONE（8 数据集已注册，回填待执行） | 2026-10-31 | 2026-10-31 | 补登记（D10 §10） |
+| TGA-ACQ-001 | TGA | treasury_fiscal connector/窗口/接线/注册脚本 | DONE（8 数据集已注册；历史回填完成 2026-11-01） | 2026-10-31 | 2026-11-01 | 补登记（D10 §10）；实现方案 v1.3 |
 | TGA-QUAL-001 | TGA | Q-TGA-001/002/007/008/009 | DONE | 2026-10-31 | 2026-10-31 | 补登记（D10 §10） |
-| TGA-ACQ-002 | TGA | treasury_refunding connector | PENDING | — | — | 计划 Phase 4 |
-| TGA-RECON-001..004 | TGA | Model 0 重建/对账 | PENDING | — | — | 计划 Phase 2 |
-| TGA-STORE-001 | TGA | ForecastStore + `meta/tga.duckdb` | PENDING | — | — | 计划 Phase 2 |
-| TGA-FCST-001..006 / TGA-SCEN-001 / TGA-BT-001..003 / TGA-OPS/REPORT/EXPORT-001 | TGA | 预测/情景/回测/自动化/报告/导出 | PENDING | — | — | 计划 Phase 3–6 |
+| TGA-ACQ-002 | TGA | treasury_refunding connector | DONE（connector + `_wiring` + 窗口 + 注册脚本已落地；公告历史归档为 P0 限制） | 2026-11-05 | 2026-11-05 | 代码核实：`connectors/treasury_refunding.py`、`cli/_wiring.py` |
+| TGA-RECON-001..004 | TGA | Model 0 重建/对账 | DONE（`scripts/tga_reconstruct.py`；7/8 验收 PASS，#3 见报告） | 2026-11-05 | 2026-11-05 | 实现方案 v1.4 |
+| TGA-STORE-001 | TGA | ForecastStore + `meta/tga.duckdb` | DONE（`scripts/tga_store.py` 含 ForecastStore/BacktestStore；迁移 0005） | 2026-11-05 | 2026-11-05 | 实现方案 v1.5 |
+| TGA-FCST-001..006 / TGA-SCEN-001 / TGA-BT-001..003 / TGA-REPORT-001 | TGA | 预测/情景/回测/报告 | DONE（`scripts/tga_forecast.py`、`tga_backtest.py`、`tga_report.py`） | 2026-11-05 | 2026-11-05 | 0.4.0 重跑 SUCCESS |
+| TGA-OPS-001 / EXPORT-001 | TGA | 每日自动化 / 流动性导出 | PENDING（`scripts/tga_daily.py`、`export_liquidity.py` 尚未落地） | — | — | 计划 Phase 6 |
 
 ## 2. 派发事件流水
 

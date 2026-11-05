@@ -1,7 +1,7 @@
 # 完整审计报告 — 文档 / 实现代码 / 测试代码
 
 - **日期**: 2026-09-19
-- **审计依据**: `docs/编码钱最终整体审计审计要求.md`(§ 编号均指该文档)
+- **审计依据**: `docs/编码前最终整体审计要求.md`(§ 编号均指该文档)
 - **审计对象**: docs/(architecture + design D01–D10)、src/chronoforge(已实现 L0–L3 全部任务)、tests/
 - **审计方法**: 源码逐文件精读(存储层/pipeline/connectors 基础设施/security)+ 3 个并行子审计(测试覆盖、文档一致性、quality/connectors 逐源抽查)+ 实测基线(pytest/ruff/mypy)
 

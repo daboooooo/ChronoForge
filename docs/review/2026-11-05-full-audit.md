@@ -6,7 +6,7 @@
 | 审计对象 | `/Users/horsenli/Works/ChronoForge`（Python 3.12，uv + polars + DuckDB + Parquet） |
 | 审计范围 | `src/chronoforge`（82 文件 / 23,026 行）、`scripts`（26 文件 / 12,848 行）、`tests`（69 文件 / 31,552 行 / 71 fixtures）、`docs`（94 篇 / 24,702 行）、`config/`、README、git 工作区 |
 | 审计性质 | 只读审计（除本报告外未修改任何源码/文档/配置） |
-| 最终判定 | **NOT READY**（现存 CRITICAL 0；C1/C2/C3/A-1/TGA-1/B-1 已修复；G-1/C-3 已于 2026-11-05 关闭；G7 与 G3/G5 仍未通过） |
+| 最终判定 | **NOT READY**（现存 CRITICAL 0；C1/C2/C3/A-1/TGA-1/B-1 已修复；G-1/C-3/D 类已于 2026-11-05 关闭，G6/G7 通过；G3/G5 仍为部分通过） |
 
 ---
 
@@ -27,9 +27,9 @@
 | 级别 | 数量 | 编号 |
 |---|---|---|
 | CRITICAL | **6**（现存 0，C1/C2/C3/A-1/TGA-1/B-1 均已修复） | C1、C2、C3、A-1、TGA-1、B-1 |
-| HIGH | **12**（现存 11，G-1 已修复） | H1–H6、A-2、A-3、G-1、D-1、D-2、D-3 |
-| MEDIUM | **19**（现存 18，C-3 已修复） | M1–M10、A-4–A-6、C-2、C-3、C-4、D-4、D-5、TGA-3 |
-| LOW | **11** | L1–L6、A-7、C-6、C-7、D-6、D-7 |
+| HIGH | **12**（现存 8，G-1 与 D-1/D-2/D-3 已修复） | H1–H6、A-2、A-3、G-1、D-1、D-2、D-3 |
+| MEDIUM | **19**（现存 15，C-3、D-4、D-5、TGA-3 已修复） | M1–M10、A-4–A-6、C-2、C-3、C-4、D-4、D-5、TGA-3 |
+| LOW | **11**（现存 10，D-7 已修复；D-6 按历史留痕不处理） | L1–L6、A-7、C-6、C-7、D-6、D-7 |
 | 合计 | **48** | |
 
 ### 0.3 最需要先修的事项（按顺序）
@@ -124,9 +124,9 @@
 | G4 静默丢失 | 任何"有输入但零产出"必须置为失败或阻止 checkpoint 推进 | ✅ 通过（C1 于 2026-11-05 修复，含 2 条回归测试） |
 | G5 约束核验 | 项目硬性约束逐条有代码/配置/文档三方证据 | ⚠️ 部分通过（H4 违反、C-2 死键；TGA-1 已于 2026-11-05 修复） |
 | G6 版本库 | 工作区可构建；生成物不入库；变更成套 | ✅ 通过（2026-11-05 提交 `5590163` 成套纳入 101 文件；`reports/` 已入 `.gitignore`；提交后工作区干净） |
-| G7 文档一致 | README/设计文档/TGA 文档与实现一致 | ❌ 未通过（D-1、D-2、D-3） |
+| G7 文档一致 | README/设计文档/TGA 文档与实现一致 | ✅ 通过（2026-11-05：D-1/D-2/D-3/D-4/D-5/TGA-3 已修复，D-7 重命名；新增 README 源数/类型数一致性测试） |
 
-**通过标准**：G1–G7 全部为 ✅ 方判定 READY。本次 **1 项 ❌（G7）、2 项 ⚠️（G3、G5）**，故判定 **NOT READY**。
+**通过标准**：G1–G7 全部为 ✅ 方判定 READY。本次 **0 项 ❌、2 项 ⚠️（G3、G5）**，故判定仍为 **NOT READY**（G3/G5 未全部通过）。
 
 ### 1.7 审计执行顺序
 
@@ -483,22 +483,22 @@
 
 ### 7.1 HIGH
 
-| ID | 位置 | 文档原文 | 代码事实 | 建议 |
+| ID | 位置 | 文档原文 | 代码事实 | 处理 |
 |---|---|---|---|---|
-| D-1 | [README.md#L80-L81](file:///Users/horsenli/Works/ChronoForge/README.md#L80-L81) 与 L84-L99 | "registry sync: 11 sources"，表格 11 行 | [service.py#L51-L119](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/registry/service.py#L51-L119) `DEFAULT_SOURCES` 为 **13** 个，缺 `treasury_fiscal`、`treasury_refunding` 两行 | 更新为 13 并补表格行 |
-| D-2 | [README.md#L518](file:///Users/horsenli/Works/ChronoForge/README.md#L518) | "Canonical type system — 27 types across 7 asset classes" | [enums.py#L19-L54](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/models/enums.py#L19-L54) `CanonicalType` 实测 **32** 个（Treasury / Prediction / Text / Entity / Instrument / Derived / Feature 未进入分类表） | 更新数量与分类表 |
-| D-3 | [TGA前瞻模型.md](file:///Users/horsenli/Works/ChronoForge/docs/strategy/TGA前瞻模型.md)（2,137 行） | 全文无"定位 / 情景 / output_type / 置信区间"等表述，仍是旧版"预测周期 7/14/30/60/90"概念稿 | 实现方案 v1.6 已改为"情景与事件解释"；代码输出 `output_type=scenario` | 在概念文档首部加"定位已变更"声明，或合并进实现方案避免双源 |
+| D-1 | [README.md#L80-L81](file:///Users/horsenli/Works/ChronoForge/README.md#L80-L81) 与 L84-L99 | "registry sync: 11 sources"，表格 11 行 | [service.py#L51-L119](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/registry/service.py#L51-L119) `DEFAULT_SOURCES` 为 **13** 个，缺 `treasury_fiscal`、`treasury_refunding` 两行 | ✅ 已修复：改为 13 并补两行（`treasury_fiscal` / `treasury_refunding`），新增 `tests/architecture/test_docs_consistency.py` 守卫数量与逐源出现 |
+| D-2 | [README.md#L518](file:///Users/horsenli/Works/ChronoForge/README.md#L518) | "Canonical type system — 27 types across 7 asset classes" | [enums.py#L19-L54](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/models/enums.py#L19-L54) `CanonicalType` 实测 **32** 个。**复核修正报告原描述**：Prediction/Text/Entity/Instrument/Derived/Feature 原本已在分类表；实际缺的是 **Treasury (TGA) 5 个**，且表内已有 8 行而文字写 7 | ✅ 已修复：改为 "32 types (9 groups)" 并新增 Treasury 行；测试同步断言 32 与逐类型出现 |
+| D-3 | [TGA前瞻模型.md](file:///Users/horsenli/Works/ChronoForge/docs/strategy/TGA前瞻模型.md)（2,150 行） | **复核修正报告原描述**：并非"全文无情景"——第九章已有三情景定义；实际缺的是**定位变更声明、非目标、使用边界、`output_type`**，且正文仍以"预测周期"表述 | 实现方案 v1.6 已改为"情景与事件解释"；代码输出 `output_type=scenario` / `usage` / `confidence` / `drivers`（[tga_forecast.py#L1370-L1375](file:///Users/horsenli/Works/ChronoForge/scripts/tga_forecast.py#L1370-L1375)） | ✅ 已修复：首部加"定位变更"声明（定位/非目标/使用边界/output_type）；第九节输出样例补四个字段并注明非点位预测 |
 
 ### 7.2 MEDIUM
 
-- **D-4. README 环境变量表缺项**：[README.md#L571-L584](file:///Users/horsenli/Works/ChronoForge/README.md#L571-L584) 未列 `CHRONOFORGE_LOG_FORMAT`（auto/rich/json/test）与 `CHRONOFORGE_LOG_FILE`；[settings.py#L53-L80](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/config/settings.py#L53-L80) 实际支持。与"双 sink + profile 可覆盖"的既定约定脱节。
-- **D-5. 任务状态漂移**：`docs/implement/01-dispatch-log.md` 中 TGA-ACQ-002 等仍为 PENDING，而对应代码已落地（treasury 连接器、迁移 0005）；历史 2026-09 审计的 HIGH 项（熔断 half-open 恢复、`--all-due` 隔离）则已确认修复（[runner.py#L747-L818](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/pipeline/runner.py#L747-L818)、[pipeline_cmd.py#L121-L178](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/cli/pipeline_cmd.py#L121-L178)）。
-- **TGA-3**：见 §4.2（DECISIONS 状态过期）。
+- **D-4. README 环境变量表缺项** —— ✅ 已修复（2026-11-05）：以 [settings.py#L365-L396](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/config/settings.py#L365-L396) 的 `_read_env_fields` 映射为准，补齐 `CHRONOFORGE_LOG_FORMAT` / `LOG_FILE` / `CIRCUIT_COOLDOWN_S` / `NORMALIZE_ERROR_THRESHOLD` / `QUERY_MAX_ROWS` / `OHLCV_CHUNK_BARS` / `VERSION` / `RATE_OVERRIDES` 与 CCXT 凭证；并把 `CHRONOFORGE_SEC_CONTACT` 标注为必填（缺失时 `ConfigError`）。
+- **D-5. 任务状态漂移** —— ✅ 已修复（2026-11-05）：`docs/implement/01-dispatch-log.md` 的 TGA-ACQ-002 / RECON / STORE / FCST-SCEN-BT-REPORT 改为 DONE（附代码证据），仅 OPS/EXPORT 保持 PENDING（`scripts/tga_daily.py`、`export_liquidity.py` 尚未落地）。历史 2026-09 审计的 HIGH 项（熔断 half-open 恢复、`--all-due` 隔离）则已确认修复（[runner.py#L747-L818](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/pipeline/runner.py#L747-L818)、[pipeline_cmd.py#L121-L178](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/cli/pipeline_cmd.py#L121-L178)）。
+- **TGA-3** —— ✅ 已修复（2026-11-05）：`docs/tga/DECISIONS.md` 依据版本更新为 v1.6；D-TGA-05（treasury_refunding）、06（ForecastStore/BacktestStore）、10（calendar.yaml）、18（taxonomy.yaml）状态改为已落地；D-TGA-09 如实标注 `tga_daily.py` 待 Phase 6。
 
 ### 7.3 LOW
 
-- **D-6**：`docs/` 下 20 处 TBD/TODO，分布于 17 个文件，集中在 `implement/tasks` 历史任务卡与 `docs/final-design-audit.md`，非核心行为阻塞项。
-- **D-7**：文件名错别字 `docs/编码钱最终整体审计审计要求.md`（应为"编码前"），且"审计审计"重复。
+- **D-6**：`docs/` 下 20 处 TBD/TODO，分布于 17 个文件，集中在 `implement/tasks` 历史任务卡与 `docs/final-design-audit.md`，非核心行为阻塞项。**不处理（2026-11-05）**：均为历史任务卡/审计留痕，改写会破坏历史记录；不影响 G7 的运行一致性。
+- **D-7**：文件名错别字 `docs/编码钱最终整体审计审计要求.md`（应为"编码前"，且"审计审计"重复）—— **已修复（2026-11-05）**：重命名为 `docs/编码前最终整体审计要求.md`，并更新 4 处引用。
 
 ### 7.4 已核实一致（正面结论）
 
@@ -557,8 +557,8 @@
 | M2 / M4 / M5 / M7 / M8 / M9 / M10 | 逐条修复（对账死代码、429 冷却、5xx 分类、FRED 修订回补、错误包装、交易日历、SEC 分页与 URL） |
 | A-4 / A-5 / A-6 / A-7 | 补测试并标注 TC-ID |
 | C-2 / C-4 | 清理 TGA 死键或接入代码；config_hash 覆盖 unmatched 全字段 |
-| D-1 ~ D-5、TGA-3 | 更新 README 数字与环境变量表、TGA 概念文档定位、DECISIONS 状态、dispatch-log 状态 |
-| L1 ~ L6、C-6、D-6、D-7 | 日志口径统一、空转规则、错误类型、性能与迁移幂等、文件名修订 |
+| ~~D-1 ~ D-5、TGA-3~~ | **已完成（2026-11-05）**：README 源数/类型数/环境变量表、TGA 概念文档定位声明、DECISIONS 状态、dispatch-log 状态均已对齐代码；新增 `test_docs_consistency.py` 守卫 |
+| L1 ~ L6、C-6、D-6、D-7 | 日志口径统一、空转规则、错误类型、性能与迁移幂等、文件名修订（D-7 已完成；D-6 为历史留痕不处理） |
 
 ### 8.3 建议的修复-验证闭环
 
@@ -579,7 +579,7 @@ uv run pytest -q
 
 ### 9.1 结论
 
-ChronoForge 的基础工程质量（分层、类型、测试独立性、幂等回退、TGA 的 PIT 与情景口径改造）达到较高水准，本轮审计未发现架构性返工需求。**但当前不可进入发布或对外使用阶段**：6 项 CRITICAL 已全部修复，**现存 CRITICAL 为 0**；G-1/C-3（版本库/生成物忽略）已于 2026-11-05 以提交 `5590163` 关闭，G6 转为 ✅；判定仍为 NOT READY，原因是 G7（文档一致性）未通过、G3/G5 部分未通过。此前的"静默放大器"C1、两个连接器契约缺陷 C2/C3/A-1、TGA-1 组件坍缩以及 B-1 语法错误已于 2026-11-05 修复：C2/C3/A-1 以真实响应（SEC companyfacts 实测 25,598 行）与契约/负向测试锁住；TGA-1 以"仅事件去重 + 去重前后月度守恒"锁住，端到端实跑 5,439 行组件无丢失。历史上 yahoo fixture 假形状造成过同类事故，说明测试契约层（真实响应 → fetch → normalize）是必须补上的制度性缺口，而非一次性修复；本次仅覆盖 deribit/sec_edgar，其余连接器仍在 A-3 范围内。
+ChronoForge 的基础工程质量（分层、类型、测试独立性、幂等回退、TGA 的 PIT 与情景口径改造）达到较高水准，本轮审计未发现架构性返工需求。**但当前不可进入发布或对外使用阶段**：6 项 CRITICAL 已全部修复，**现存 CRITICAL 为 0**；G-1/C-3（版本库/生成物忽略）已于 2026-11-05 以提交 `5590163` 关闭，G6 转为 ✅；文档一致性 D-1/D-2/D-3/D-4/D-5/TGA-3 已修复、D-7 重命名，G7 转为 ✅。判定仍为 NOT READY，原因是 **G3/G5 仍为部分通过**（A-2/A-3 连接器契约测试未全覆盖、H4/C-2 硬性约束违反未清）。此前的"静默放大器"C1、两个连接器契约缺陷 C2/C3/A-1、TGA-1 组件坍缩以及 B-1 语法错误已于 2026-11-05 修复：C2/C3/A-1 以真实响应（SEC companyfacts 实测 25,598 行）与契约/负向测试锁住；TGA-1 以"仅事件去重 + 去重前后月度守恒"锁住，端到端实跑 5,439 行组件无丢失。历史上 yahoo fixture 假形状造成过同类事故，说明测试契约层（真实响应 → fetch → normalize）是必须补上的制度性缺口，而非一次性修复；本次仅覆盖 deribit/sec_edgar，其余连接器仍在 A-3 范围内。
 
 TGA 方面值得肯定：11 条硬性约束均已有落实证据，日报已彻底转为情景口径且能力边界如实声明；TGA-1 修复同时揭示并修正了"同子类流入/流出基线被合并"的第二层缺陷。
 
@@ -587,11 +587,11 @@ TGA 方面值得肯定：11 条硬性约束均已有落实证据，日报已彻�
 
 ### 9.2 后续动作清单
 
-1. P0 的 6 项 CRITICAL 已全部关闭；G-1 成套提交与 `reports/` 忽略已完成（提交 `5590163`，G6 ✅）；下一步处理 P1（H 级）与文档一致性 D-1/D-2/D-3，以关闭 G7/G3/G5；
+1. P0 的 6 项 CRITICAL 已全部关闭；G-1 成套提交与 `reports/` 忽略已完成（提交 `5590163`，G6 ✅）；文档一致性 D 类已关闭、G7 ✅；下一步处理 P1（H 级）与 G3/G5 剩余项（连接器契约测试覆盖、H4/C-2）；
 2. 建立"连接器契约测试"门禁：每个连接器必须有一条 `raw 响应样本 → fetch → normalize → 行数断言` 的用例，纳入 CI（deribit/sec_edgar 已具备，其余见 A-3）；
 3. 对既有数据做一次完整性回溯（treasury_fiscal、TGA forecast 产物，以及历史 run 中曾记成功的 deribit/sec_edgar checkpoint），量化历史缺口；**TGA 0.4.0 已重跑当日预测与 2 个回测窗口（`de0ff140cf2560b7`、`fe7a9c621dc3dc4b`）；审计原列的其余 forecast 窗口（2026-11-02/10-29、11-03/10-30、11-04/10-30）与 backtest 窗口（2023-11-01→11-02）尚未重跑**；
 4. 重新运行本报告 §2 的基线命令与 §4.1 约束矩阵，逐项勾销后复评 READY/NOT READY；
-5. 文档侧统一"单一口径来源"：TGA 以实现方案为准，概念文档只保留定位声明，避免双源漂移。
+5. ~~文档侧统一"单一口径来源"~~ —— **已完成（2026-11-05）**：TGA 以实现方案为准，概念文档首部加定位声明并以链接指向实现方案，避免双源漂移。
 
 ### 9.3 复评建议
 
@@ -603,7 +603,7 @@ TGA 方面值得肯定：11 条硬性约束均已有落实证据，日报已彻�
 
 | 主题 | 文件 |
 |---|---|
-| 审计要求 | [编码钱最终整体审计审计要求.md](file:///Users/horsenli/Works/ChronoForge/docs/编码钱最终整体审计审计要求.md) |
+| 审计要求 | [编码前最终整体审计要求.md](file:///Users/horsenli/Works/ChronoForge/docs/编码前最终整体审计要求.md) |
 | 管道入口 | [runner.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/pipeline/runner.py)、[cursor.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/pipeline/cursor.py) |
 | 存储 | [canonical.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/storage/canonical.py)、[raw.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/storage/raw.py)、[consistency.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/storage/consistency.py) |
 | 连接器 | [deribit.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/deribit.py)、[sec_edgar.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/sec_edgar.py)、[ccxt_bridge.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/ccxt_bridge.py)、[treasury_fiscal.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/treasury_fiscal.py)、[yahoo.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/yahoo.py) |

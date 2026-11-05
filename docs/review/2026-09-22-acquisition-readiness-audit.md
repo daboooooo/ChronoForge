@@ -170,4 +170,4 @@ P0 修复量小：熔断加冷却期 half-open（约 15 行）+ CLI 循环逐 jo
 - 上轮修复 16/16 无虚报，修复均附带针对性测试（1325→1385）
 
 **审计人**：GLM（Trae Code）· 2026-09-22
-**依据文档**：docs/architecture/01~10、docs/design/D01~D10、docs/review/2026-09-21-service-readiness-audit.md、docs/implement/tasks/READY-001~005、docs/编码钱最终整体审计审计要求.md
+**依据文档**：docs/architecture/01~10、docs/design/D01~D10、docs/review/2026-09-21-service-readiness-audit.md、docs/implement/tasks/READY-001~005、docs/编码前最终整体审计要求.md

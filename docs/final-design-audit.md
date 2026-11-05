@@ -2,7 +2,7 @@
 Final Design Readiness Audit / Implementation Gate
 
 - 日期：2026-09-11
-- 依据：`docs/编码钱最终整体审计审计要求.md`（63 条）
+- 依据：`docs/编码前最终整体审计要求.md`（63 条）
 - 范围：docs/ 全部设计资料——architecture/（10 + review×3）、design/（10 + review×4）、ArchitectureConstraints.md、ChronoForge.md
 - 方法：跨文档一致性审计（§5/§51/§52/§53）→ 五项最高优先级专项（用户指定）→ 冻结门槛核验（§56）→ Final Gate（§60）
 
