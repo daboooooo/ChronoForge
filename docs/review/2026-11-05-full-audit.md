@@ -14,7 +14,7 @@
 
 ### 0.1 总体判定：READY（G1–G7 全部通过）
 
-架构分层、类型安全、测试独立性和日频源的幂等回退实现质量扎实：mypy strict 全绿、import-linter 两个架构契约均 KEPT、1872 个测试全过。本轮最初发现的**数据正确性核心不变量破口已于 2026-11-05 全部关闭**：
+架构分层、类型安全、测试独立性和日频源的幂等回退实现质量扎实：mypy strict 全绿、import-linter 两个架构契约均 KEPT、1873 个测试全过。本轮最初发现的**数据正确性核心不变量破口已于 2026-11-05 全部关闭**：
 
 1. ~~管道层 `normalize` 全失败/零产出时仍推进 checkpoint（C1）~~ —— **异常路径与逐行静默跳过路径均已修复（2026-11-05）**：全失败/高丢弃率现在触发 `QualityError` 并阻止 checkpoint 推进；新增行级丢弃率门禁（A-8，阈值 `normalize_drop_threshold=0.5`），合法跳过按 reason 白名单排除（见 §5.2）；
 2. ~~三个连接器按**想象出来的 API 结构**编码（deribit chart、sec_edgar companyfacts、ccxt trades），生产中静默产出 0 行~~ —— deribit 与 sec_edgar **已修复（C2/C3/A-1，2026-11-05）**；ccxt trades 的分页/`order` 参数问题（报告编号 **H3**，由用户任务中的"H1"指代）**已于 2026-11-05 修复**；
@@ -119,14 +119,14 @@
 | 门禁 | 标准 | 本次结果 |
 |---|---|---|
 | G1 静态质量 | `mypy src` 0 error；`ruff check src` 0 error；`lint-imports` 全 KEPT | ✅ 通过（ruff 仅 scripts 有错） |
-| G2 测试 | 全量 `pytest` 通过；无真实网络依赖；失败恢复测试为真实链路 | ✅ 通过（1872 passed，含 C1/C2/C3/A-1/A-2/A-8/TGA-1、G3 全批次回归；`TZ=Asia/Shanghai` 下同为 1872 passed） |
+| G2 测试 | 全量 `pytest` 通过；无真实网络依赖；失败恢复测试为真实链路 | ✅ 通过（1873 passed，含 C1/C2/C3/A-1/A-2/A-8/A-9/TGA-1、G3 全批次回归；`TZ=Asia/Shanghai` 下同为 1873 passed） |
 | G3 契约测试 | 每条连接器有"真实响应样本 → fetch → normalize"全链路测试，禁止仅直喂内层结构 | ✅ 通过（2026-11-05：13 个连接器均有 fetch→normalize 全链路 + 负向用例 + `SOURCE.md`；真实抓包：treasury_fiscal/treasury_refunding/alternative/coinmetrics；文档/客户端模型：binance_spot/binance_futures/yahoo/fred/ccxt_bridge/deribit/sec_edgar；历史实测形状：sosovalue/coinmarketcap） |
 | G4 静默丢失 | 任何"有输入但零产出"必须置为失败或阻止 checkpoint 推进 | ✅ 通过（2026-11-05：C1 覆盖批量异常路径，A-8 覆盖连接器逐行跳过路径——非白名单丢弃率 ≥0.5 即 `QualityError`，checkpoint 不推进；白名单外零产出已不可静默） |
 | G5 约束核验 | 项目硬性约束逐条有代码/配置/文档三方证据 | ✅ 通过（2026-11-05：H4 起点回退、C-2 死键均已修复；TGA-1 亦已修复；A-8 配置项已写入 `.env.example`/README/设计文档） |
-| G6 版本库 | 工作区可构建；生成物不入库；变更成套 | ✅ 通过（2026-11-05 提交 `5590163` 成套纳入 101 文件；`reports/` 已入 `.gitignore`；提交后工作区干净） |
+| G6 版本库 | 工作区可构建；生成物不入库；变更成套 | ✅ 通过（2026-11-05 提交 `5590163` 成套纳入 101 文件；`reports/` 已入 `.gitignore`；提交后工作区干净；A-9 已提交 `4d28b93`/`4840f28`） |
 | G7 文档一致 | README/设计文档/TGA 文档与实现一致 | ✅ 通过（2026-11-05：D-1/D-2/D-3/D-4/D-5/TGA-3 已修复，D-7 重命名；新增 README 源数/类型数一致性测试；A-8 门禁已同步 06-quality/08-cli-config-security） |
 
-**通过标准**：G1–G7 全部为 ✅ 方判定 READY。本次 **G1–G7 全部 ✅**，按门禁标准判定 **READY（2026-11-05 复评）**。A-2、A-8 已关闭，H6 已修复并提交；sosovalue/coinmarketcap 未能当日重新抓包（依据为历史实测形状），详见 §9.1 残余风险。
+**通过标准**：G1–G7 全部为 ✅ 方判定 READY。本次 **G1–G7 全部 ✅**，按门禁标准判定 **READY（2026-11-05 复评）**。A-2、A-8、A-9 已关闭，H6 已修复并提交；sosovalue/coinmarketcap 未能当日重新抓包（依据为历史实测形状），详见 §9.1 残余风险。
 
 ### 1.7 审计执行顺序
 
@@ -428,8 +428,9 @@
 
 | ID | 问题 | 证据 / 影响 |
 |---|---|---|
-| A-2 | e2e / quality 两层承诺存在但为空 | 原问题：`tests/e2e/`、`tests/quality/` 仅 `.gitkeep`；`quality` / `smoke` marker 已注册但全仓无人使用；[09-testing-plan.md](file:///Users/horsenli/Works/ChronoForge/docs/design/09-testing-plan.md)、[07-testing-architecture.md](file:///Users/horsenli/Works/ChronoForge/docs/architecture/07-testing-architecture.md) 承诺的两层从未存在 → 发布门禁缺位。**✅ 已关闭（2026-11-05，待提交）**：新增 `tests/e2e/test_binance_spot_pipeline.py`（2 条：真实 `BinanceSpotConnector` + `httpx.MockTransport` 回放 fixture，断言 fetch 分页参数、raw 批次/行、canonical 2/3 行及价格字段与年/月分区、checkpoint、run_log 计数；增量 run 从 checkpoint 回退 overlap 后 merge-rewrite）、`tests/quality/test_quality_gate.py`（2 条：normalize 3/3 全失败 → `QualityError`、run FAILED、canonical 0、cursor 不推进；重复 natural key + `block_on=["Q-DUP-001"]` → `QualityError`、cursor 不推进、flags 0）、共享 harness `tests/real_pipeline_harness.py`；`quality` marker 首次实际使用。验证：4 passed；对"抑制 upsert / 禁用错误率门禁 / 禁用 block_on / 删除 save_checkpoint"4 处临时注入后 4 条全红，撤回后全绿。残余：e2e 为录制 fixture 回放（默认 CI 运行），真实源 smoke 仍手动 |
-| A-8 | 非空 payload 被连接器逐行静默跳过 → normalize 零产出仍 SUCCESS 并推进 checkpoint（C1 残余） | **复核 A-2 时实测发现**：`NormalizeStage` 只把批量异常计入错误率；连接器对 malformed/非数值行仅 `normalize_skip` 并返回 `[]`，`attempted=0` 不触发门禁。复现：binance_spot 两行 `open="bad"` 的 kline（len≥7、closeTime 已过）→ fetch/raw 1 批次、normalize 0 行、canonical 0 行、run `SUCCESS`、`checkpoint_after=2017-07-03T01:00:00` 已写入。**✅ 已修复（2026-11-05，待提交）**：① 新增 [normalize_stats.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/normalize_stats.py)（ContextVar 结构化计数：`begin_normalize`/`end_normalize`/`note_skip`，不解析日志）；② 12 个连接器在全部逐行跳过分支补 `note_skip(reason)`（binance_spot/futures、yahoo、ccxt_bridge、deribit、sec_edgar、coinmetrics、coinmarketcap、alternative、fred、sosovalue、treasury_fiscal）；③ [runner.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/pipeline/runner.py#L477-L546) 按 chunk 计算 `drop_invalid/drop_attempted`，`drop_attempted = 返回行 + 上报跳过 + 未上报行`，`drop_invalid = 未上报行 + 非白名单跳过`，`>= normalize_drop_threshold(0.5)` → `QualityError`；④ 合法跳过白名单 `LEGIT_SKIP_REASONS`（`unclosed_bar`/`unfinished_kline`/`unfrozen_today`/`pending_settlement`/`source_missing_value`/`non_target_account`/`duplicate_observation`），由测试锁定；⑤ 新增配置 `CHRONOFORGE_NORMALIZE_DROP_THRESHOLD`（默认 0.5，无 DB 迁移），同步 `.env.example`/README/06-quality/08-cli-config-security。**口径边界（不与 C1 重复计数）**：批量抛异常 → `failed_units`（错误率门禁）；正常返回但逐行跳过 → kept/skipped 比率（本门禁）。**验证**：6 条新用例（全畸形 2/2、丢弃率 2/3、单条未收盘、整批合法跳过、空 payload、白名单锁定）先红后绿；全量 1872 passed（默认 TZ 与 `TZ=Asia/Shanghai` 各一次）；ruff/mypy(84 files)/lint-imports 通过。**数据影响**：本机 `data/` 只读核对，无"非空 raw 且 canonical 0 行"的数据集；`run_log` 中 `output_count=0` 的 SUCCESS run 均未追加任何 raw 批次（确认为空窗口），无需重采 |
+| A-2 | e2e / quality 两层承诺存在但为空 | 原问题：`tests/e2e/`、`tests/quality/` 仅 `.gitkeep`；`quality` / `smoke` marker 已注册但全仓无人使用；[09-testing-plan.md](file:///Users/horsenli/Works/ChronoForge/docs/design/09-testing-plan.md)、[07-testing-architecture.md](file:///Users/horsenli/Works/ChronoForge/docs/architecture/07-testing-architecture.md) 承诺的两层从未存在 → 发布门禁缺位。**✅ 已关闭（2026-11-05，已提交 `0bbada0`/`8965770`）**：新增 `tests/e2e/test_binance_spot_pipeline.py`（2 条：真实 `BinanceSpotConnector` + `httpx.MockTransport` 回放 fixture，断言 fetch 分页参数、raw 批次/行、canonical 2/3 行及价格字段与年/月分区、checkpoint、run_log 计数；增量 run 从 checkpoint 回退 overlap 后 merge-rewrite）、`tests/quality/test_quality_gate.py`（2 条：normalize 3/3 全失败 → `QualityError`、run FAILED、canonical 0、cursor 不推进；重复 natural key + `block_on=["Q-DUP-001"]` → `QualityError`、cursor 不推进、flags 0）、共享 harness `tests/real_pipeline_harness.py`；`quality` marker 首次实际使用。验证：4 passed；对"抑制 upsert / 禁用错误率门禁 / 禁用 block_on / 删除 save_checkpoint"4 处临时注入后 4 条全红，撤回后全绿。残余：e2e 为录制 fixture 回放（默认 CI 运行），真实源 smoke 仍手动 |
+| A-8 | 非空 payload 被连接器逐行静默跳过 → normalize 零产出仍 SUCCESS 并推进 checkpoint（C1 残余） | **复核 A-2 时实测发现**：`NormalizeStage` 只把批量异常计入错误率；连接器对 malformed/非数值行仅 `normalize_skip` 并返回 `[]`，`attempted=0` 不触发门禁。复现：binance_spot 两行 `open="bad"` 的 kline（len≥7、closeTime 已过）→ fetch/raw 1 批次、normalize 0 行、canonical 0 行、run `SUCCESS`、`checkpoint_after=2017-07-03T01:00:00` 已写入。**✅ 已修复（2026-11-05，已提交 `9758771`）**：① 新增 [normalize_stats.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/normalize_stats.py)（ContextVar 结构化计数：`begin_normalize`/`end_normalize`/`note_skip`，不解析日志）；② 12 个连接器在全部逐行跳过分支补 `note_skip(reason)`（binance_spot/futures、yahoo、ccxt_bridge、deribit、sec_edgar、coinmetrics、coinmarketcap、alternative、fred、sosovalue、treasury_fiscal）；③ [runner.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/pipeline/runner.py#L477-L546) 按 chunk 计算 `drop_invalid/drop_attempted`，`drop_attempted = 返回行 + 上报跳过 + 未上报行`，`drop_invalid = 未上报行 + 非白名单跳过`，`>= normalize_drop_threshold(0.5)` → `QualityError`；④ 合法跳过白名单 `LEGIT_SKIP_REASONS`（`unclosed_bar`/`unfinished_kline`/`unfrozen_today`/`pending_settlement`/`source_missing_value`/`non_target_account`/`duplicate_observation`），由测试锁定；⑤ 新增配置 `CHRONOFORGE_NORMALIZE_DROP_THRESHOLD`（默认 0.5，无 DB 迁移），同步 `.env.example`/README/06-quality/08-cli-config-security。**口径边界（不与 C1 重复计数）**：批量抛异常 → `failed_units`（错误率门禁）；正常返回但逐行跳过 → kept/skipped 比率（本门禁）。**验证**：6 条新用例（全畸形 2/2、丢弃率 2/3、单条未收盘、整批合法跳过、空 payload、白名单锁定）先红后绿；全量 1872 passed（提交当次，默认 TZ 与 `TZ=Asia/Shanghai` 各一次）；ruff/mypy(84 files)/lint-imports 通过。**数据影响**：本机 `data/` 只读核对，无"非空 raw 且 canonical 0 行"的数据集；`run_log` 中 `output_count=0` 的 SUCCESS run 均未追加任何 raw 批次（确认为空窗口），无需重采 |
+| A-9 | 并发 `cf query` 偶发退出码 1：注册完成后的只读重开未做锁冲突退避 | **2026-11-05 复现（`TZ=Asia/Shanghai`，4 并发 pytest 压测 20 次 worker 运行 3 次失败（15%）；隔离单跑 0/45）**，捕获子进程 stderr：`_duckdb.IOException: Could not set lock on file`，exit code 1。根因：[`_wiring.py:240`](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/cli/_wiring.py#L240-L253) 在 `register_views` 后 `close()` 写连接，紧接着无条件 `duckdb.connect(read_only=True)`；此窗口内并发进程可能刚抢到写锁，只读打开抛 `IOException` 并直接冒泡。**✅ 已修复（2026-11-05，已提交 `4d28b93`/`4840f28`）**：释放写锁后的只读重开改为复用 `_open_ready_readonly` 的退避 + 复探循环（`_WRITE_OPEN_ATTEMPTS` 上限），耗尽后才裸连以保留原错误语义；新增确定性回归用例 `test_reopen_after_register_retries_transient_lock`（注入两次只读锁冲突 → 第三次成功，修复前红、修复后绿）。**验证**：该两用例单跑循环 50/50 绿（159s）；并发压测 40/40 worker 运行绿；`TZ=Asia/Shanghai` 全量 3 次 + 默认 TZ 1 次均 1873 passed。与 TZ 无关，TZ=Asia/Shanghai 只是暴露窗口的触发条件之一。无数据侧动作 |
 | A-3 | fixtures 完整性与 README 承诺严重不符 | 原问题：`tests/fixtures/README.md` 承诺 malformed / out-of-order / duplicated / late-arriving / corrected / large-volume 六种形态，实际**无任何文件**；多源缺 error fixture，异常路径回归能力接近零。**✅ 已关闭（2026-11-05）**：13 个连接器全部补齐 fetch→normalize 全链路 + 缺字段/非空零行/异常状态码负向用例 + `SOURCE.md`（来源类型与核对日期）；修正 yahoo `split.json` 假形状、fred 缺 `realtime_end`、清理 binance_futures 非法 fixture；新增真实抓包 fixture（alternative `fng_live_20261105.json`、coinmetrics `live_20261105.json`）。残余：sosovalue（当日 403）与 coinmarketcap（当日超时）fixture 未重新抓包，依据标注为历史实测形状 |
 
 ### 5.3 MEDIUM
@@ -544,11 +545,11 @@
 |---|---|---|
 | CRITICAL | 6（现存 0） | 核心源码 3（C1/C2/C3 已修复）、测试 1（A-1 已修复）、脚本 1（B-1 已修复）、TGA 1（TGA-1 已修复） |
 | HIGH | 14（现存 0） | 核心源码 8（H1–H7 已修复并提交；A-8 已修复）、测试 2（A-2、A-3，均已修复）、工程卫生 1（G-1，已修复）、文档 3（D-1–D-3，已修复） |
-| MEDIUM | 19（现存 13） | 核心源码 10（M1–M10，M6 已修复）、测试 3（A-4–A-6）、配置/卫生 4（C-2、C-3、C-4、C-7 计入 LOW 故为 3）、文档 3（D-4、D-5、TGA-3）；已修复 C-2、C-3、D-4、D-5、TGA-3 |
+| MEDIUM | 20（现存 14） | 核心源码 10（M1–M10，M6 已修复）、测试 3（A-4–A-6）、配置/卫生/并发 5（C-2、C-3、C-4 计入 LOW 故为 3，A-9 已修复）、文档 3（D-4、D-5、TGA-3）；已修复 C-2、C-3、D-4、D-5、TGA-3、A-9 |
 | LOW | 11 | L1–L6、A-7、C-6、C-7、D-6、D-7 |
-| 合计 | 50 | |
+| 合计 | 51 | |
 
-> 说明：C-7 归入 LOW，MEDIUM 实为 19 = 10 + 3 + 3 + 3。A-8 为 2026-11-05 复核 A-2 时实测发现，计入 HIGH，同日修复关闭。
+> 说明：C-7 归入 LOW，MEDIUM 实为 20 = 10 + 3 + 3 + 3 + 1（A-9）。A-8 为 2026-11-05 复核 A-2 时实测发现，计入 HIGH，同日修复关闭；A-9 为 2026-11-05 并发压测发现，计入 MEDIUM，同日修复关闭。
 
 ### 8.2 优先级与修复批次
 
@@ -574,8 +575,9 @@
 | ~~**H1 / H3**~~ | ~~funding 补 `endTime`；trades 补分页并修正 `order` 参数~~ **已完成（2026-11-05）**：funding `endTime` + 边界停止；trades fromId-only/ISO→since 归一化、`order` 校验透传、asc/desc 双向翻页、客户端 end 截断与去重。回归：`TestFetchTradesPagination`（6 条）+ `test_fetch_funding_includes_end_time_and_stops` |
 | ~~**H7**~~ | ~~统一 UTC 时间助手，消除 naive `.timestamp()` 的主机时区偏移~~ **已完成并提交（2026-11-05，`ecdbe38`/`d27b5dd`/`0d71036`）**：新增 `timeutil.py` 单一换算入口；binance_spot/futures 窗口上下界与 `close_time > now`、spot/futures/ccxt/deribit/yahoo `checkpoint_from`、`_cursor_to_ms`、canonical `_revision_seq`、raw 保留截止日全部改走 UTC 助手。回归：`tests/integration/test_timezone_utc.py`（25 条，TZ 参数化；修复前 UTC+8 下 12 条失败）。数据核验：本机无 binance_spot/futures 采集记录，Binance 源 OHLCV 零缺口，无需重采 |
 | **M1 / M3** | raw 滚动前 fsync；0 行分支不虚报计数（H6 已关闭） |
-| ~~**A-2**~~ | ~~补 e2e/quality 两层最小骨架~~ **已完成（2026-11-05，待提交）**：e2e 2 条（真实 connector + MockTransport 全链路、增量 checkpoint）+ quality 2 条（错误率门禁、block_on 门禁）+ 共享 harness；4 条用例在 4 处临时注入下全红、撤回后全绿。A-3 fixtures 六形态与 13 连接器契约覆盖已于 2026-11-05 完成 |
-| ~~**A-8**~~ | ~~连接器逐行静默跳过导致"非空 payload → 0 行产出"仍 SUCCESS 并推进 checkpoint~~ **已完成（2026-11-05，待提交）**：`note_skip` 结构化计数 + `normalize_drop_threshold=0.5` 行级丢弃率门禁；6 条新用例先红后绿；全量 1872 passed 双时区 |
+| ~~**A-2**~~ | ~~补 e2e/quality 两层最小骨架~~ **已完成（2026-11-05，已提交 `0bbada0`/`8965770`）**：e2e 2 条（真实 connector + MockTransport 全链路、增量 checkpoint）+ quality 2 条（错误率门禁、block_on 门禁）+ 共享 harness；4 条用例在 4 处临时注入下全红、撤回后全绿。A-3 fixtures 六形态与 13 连接器契约覆盖已于 2026-11-05 完成 |
+| ~~**A-8**~~ | ~~连接器逐行静默跳过导致"非空 payload → 0 行产出"仍 SUCCESS 并推进 checkpoint~~ **已完成（2026-11-05，已提交 `9758771`）**：`note_skip` 结构化计数 + `normalize_drop_threshold=0.5` 行级丢弃率门禁；6 条新用例先红后绿；全量 1872 passed 双时区（当次验证） |
+| ~~**A-9**~~ | ~~并发 `cf query` 偶发退出码 1（注册后只读重开撞锁）~~ **已完成（2026-11-05，已提交 `4d28b93`/`4840f28`）**：只读重开复用退避 + 复探；确定性回归用例先红后绿；单跑 50/50、并发压测 40/40、双时区全量 4 次全绿 |
 
 #### P2（一致性与可维护性）
 
@@ -607,9 +609,9 @@ uv run pytest -q
 
 ### 9.1 结论
 
-ChronoForge 的基础工程质量（分层、类型、测试独立性、幂等回退、TGA 的 PIT 与情景口径改造）达到较高水准，本轮审计未发现架构性返工需求。**6 项 CRITICAL 已全部修复，现存 CRITICAL 为 0**；G-1/C-3（版本库/生成物忽略）已于 2026-11-05 以提交 `5590163` 关闭（G6 ✅）；文档一致性 D-1/D-2/D-3/D-4/D-5/TGA-3 已修复、D-7 重命名（G7 ✅）；H4/C-2 修复并复核（G5 ✅）。**G3 于 2026-11-05 关闭**：13 个连接器全部具备"可溯源响应样本 → fetch → normalize → 行数与关键字段断言"全链路用例，并配有缺字段、非空零行、异常状态码等负向用例与 `SOURCE.md` 取证说明；全量 `pytest` 1872 passed，`ruff` / `mypy` / `lint-imports` 均通过；**A-2 已关闭**（e2e/quality 两层落地，4 条用例在临时注入下全红、撤回后全绿）；**A-8 已关闭**（`note_skip` 结构化计数 + 行级丢弃率门禁，6 条用例先红后绿）。据此，§1.6 的 **G1–G7 全部为 ✅，按门禁标准判定 READY（2026-11-05 复评）**。
+ChronoForge 的基础工程质量（分层、类型、测试独立性、幂等回退、TGA 的 PIT 与情景口径改造）达到较高水准，本轮审计未发现架构性返工需求。**6 项 CRITICAL 已全部修复，现存 CRITICAL 为 0**；G-1/C-3（版本库/生成物忽略）已于 2026-11-05 以提交 `5590163` 关闭（G6 ✅）；文档一致性 D-1/D-2/D-3/D-4/D-5/TGA-3 已修复、D-7 重命名（G7 ✅）；H4/C-2 修复并复核（G5 ✅）。**G3 于 2026-11-05 关闭**：13 个连接器全部具备"可溯源响应样本 → fetch → normalize → 行数与关键字段断言"全链路用例，并配有缺字段、非空零行、异常状态码等负向用例与 `SOURCE.md` 取证说明；全量 `pytest` 1873 passed，`ruff` / `mypy` / `lint-imports` 均通过；**A-2 已关闭**（e2e/quality 两层落地，4 条用例在临时注入下全红、撤回后全绿）；**A-8 已关闭**（`note_skip` 结构化计数 + 行级丢弃率门禁，6 条用例先红后绿）；**A-9 已关闭**（并发 query 只读重开撞锁，确定性用例先红后绿，单跑 50/50、并发压测 40/40 绿）。据此，§1.6 的 **G1–G7 全部为 ✅，按门禁标准判定 READY（2026-11-05 复评）**。
 
-**READY（G1–G7 全部通过）**。残余风险综合等级 **MEDIUM**，须在下一迭代清除：(a) **H1（funding `endTime`）、H2（ccxt/deribit/yahoo rewind 与未收盘过滤）、H3（ccxt trades 分页与 `order` 参数）已于 2026-11-05 修复**——用户任务中的"H1（ccxt trades）"对应本报告 **H3**，此处已按实际编号修正；(b) **H6 已于 2026-11-05 阶段 B 修复并提交（`0b0f4d0`/`d21a8c3`）**——两次 rename 之间的强杀窗口改为"提交标记 + 前滚/回滚自愈"，新增 6 条崩溃恢复用例（修复前 4 条红）；A-2 已于 2026-11-05 关闭；**A-8 已于 2026-11-05 修复（待提交）**——连接器逐行跳过改为结构化计数 + 行级丢弃率门禁，G4 因此通过；(c) **A-3 取证分层**——真实抓包为 treasury_fiscal、treasury_refunding、alternative、coinmetrics（其中 alternative/coinmetrics 当日 HTTP 200 并归档 live fixture），官方文档/客户端模型为 binance_spot、binance_futures、yahoo、fred、ccxt_bridge、deribit、sec_edgar，**sosovalue（当日 403 Cloudflare）与 coinmarketcap（未文档化网页端点，当日超时）为依据历史实测形状、未当日重新抓包的 BLOCKED 项**（已在各自 `SOURCE.md` 如实记录尝试方式与状态码）；(d) **deribit chart 分页缺陷已修复（2026-11-05）**：改为 `result.continuation` 驱动并以 `end` 边界双重收敛，重复 token / 页数 > 1000 抛 `ProviderError`；`raw_meta` 语义不变，`checkpoint_from` 仍取末页末根 tick。历史上 yahoo fixture 假形状造成过同类事故，说明测试契约层（真实响应 → fetch → normalize）是制度性缺口，本次 13/13 覆盖即为该缺口的制度化闭环，后续新增连接器必须沿用同一门槛。
+**READY（G1–G7 全部通过）**。残余风险综合等级 **MEDIUM**，须在下一迭代清除：(a) **H1（funding `endTime`）、H2（ccxt/deribit/yahoo rewind 与未收盘过滤）、H3（ccxt trades 分页与 `order` 参数）已于 2026-11-05 修复**——用户任务中的"H1（ccxt trades）"对应本报告 **H3**，此处已按实际编号修正；(b) **H6 已于 2026-11-05 阶段 B 修复并提交（`0b0f4d0`/`d21a8c3`）**——两次 rename 之间的强杀窗口改为"提交标记 + 前滚/回滚自愈"，新增 6 条崩溃恢复用例（修复前 4 条红）；A-2 已于 2026-11-05 关闭；**A-8 已于 2026-11-05 修复（已提交 `9758771`）**——连接器逐行跳过改为结构化计数 + 行级丢弃率门禁，G4 因此通过；**A-9 已于 2026-11-05 修复（已提交 `4d28b93`/`4840f28`）**——并发 query 注册后只读重开复用锁退避，消除偶发退出码 1；(c) **A-3 取证分层**——真实抓包为 treasury_fiscal、treasury_refunding、alternative、coinmetrics（其中 alternative/coinmetrics 当日 HTTP 200 并归档 live fixture），官方文档/客户端模型为 binance_spot、binance_futures、yahoo、fred、ccxt_bridge、deribit、sec_edgar，**sosovalue（当日 403 Cloudflare）与 coinmarketcap（未文档化网页端点，当日超时）为依据历史实测形状、未当日重新抓包的 BLOCKED 项**（已在各自 `SOURCE.md` 如实记录尝试方式与状态码）；(d) **deribit chart 分页缺陷已修复（2026-11-05）**：改为 `result.continuation` 驱动并以 `end` 边界双重收敛，重复 token / 页数 > 1000 抛 `ProviderError`；`raw_meta` 语义不变，`checkpoint_from` 仍取末页末根 tick。历史上 yahoo fixture 假形状造成过同类事故，说明测试契约层（真实响应 → fetch → normalize）是制度性缺口，本次 13/13 覆盖即为该缺口的制度化闭环，后续新增连接器必须沿用同一门槛。
 
 TGA 方面值得肯定：11 条硬性约束均已有落实证据，日报已彻底转为情景口径且能力边界如实声明；TGA-1 修复同时揭示并修正了"同子类流入/流出基线被合并"的第二层缺陷。
 
