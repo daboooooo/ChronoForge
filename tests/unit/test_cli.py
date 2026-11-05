@@ -1208,6 +1208,35 @@ class TestOpenQueryServiceConcurrency:
         assert state["fails"] == 2
         assert (cli_env["meta"] / "query.duckdb").exists()
 
+    def test_reopen_after_register_retries_transient_lock(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        cli_env: dict[str, Path],
+        registered: str,
+        meta: MetaStore,
+    ) -> None:
+        """注册完成释放写锁后，另一进程仍持锁 → 只读重开需退避收敛（A-9）。
+
+        进程内确定性注入：写连接成功（注册完成），随后两次 read_only
+        打开抛出 "Could not set lock"（模拟并发进程刚抢到写锁），
+        第三次成功。修复前该 IOException 直接冒泡为 CLI 退出码 1。
+        """
+        monkeypatch.setattr(_wiring, "_WRITE_OPEN_BACKOFF_S", 0.01)
+        real_connect = duckdb.connect
+        state = {"read_only_locks": 0}
+
+        def flaky_read_only(path: str, *args: Any, **kwargs: Any) -> Any:
+            if "read_only" in kwargs and state["read_only_locks"] < 2:
+                state["read_only_locks"] += 1
+                raise duckdb.IOException("Could not set lock on file")
+            return real_connect(path, *args, **kwargs)
+
+        monkeypatch.setattr(_wiring.duckdb, "connect", flaky_read_only)
+        _, con = _wiring.open_query_service(Settings.load(), meta)
+        assert state["read_only_locks"] == 2
+        assert con.execute("SELECT 1").fetchone() == (1,)
+        con.close()
+
     def test_write_path_lock_retry_exhausted(
         self,
         monkeypatch: pytest.MonkeyPatch,
