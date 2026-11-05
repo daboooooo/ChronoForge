@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Thread
 
 import pyarrow.parquet as pq
 import pytest
@@ -15,6 +16,7 @@ from chronoforge.exceptions import StorageError
 from chronoforge.models.enums import CanonicalType
 from chronoforge.storage.base import UpsertStats, natural_key
 from chronoforge.storage.canonical import CanonicalStoreImpl
+from chronoforge.storage.consistency import cleanup_orphans
 
 # ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -451,6 +453,201 @@ class TestAtomicRenameSwap:
         assert not list(year_dir.glob(".old-*"))
         # tmp 目录仍存在，由调用方异常路径清理
         assert tmp_dir.exists()
+
+
+# ── 审计 H6：两次 rename 之间崩溃的自愈 ────────────────────────────────
+
+
+class TestRenameSwapCrashRecovery:
+    """审计 H6：`target→.old-*` 与 `.tmp-*→target` 之间进程被强杀。
+
+    崩溃瞬间 target 缺失、`.old-*` 与 `.tmp-*` 残留；异常处理与回滚都
+    没有执行机会。若启动清理只删不合并、下次 upsert 把缺失分区当成
+    空分区，则该月历史永久丢失。以下用例锁定"前滚/回滚 + 不丢数据"。
+    """
+
+    base_time = datetime(2026, 9, 11, 10, 0, 0)
+
+    def _seed(self, store: CanonicalStoreImpl) -> tuple[Path, Path]:
+        """写入同月 2 行旧数据，返回 (分区目录, year 目录)。"""
+        old = [
+            _make_ohlcv_record(
+                market_id=f"BINANCE:BTC{s}USDT:SPOT", event_time=self.base_time
+            )
+            for s in ("AAA", "BBB")
+        ]
+        store.upsert(old, CanonicalType.OHLCV, "BTC")
+        partition = _list_partition_dirs(
+            Path(store.data_dir) / "canonical" / "OHLCV" / "entity=BTC"
+        )[0]
+        return partition, partition.parent
+
+    @staticmethod
+    def _simulate_power_loss(
+        monkeypatch: pytest.MonkeyPatch,
+        batch: list[dict],
+        store: CanonicalStoreImpl,
+    ) -> None:
+        """第二次 rename（tmp→target）抛 KeyboardInterrupt（绕过回滚）。"""
+        real_rename = Path.rename
+        calls = {"n": 0}
+
+        def fake_rename(path_self: Path, dst: object) -> Path:
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise KeyboardInterrupt("simulated power loss")
+            return real_rename(path_self, dst)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(Path, "rename", fake_rename)
+        with pytest.raises(KeyboardInterrupt, match="power loss"):
+            store.upsert(batch, CanonicalType.OHLCV, "BTC")
+        monkeypatch.undo()
+
+    def test_crash_window_then_startup_cleanup_rolls_forward(
+        self, tmp_stores, monkeypatch
+    ) -> None:
+        """Given 崩溃后 target 缺失、old/tmp 完整残留 When 启动清理
+        Then 前滚已提交 tmp（旧 2 + 新 1），历史不丢。"""
+        store = CanonicalStoreImpl(str(tmp_stores.data_dir))
+        partition, year_dir = self._seed(store)
+        batch = [
+            _make_ohlcv_record(
+                market_id="BINANCE:BTCCCCCUSDT:SPOT", event_time=self.base_time
+            )
+        ]
+        self._simulate_power_loss(monkeypatch, batch, store)
+
+        assert not partition.exists()
+        assert len(list(year_dir.glob(".old-month=09-*"))) == 1
+        assert len(list(year_dir.glob(".tmp-month=09-*"))) == 1
+
+        # 生产启动护栏（3600s）不应阻止崩溃恢复的前滚
+        cleanup_orphans(str(tmp_stores.data_dir), min_age_seconds=3600.0)
+
+        assert partition.exists()
+        assert _read_parquet_rows(partition) == 3
+        assert not list(year_dir.glob(".old-*"))
+        assert not list(year_dir.glob(".tmp-*"))
+        assert not (partition / "._commit").exists()
+
+    def test_missing_target_with_only_backup_then_cleanup_rolls_back(
+        self, tmp_stores
+    ) -> None:
+        """Given 崩溃只留下 .old-* 备份 When 启动清理 Then 回滚旧数据。"""
+        store = CanonicalStoreImpl(str(tmp_stores.data_dir))
+        partition, year_dir = self._seed(store)
+        backup = year_dir / ".old-month=09-deadbeef"
+        partition.rename(backup)
+        assert not partition.exists()
+
+        cleanup_orphans(str(tmp_stores.data_dir))
+
+        assert partition.exists()
+        assert _read_parquet_rows(partition) == 2
+        assert not list(year_dir.glob(".old-*"))
+
+    def test_uncommitted_tmp_not_promoted_over_backup(self, tmp_stores) -> None:
+        """Given 半成品 .tmp-*（无提交标记）+ .old-* When 启动清理
+        Then 回滚 .old-*，绝不把截断文件当成新分区。"""
+        store = CanonicalStoreImpl(str(tmp_stores.data_dir))
+        partition, year_dir = self._seed(store)
+        backup = year_dir / ".old-month=09-cafebabe"
+        partition.rename(backup)
+        partial = year_dir / ".tmp-month=09-partial"
+        partial.mkdir()
+        (partial / "part-0001.parquet").write_text("truncated")
+
+        cleanup_orphans(str(tmp_stores.data_dir))
+
+        assert partition.exists()
+        assert _read_parquet_rows(partition) == 2
+        assert not partial.exists()
+        assert not backup.exists()
+
+    def test_next_upsert_self_heals_without_startup_cleanup(
+        self, tmp_stores, monkeypatch
+    ) -> None:
+        """Given 崩溃残留（未跑启动清理）When 下次 upsert
+        Then 先自愈再合并，旧 2 + 崩溃批次 1 + 新 1 = 4 行。"""
+        store = CanonicalStoreImpl(str(tmp_stores.data_dir))
+        partition, year_dir = self._seed(store)
+        crashed = [
+            _make_ohlcv_record(
+                market_id="BINANCE:BTCCCCCUSDT:SPOT", event_time=self.base_time
+            )
+        ]
+        self._simulate_power_loss(monkeypatch, crashed, store)
+        assert not partition.exists()
+
+        fresh = [
+            _make_ohlcv_record(
+                market_id="BINANCE:BTCDDDDUSDT:SPOT", event_time=self.base_time
+            )
+        ]
+        store.upsert(fresh, CanonicalType.OHLCV, "BTC")
+
+        assert partition.exists()
+        assert _read_parquet_rows(partition) == 4
+        assert not list(year_dir.glob(".old-*"))
+        assert not list(year_dir.glob(".tmp-*"))
+
+    def test_normal_path_leaves_no_marker_or_orphans(self, tmp_stores) -> None:
+        """正常路径：新分区正确合并、无提交标记/孤儿残留。"""
+        store = CanonicalStoreImpl(str(tmp_stores.data_dir))
+        partition, year_dir = self._seed(store)
+        store.upsert(
+            [_make_ohlcv_record(
+                market_id="BINANCE:BTCCCCCUSDT:SPOT", event_time=self.base_time
+            )],
+            CanonicalType.OHLCV,
+            "BTC",
+        )
+
+        assert _read_parquet_rows(partition) == 3
+        assert not (partition / "._commit").exists()
+        assert not list(year_dir.glob(".old-*"))
+        assert not list(year_dir.glob(".tmp-*"))
+
+    def test_concurrent_writes_to_distinct_partitions_do_not_interfere(
+        self, tmp_stores
+    ) -> None:
+        """并发 rename 到不同分区：互不破坏、无孤儿泄漏。"""
+        data_dir = str(tmp_stores.data_dir)
+        errors: list[Exception] = []
+        done: list[str] = []
+
+        def worker(entity: str, tag: str) -> None:
+            try:
+                store = CanonicalStoreImpl(data_dir)
+                records = [
+                    _make_ohlcv_record(
+                        market_id=f"BINANCE:BTC{tag}{i}USDT:SPOT",
+                        event_time=self.base_time,
+                    )
+                    for i in range(3)
+                ]
+                store.upsert(records, CanonicalType.OHLCV, entity)
+                done.append(entity)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [
+            Thread(target=worker, args=(f"E{i}", f"S{i}")) for i in range(4)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors
+        assert sorted(done) == ["E0", "E1", "E2", "E3"]
+        base = tmp_stores.data_dir / "canonical" / "OHLCV"
+        for i in range(4):
+            partitions = _list_partition_dirs(base / f"entity=E{i}")
+            assert len(partitions) == 1
+            assert _read_parquet_rows(partitions[0]) == 3
+            assert not list(partitions[0].parent.glob(".old-*"))
+            assert not list(partitions[0].parent.glob(".tmp-*"))
 
 
 # ── Boundary: Empty Partition First Write ───────────────────────────────
