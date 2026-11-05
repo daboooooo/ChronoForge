@@ -884,6 +884,37 @@ class TestFetch:
 # ── GWT: Given submissions fixture When normalize Then FILING 记录数 ─
 
 
+class TestFetchToNormalize:
+    """companyfacts 真实四层 facts → fetch → normalize 全链路。"""
+
+    def test_companyfacts_fixture_e2e(self) -> None:
+        fixture = _load_companyfacts_fixture("happy.json")
+        conn, _ = _create_mock_connector(fixture)
+
+        request = FetchRequest(
+            dataset_id="test",
+            params={"cik": "320193", "data_type": "fundamental"},
+            start=None,
+            end=None,
+            cursor=None,
+        )
+        batches = list(conn.fetch(request))
+        assert len(batches) == 1
+        assert "companyfacts" in batches[0].endpoint
+        assert batches[0].raw_meta["cik"] == "0000320193"
+
+        records = conn.normalize(batches[0])
+        assert len(records) == 5
+        assets = next(
+            r for r in records
+            if r.concept == "Assets" and r.observation_time.date() == date(2024, 9, 28)
+        )
+        assert assets.taxon == "us-gaap"
+        assert assets.unit == "USD"
+        assert assets.value == pytest.approx(364980000000.0)
+        conn.close()
+
+
 class TestGWT:
     """Given-When-Then 验收测试。"""
 

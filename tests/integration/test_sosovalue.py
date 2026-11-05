@@ -298,6 +298,25 @@ class TestFetch:
 # ── 错误映射 ───────────────────────────────────────────────────────────
 
 
+class TestFetchToNormalize:
+    def test_fetch_to_normalize_e2e(self) -> None:
+        """真实形状 fixture → fetch → normalize：行数与关键字段。"""
+        conn, _ = _create_mock_connector(
+            _mock_response(200, _load_fixture("summary_history.json"))
+        )
+        batches = list(conn.fetch(_summary_request()))
+        assert len(batches) == 1
+
+        records = conn.normalize(batches[0])
+        # 2026-09-24 为 T+0 null 行 → 跳过；剩 09-23 与 09-22
+        assert len(records) == 2
+        assert records[0].source_id == "etf_us_btc_summary_total_net_inflow"
+        assert records[0].observation_time == datetime(2026, 9, 23)
+        assert records[0].value == 346900000.0
+        assert records[-1].value == 1234567.89
+        conn.close()
+
+
 class TestErrorMapping:
     """_request() 错误映射（HTTP 200 + body code 非 0 风格）。"""
 

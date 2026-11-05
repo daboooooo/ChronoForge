@@ -922,6 +922,32 @@ class TestFetch:
         assert batches[0].payload == obs_data
         conn.close()
 
+    def test_fetch_to_normalize_e2e(self) -> None:
+        """真实 observations fixture → fetch → normalize：行数/日期/数值。"""
+        obs_data = _load_fixture("happy.json")
+        conn, _ = _create_mock_connector(obs_data)
+
+        request = FetchRequest(
+            dataset_id="fred:UNRATE",
+            params={"series_id": "UNRATE"},
+            start=datetime(2023, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+            end=datetime(2023, 3, 31, tzinfo=UTC).replace(tzinfo=None),
+            cursor=None,
+        )
+
+        batches = list(conn.fetch(request))
+        assert len(batches) == 1
+        assert batches[0].raw_meta["series_id"] == "UNRATE"
+
+        records = conn.normalize(batches[0])
+        assert len(records) == 3
+        assert records[0].observation_time == datetime(2023, 1, 1)
+        assert records[0].value == pytest.approx(3.4)
+        assert records[-1].observation_time == datetime(2023, 3, 1)
+        assert records[-1].value == pytest.approx(3.5)
+        assert all(record.source_id == "UNRATE" for record in records)
+        conn.close()
+
     def test_fetch_with_observation_window(self) -> None:
         """fetch 应正确传递 observation_start/end。"""
         obs_data = _load_fixture("happy.json")

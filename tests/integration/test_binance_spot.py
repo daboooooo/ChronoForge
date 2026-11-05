@@ -20,6 +20,7 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
+from structlog.testing import capture_logs
 
 from chronoforge.connectors.base import (
     CapabilityMatrix,
@@ -227,6 +228,22 @@ class TestNormalizeKlines:
         assert first.volume == pytest.approx(148976.11427815, rel=1e-6)
 
         conn.close()
+
+    def test_normalize_klines_malformed_row_skips_with_warning(self) -> None:
+        """缺字段的 kline 行 → 0 行且记录 connector.normalize_skip。"""
+        conn, _ = _create_mock_connector()
+        with capture_logs() as logs:
+            records = conn.normalize(RawBatch(
+                endpoint="/api/v3/klines",
+                payload=[[1, "2", "3"]],
+                raw_meta={"interval": "1d"},
+            ))
+        assert records == []
+        assert any(
+            entry["event"] == "connector.normalize_skip"
+            and entry.get("reason") == "malformed_row"
+            for entry in logs
+        )
 
     def test_normalize_klines_empty_array(self) -> None:
         """Given empty klines When normalize Then 0 records."""
@@ -1243,4 +1260,14 @@ class TestGWT:
         # Page 1 has 2 rows, page 2 has 1 row = total 3
         assert len(all_records) == 3
         assert all(isinstance(r, OHLCV) for r in all_records)
+        # 关键字段：时间/OHLCV 与 fixture 值一致
+        first = all_records[0]
+        expected_ts = datetime.fromtimestamp(
+            1499040000000 / 1000, tz=UTC
+        ).replace(tzinfo=None)
+        assert first.event_time == expected_ts
+        assert first.open == pytest.approx(0.01634790, rel=1e-6)
+        assert first.close == pytest.approx(0.01577100, rel=1e-6)
+        assert first.volume == pytest.approx(148976.11427815, rel=1e-6)
+        assert all_records[-1].market_id == "BINANCE:BTCUSDT:SPOT"
         conn.close()

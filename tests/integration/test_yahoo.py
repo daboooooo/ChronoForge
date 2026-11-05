@@ -336,8 +336,76 @@ class TestTimestampPrecision:
 # ── 边界：空结果 ──────────────────────────────────────────────────────
 
 
+class TestFetchToNormalize:
+    """真实 v8 形状 → fetch → normalize 全链路。"""
+
+    def test_e2e_indicators_quote_path(self) -> None:
+        """fixture 的 indicators.quote[0] 路径被 fetch/normalize 正确消费。"""
+        payload = _load_fixture("happy.json")
+        conn, _, _ = _create_mock_connector(payload)
+        request = FetchRequest(
+            dataset_id="yahoo:AAPL",
+            params={"symbol": "AAPL", "interval": "1d"},
+            start=datetime(2023, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+            end=datetime(2023, 1, 6, tzinfo=UTC).replace(tzinfo=None),
+            cursor=None,
+        )
+        batches = list(conn.fetch(request))
+        assert len(batches) == 1
+        assert batches[0].raw_meta["symbol"] == "AAPL"
+
+        records = conn.normalize(batches[0])
+        assert len(records) == 5
+        first = records[0]
+        assert first.event_time == datetime.fromtimestamp(
+            1672531200, tz=UTC
+        ).replace(tzinfo=None)
+        assert first.open == pytest.approx(130.15)
+        assert first.high == pytest.approx(130.9)
+        assert first.close == pytest.approx(130.73)
+        assert first.volume == pytest.approx(89113600.0)
+        conn.close()
+
+    def test_e2e_split_fixture_uses_real_path(self) -> None:
+        """split fixture（真实 indicators 路径）仍能产出 4 条 OHLCV。"""
+        payload = _load_fixture("split.json")
+        conn, _, _ = _create_mock_connector(payload)
+        request = FetchRequest(
+            dataset_id="yahoo:AAPL",
+            params={"symbol": "AAPL", "interval": "1d"},
+            start=datetime(2023, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+            end=datetime(2023, 1, 5, tzinfo=UTC).replace(tzinfo=None),
+            cursor=None,
+        )
+        batches = list(conn.fetch(request))
+        records = conn.normalize(batches[0])
+        assert len(records) == 4
+        assert records[0].close == pytest.approx(130.73)
+        conn.close()
+
+
 class TestEdgeCases:
     """边界条件测试。"""
+
+    def test_result_without_indicators_quote_returns_zero(self) -> None:
+        """非空 result 但缺 indicators.quote → 0 行（不崩、不误报）。"""
+        payload = {
+            "chart": {
+                "result": [{
+                    "meta": {"symbol": "AAPL"},
+                    "timestamp": [1672531200],
+                }],
+                "error": None,
+            }
+        }
+        conn, _, _ = _create_mock_connector(payload)
+        raw = RawBatch(
+            endpoint="/v8/finance/chart",
+            payload=payload,
+            raw_meta={"symbol": "AAPL", "interval": "1d"},
+        )
+        records = conn.normalize(raw)
+        assert records == []
 
     def test_empty_result_returns_zero_records(self) -> None:
         """Given empty chart When normalize Then 0 行记录。"""

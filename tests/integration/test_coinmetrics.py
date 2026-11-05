@@ -219,6 +219,24 @@ class TestFetch:
 # ── 错误映射 ───────────────────────────────────────────────────────────
 
 
+class TestFetchToNormalize:
+    def test_fetch_to_normalize_e2e(self) -> None:
+        """真实形状 fixture → fetch → normalize：4 行 + 数值/时间语义。"""
+        conn, _ = _create_mock_connector(
+            _mock_response(200, _load_fixture("usdt_supply.json"))
+        )
+        batches = list(conn.fetch(_request()))
+        assert len(batches) == 1
+
+        records = conn.normalize(batches[0])
+        assert len(records) == 4
+        assert records[-1].source_id == "usdt_SplyCur"
+        assert records[-1].observation_time == datetime(2026, 9, 23)
+        assert records[-1].value == 188936405720.293841
+        assert records[-1].release_time == datetime(2026, 9, 24)
+        conn.close()
+
+
 class TestErrorMapping:
     def test_http_429_retry_after_header(self) -> None:
         conn, _ = _create_mock_connector(

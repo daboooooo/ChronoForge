@@ -833,6 +833,42 @@ class TestGWT:
         assert int(params["startTime"]) == 1672473600001
         conn.close()
 
+    def test_e2e_funding_fixture_fetch_normalize(self) -> None:
+        """真实 fundingRate fixture → fetch → normalize：行数/标识/数值。"""
+        payload = _load_fixture("fundingRate/happy.json")
+        resp1 = _mock_response(
+            status_code=200, json_data=payload,
+            url="https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT",
+        )
+        resp2 = _mock_response(
+            status_code=200, json_data=[],
+            url="https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&startTime=1672444800001",
+        )
+        mock_client = _mock_client([resp1, resp2])
+
+        conn, _ = _create_mock_connector()
+        conn._client = mock_client
+        request = FetchRequest(
+            dataset_id="test",
+            params={"symbol": "BTCUSDT", "data_type": "funding"},
+            start=None,
+            end=None,
+            cursor=None,
+        )
+        batches = list(conn.fetch(request))
+        assert len(batches) == 1
+
+        records = conn.normalize(batches[0])
+        assert len(records) == 2
+        first = records[0]
+        assert first.market_id == "BINANCE:BTCUSDT:USDT-FUT"
+        assert first.event_time == datetime.fromtimestamp(
+            1672444800000 / 1000, tz=UTC
+        ).replace(tzinfo=None)
+        assert first.funding_rate == pytest.approx(0.00001000, rel=1e-6)
+        assert records[1].funding_rate == pytest.approx(0.00000800, rel=1e-6)
+        conn.close()
+
     def test_gwt_oi_snapshot_correct_market_id(self) -> None:
         """GWT: Given OI 快照 When normalize Then OPEN_INTEREST 记录含 correct market_id."""
         payload = {

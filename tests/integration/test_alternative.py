@@ -170,6 +170,24 @@ class TestFetch:
 # ── 错误映射 ───────────────────────────────────────────────────────────
 
 
+class TestFetchToNormalize:
+    def test_fetch_to_normalize_e2e(self) -> None:
+        """真实形状 fixture → fetch → normalize：未冻结行跳过，余 4 行。"""
+        conn, _ = _create_mock_connector(
+            _mock_response(200, _load_fixture("fng.json"))
+        )
+        batches = list(conn.fetch(_request()))
+        assert len(batches) == 1
+
+        records = conn.normalize(batches[0])
+        assert len(records) == 3
+        assert records[-1].source_id == "fng_btc"
+        assert records[-1].observation_time == datetime(2026, 9, 23)
+        assert records[-1].value == 55.0
+        assert records[-1].release_time == datetime(2026, 9, 24)
+        conn.close()
+
+
 class TestErrorMapping:
     def test_http_429_retry_after_header(self) -> None:
         conn, _ = _create_mock_connector(

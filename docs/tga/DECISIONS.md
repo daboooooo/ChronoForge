@@ -14,7 +14,7 @@
 | D-TGA-07 | 全链路 `release_time` 点时账本；历史回填标 `ESTIMATED` | 已落地（Connector） |
 | D-TGA-08 | P0 默认事件驱动 + 季节性基准；统计模型需样本外胜出 | 已采纳 |
 | D-TGA-09 | 不新增系统服务，接入现有前台调度循环 | 已采纳（调度方式确定；`scripts/tga_daily.py` 仍待 Phase 6） |
-| D-TGA-10 | 税收日历用年度人工复核 YAML + 历史税峰校验 | 已落地（`config/tga/calendar.yaml` 的 `tax_events` / `refund_season_months`） |
+| D-TGA-10 | 税收日历用年度人工复核 YAML + 历史税峰校验 | 已落地（`config/tga/calendar.yaml` 的 `tax_events` / `monthly_events`；退税季无月份窗口配置，REFUND 走运行率/同月率基线） |
 | D-TGA-11 | 情景只作用于预测类现金流，不调整已知现金流 | 已采纳 |
 | D-TGA-12 | 不确定性来自 Walk-forward 残差分位数 | 已采纳 |
 | D-TGA-13 | `src` 只承载数据基础设施，TGA 业务逻辑只放 `scripts` | 已采纳（`test_tga_boundaries.py` 守卫） |

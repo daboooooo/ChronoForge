@@ -508,6 +508,14 @@ class TestFetchOHLCVPagination:
         timestamps = [r.event_time for r in all_records]
         # No duplicates
         assert len(timestamps) == len(set(timestamps))
+        # 6 元素页 + 7 元素页混合 → 行数与关键字段均正确
+        assert len(all_records) == 3
+        assert all_records[0].close == pytest.approx(16580.10)
+        assert all_records[-1].event_time == datetime.fromtimestamp(
+            1672452000000 / 1000, tz=UTC
+        ).replace(tzinfo=None)
+        assert all_records[-1].close == pytest.approx(16620.00)
+        assert all_records[-1].volume == pytest.approx(800.0)
         conn.close()
 
 
