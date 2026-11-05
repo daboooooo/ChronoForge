@@ -30,7 +30,7 @@ def run(records, canonical_type, *, context: GapContext | None) -> QualityReport
 | Q-DUP-001 | ALL | natural key 在批次内重复（应被 upsert 合并，残留即异常） | ERROR |
 | Q-SEQ-001 | TRADE | aggTrades 归集序列对账（审计 F-05）：窗口内相邻记录 prev.last_id+1 == curr.first_id；跳号=漏单或归集边界 → 标记不阻断（silent loss 防线） | WARNING |
 | Q-DRIFT-001 | 非 revision 全类型 | 同 natural key 值列漂移（merge-rewrite 前检测，D03 §3）：旧/新值 digest 随 finding；禁止静默覆盖（审计 F-04） | WARNING |
-| Q-GAP-001 | OHLCV | 网格连续性按 dataset 的 continuity_model 判定（审计 F-06）：ALWAYS_OPEN→全网格；TRADING_CALENDAR→剔除非交易日（P0 内置简化日历：周末+固定节假日，无第三方依赖；正式日历库 P1 评估）→ 非交易日缺失标 **EXPECTED_GAP**（INFO）；交易日缺失=Unexpected Gap（WARNING）→ 缺失区间列表 | INFO / WARNING（按 gap 类型） |
+| Q-GAP-001 | OHLCV | 网格连续性按 dataset 的 continuity_model 判定（审计 F-06）：ALWAYS_OPEN→全网格；TRADING_CALENDAR→剔除非交易日（P0 配置化假日表：按年份显式列出 2026–2027 NYSE 假日与早闭日，浮动假日/observed 规则已落到日期；查询未配置年份显式 `ConfigError`，不做规则推算兜底；正式日历库 P1 评估）→ 非交易日缺失标 **EXPECTED_GAP**（INFO）；交易日缺失=Unexpected Gap（WARNING）→ 缺失区间列表 | INFO / WARNING（按 gap 类型） |
 | Q-GAP-002 | LIQ_AGG/NUMBER | 与 frequency 声明对比缺行 | INFO |
 | Q-RANGE-001 | OHLCV | high≥max(o,c) 或 low≤min(o,c) 违反；volume<0；NaN/Inf（isfinite 显式拒绝，审计 F-15） | ERROR |
 | Q-RANGE-002 | IV | iv∉[0,5]；probability∉[0,1] | ERROR |

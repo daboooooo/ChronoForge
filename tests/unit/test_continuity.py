@@ -14,8 +14,10 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
+from chronoforge.exceptions import ConfigError
 from chronoforge.quality.calendar import (
-    US_MARKET_HOLIDAYS,
+    EARLY_CLOSINGS,
+    MarketCalendar,
     is_trading_day,
 )
 from chronoforge.quality.continuity import (
@@ -30,98 +32,127 @@ from chronoforge.quality.continuity import (
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
+# 2026/2027 NYSE 实际全日休市日（按年份显式配置，M9）
+NYSE_HOLIDAYS_2026 = [
+    date(2026, 1, 1),
+    date(2026, 1, 19),   # MLK
+    date(2026, 2, 16),   # Presidents' Day
+    date(2026, 4, 3),    # Good Friday
+    date(2026, 5, 25),   # Memorial Day
+    date(2026, 6, 19),   # Juneteenth
+    date(2026, 7, 3),    # Independence Day observed
+    date(2026, 9, 7),    # Labor Day
+    date(2026, 11, 26),  # Thanksgiving
+    date(2026, 12, 25),  # Christmas
+]
+
+NYSE_HOLIDAYS_2027 = [
+    date(2027, 1, 1),
+    date(2027, 1, 18),   # MLK
+    date(2027, 2, 15),   # Presidents' Day
+    date(2027, 3, 26),   # Good Friday
+    date(2027, 5, 31),   # Memorial Day
+    date(2027, 6, 18),   # Juneteenth observed
+    date(2027, 7, 5),    # Independence Day observed
+    date(2027, 9, 6),    # Labor Day
+    date(2027, 11, 25),  # Thanksgiving
+    date(2027, 12, 24),  # Christmas observed
+]
+
+NYSE_EARLY_CLOSINGS = [
+    date(2026, 11, 27),
+    date(2026, 12, 24),
+    date(2027, 11, 26),
+    date(2027, 12, 23),
+]
+
+
 class TestIsTradingDay:
-    """TC-Q-007：简化交易日历判定。"""
+    """TC-Q-007：配置化交易日历判定。"""
 
     def test_weekend_saturday(self):
         """周六 → False。"""
-        # 2026-09-12 是周六
         assert is_trading_day(date(2026, 9, 12)) is False
 
     def test_weekend_sunday(self):
         """周日 → False。"""
-        # 2026-09-13 是周日
         assert is_trading_day(date(2026, 9, 13)) is False
 
     def test_weekday_trading_day(self):
         """普通工作日 → True。"""
-        # 2026-09-14 是周一
         assert is_trading_day(date(2026, 9, 14)) is True
 
-    def test_new_year_holiday(self):
-        """新年（1/1）→ False。"""
-        assert is_trading_day(date(2026, 1, 1)) is False
+    @pytest.mark.parametrize("d", NYSE_HOLIDAYS_2026)
+    def test_us_holidays_2026_non_trading(self, d: date):
+        """2026 实际假日 → 非交易日（含浮动假日与 observed 规则）。"""
+        assert is_trading_day(d) is False, f"Expected holiday {d} to be non-trading"
 
-    def test_christmas_holiday(self):
-        """圣诞节（12/25）→ False。"""
-        assert is_trading_day(date(2026, 12, 25)) is False
+    @pytest.mark.parametrize("d", NYSE_HOLIDAYS_2027)
+    def test_us_holidays_2027_non_trading(self, d: date):
+        """2027 实际假日 → 非交易日（M9：跨年份不再失效）。"""
+        assert is_trading_day(d) is False, f"Expected holiday {d} to be non-trading"
 
-    def test_independence_day_holiday(self):
-        """独立日（7/4）→ False。"""
-        assert is_trading_day(date(2026, 7, 4)) is False
-
-    def test_early_closing_day(self):
-        """早闭日（2026-07-03）→ True。"""
-        assert is_trading_day(date(2026, 7, 3)) is True
+    @pytest.mark.parametrize("d", NYSE_EARLY_CLOSINGS)
+    def test_early_closings_are_trading_days(self, d: date):
+        """早闭日仍是交易日（不是全日休市）。"""
+        assert is_trading_day(d) is True, f"Expected early close {d} to be trading"
 
     def test_early_closing_not_in_list(self):
         """非早闭日的工作日 → True。"""
         assert is_trading_day(date(2026, 7, 2)) is True
 
-    def test_presidents_day(self):
-        """总统日（2/14 简化）→ False。"""
-        assert is_trading_day(date(2026, 2, 14)) is False
+    def test_holiday_falling_on_weekday(self):
+        """节假日落在工作日 → 非交易日（不是周末）。"""
+        jan1 = date(2026, 1, 1)
+        assert jan1.weekday() == 3
+        assert is_trading_day(jan1) is False
 
-    def test_labor_day(self):
-        """劳动节（9/7 简化）→ False。"""
-        assert is_trading_day(date(2026, 9, 7)) is False
+    def test_thanksgiving_falls_on_weekday(self):
+        """感恩节 2026-11-26 是周四（工作日）。"""
+        thanksgiving = date(2026, 11, 26)
+        assert thanksgiving.weekday() == 3
+        assert is_trading_day(thanksgiving) is False
 
-    def test_thanksgiving(self):
-        """感恩节（11/27 简化）→ False。"""
-        assert is_trading_day(date(2026, 11, 27)) is False
+    @pytest.mark.parametrize("d", [date(2028, 1, 3), date(2025, 12, 31)])
+    def test_unknown_year_raises(self, d: date):
+        """超出已配置年份 → 显式 ConfigError（不做规则推算兜底）。"""
+        with pytest.raises(ConfigError, match="2026, 2027"):
+            is_trading_day(d)
+
+    def test_early_closings_table(self):
+        """HOLIDAY 与早闭表分离：早闭日不全是假日（M9 修复 7/3、7/5、12/24 误标）。"""
+        assert set(EARLY_CLOSINGS) == set(NYSE_EARLY_CLOSINGS)
+        assert all(is_trading_day(d) for d in EARLY_CLOSINGS)
+
+    def test_calendar_is_configurable(self):
+        """假日表可按年份外置配置（新增年份仅需显式补表）。"""
+        calendar = MarketCalendar(
+            holidays_by_year={2030: frozenset({date(2030, 7, 4)})}
+        )
+        assert calendar.is_trading_day(date(2030, 7, 4)) is False
+        assert calendar.is_trading_day(date(2030, 7, 5)) is True
+        with pytest.raises(ConfigError, match="2030"):
+            calendar.is_trading_day(date(2031, 1, 1))
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 2026 全日历遍历（闰年 + 节假日矩阵）
+# 全日历遍历（周末矩阵）
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-class TestCalendarMatrix2026:
-    """闰日/节假日/周末矩阵：2026 年全日历遍历验证。"""
+class TestCalendarMatrix:
+    """周末矩阵：2026/2027 全日历遍历验证。"""
 
-    def test_all_weekends_2026_non_trading(self):
-        """2026 年所有周六周日 → 非交易日。"""
-        d = date(2026, 1, 1)
-        end = date(2026, 12, 31)
+    @pytest.mark.parametrize("year", [2026, 2027])
+    def test_all_weekends_non_trading(self, year: int):
+        """全年所有周六周日 → 非交易日。"""
+        d = date(year, 1, 1)
+        end = date(year, 12, 31)
         while d <= end:
             if d.weekday() >= 5:
                 assert is_trading_day(d) is False, f"Expected weekend {d} to be non-trading"
             d += timedelta(days=1)
 
-    def test_all_us_holidays_2026_non_trading(self):
-        """2026 年所有 US_MARKET_HOLIDAYS → 非交易日。"""
-        for month, day in US_MARKET_HOLIDAYS:
-            d = date(2026, month, day)
-            assert is_trading_day(d) is False, f"Expected holiday {d} to be non-trading"
-
-    def test_all_early_closings_2026_trading(self):
-        """2026 年所有 EARLY_CLOSINGS → 交易日。"""
-        # 2026 年仅 7/3 是早闭日
-        ec = date(2026, 7, 3)
-        assert is_trading_day(ec) is True
-
-    def test_holiday_falling_on_weekday(self):
-        """节假日落在工作日 → 非交易日（不是周末）。"""
-        # 2026-01-01 是周四（工作日）
-        jan1 = date(2026, 1, 1)
-        assert jan1.weekday() == 3  # 验证周四
-        assert is_trading_day(jan1) is False
-
-    def test_thanksgiving_falls_on_weekday(self):
-        """感恩节 2026-11-27 是周五（工作日）。"""
-        thanksgiving = date(2026, 11, 27)
-        assert thanksgiving.weekday() == 4  # 验证周五
-        assert is_trading_day(thanksgiving) is False
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -271,21 +302,21 @@ class TestExpectedGridTradingCalendar:
         assert expected_gaps[0][0].date() == date(2026, 1, 3)  # 周六开始
 
     def test_trading_calendar_consecutive_non_trading(self):
-        """感恩节(11/27, 周五) + 周末 → 连续 EXPECTED_GAP。"""
-        start = datetime(2026, 11, 25, tzinfo=UTC)  # 周三
-        end = datetime(2026, 11, 30, tzinfo=UTC)    # 周一
+        """圣诞节(12/25, 周五) + 周末 → 连续 EXPECTED_GAP。"""
+        start = datetime(2026, 12, 23, tzinfo=UTC)  # 周三
+        end = datetime(2026, 12, 28, tzinfo=UTC)    # 周一
         grid = expected_grid("TEST", "1d", ContinuityModel.TRADING_CALENDAR, start, end)
 
-        # 11/25(Wed, REGULAR), 11/26(Thu, REGULAR)
-        # 11/27(Fri, 感恩节, EXPECTED_GAP), 11/28-29(Sat-Sun, EXPECTED_GAP)
-        # 11/30(Mon, REGULAR)
+        # 12/23(Wed, REGULAR), 12/24(Thu, 早闭, REGULAR)
+        # 12/25(Fri, 圣诞节, EXPECTED_GAP), 12/26-27(Sat-Sun, EXPECTED_GAP)
+        # 12/28(Mon, REGULAR)
         expected_gaps = [e for e in grid if e[2] == "EXPECTED_GAP"]
         assert len(expected_gaps) == 1
-        # 感恩节 + 周末合并为一个 EXPECTED_GAP
+        # 圣诞节 + 周末合并为一个 EXPECTED_GAP
         gap_start = expected_gaps[0][0].date()
         gap_end = expected_gaps[0][1].date()
-        assert gap_start == date(2026, 11, 27)  # 感恩节开始
-        assert gap_end == date(2026, 11, 30)    # 周一前
+        assert gap_start == date(2026, 12, 25)  # 圣诞节开始
+        assert gap_end == date(2026, 12, 28)    # 周一前
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -317,8 +348,7 @@ class TestBoundaryConditions:
     """边界：年末感恩节固定表、2/29（闰年）。"""
 
     def test_year_end_thanksgiving(self):
-        """年末感恩节(11/27)附近 → EXPECTED_GAP 正确。"""
-        # 感恩节后一周：11/27(周五) 感恩节
+        """年末感恩节(11/26, 周四) → EXPECTED_GAP 正确。"""
         start = datetime(2026, 11, 23, tzinfo=UTC)  # 周一
         end = datetime(2026, 12, 1, tzinfo=UTC)     # 周二
         grid = expected_grid("TEST", "1d", ContinuityModel.TRADING_CALENDAR, start, end)
@@ -326,7 +356,7 @@ class TestBoundaryConditions:
         expected_gaps = [e for e in grid if e[2] == "EXPECTED_GAP"]
 
         assert len(expected_gaps) >= 1
-        # 感恩节(11/27) + 周末(11/28-29) 应合并为 EXPECTED_GAP
+        # 感恩节(11/26) 单独成段；周末(11/28-29) 另成段（11/27 为交易日）
         for gap in expected_gaps:
             gap_dates = set()
             current = gap[0].date()
@@ -334,7 +364,10 @@ class TestBoundaryConditions:
             while current <= end_d:
                 gap_dates.add(current)
                 current += timedelta(days=1)
-            assert date(2026, 11, 27) in gap_dates  # 感恩节在内
+            if date(2026, 11, 26) in gap_dates:  # 感恩节在内
+                break
+        else:
+            raise AssertionError("Thanksgiving 2026-11-26 not covered by EXPECTED_GAP")
 
     def test_february_29_leap_year(self):
         """2026 不是闰年，2/29 不存在 → 验证日历无异常。"""
