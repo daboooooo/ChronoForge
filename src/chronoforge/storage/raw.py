@@ -132,8 +132,11 @@ class RawStore:
             # 检查是否超出单文件行数限制
             if handle.line_count < self._MAX_LINES:
                 return handle
-            # 滚动新建文件：关闭旧常驻句柄
+            # 滚动新建文件：先持久化旧句柄（本批可能已有未 fsync 行），
+            # 再关闭；否则 close 后行仅停留在 page cache，append 返回后
+            # 崩溃即丢行，违反 durable 契约（审计 M1）
             if handle.file_obj is not None:
+                self._sync_handle(handle)
                 try:
                     handle.file_obj.close()
                 except OSError as e:

@@ -816,6 +816,27 @@ class TestBatchFsync:
         store.append("src", "ds", batches)
         assert len(calls) == 2
 
+    def test_rollover_fsyncs_full_handle_before_close(
+        self, tmp_stores, monkeypatch
+    ) -> None:
+        """Given 单文件上限=2 行 When 一次 append 4 行触发滚动 Then fsync 2 次。
+
+        修复前滚动直接 close 旧句柄（未 fsync）：本批写入旧文件的行只到
+        OS page cache，append 返回后崩溃可丢行，违反 M1 durable 契约。
+        """
+        calls = self._count_fsync(monkeypatch)
+        monkeypatch.setattr(RawStore, "_MAX_LINES", 2)
+        store = RawStore(str(tmp_stores.data_dir))
+
+        now = datetime(2026, 9, 11, 12, 0, 0)
+        batches = [
+            _make_batch(fetched_at=now, ingest_timestamp=now, payload=f"item_{i}".encode())
+            for i in range(4)
+        ]
+        store.append("src", "ds", batches)
+        # 旧句柄滚动前 1 次 + 新句柄调用边界 1 次
+        assert len(calls) == 2
+
     def test_fsync_every_n_intermediate_points(self, tmp_stores, monkeypatch) -> None:
         """Given fsync_every_n=10 When 一次 append 25 行 Then fsync 3 次
         （第 10/20 行中间点 + 调用边界收尾），durable boundary = 25 行。"""
@@ -925,8 +946,12 @@ class TestBatchFsync:
         assert [r.line_no for r in read_refs] == [1, 2]
 
     def test_throughput_fsync_count_order_of_magnitude(self, tmp_stores, monkeypatch) -> None:
-        """吞吐治理（SR-09 数量级验证）：20 万行单次 append 仅 1 次 fsync
-        （逐行 fsync 基线为 20 万次，≥5 个数量级削减）；墙钟 sanity < 60s。"""
+        """吞吐治理（SR-09 数量级验证）：20 万行单次 append 仅 20 次 fsync
+        （逐行 fsync 基线为 20 万次，≥4 个数量级削减）；墙钟 sanity < 60s。
+
+        M1 修复后滚动切文件前必须 fsync 旧句柄：200k 行 / 10k 上限 =
+        19 次滚动 + 1 次调用边界 = 20 次（仍有界，非逐行）。
+        """
         calls = self._count_fsync(monkeypatch)
         store = RawStore(str(tmp_stores.data_dir))
 
@@ -941,5 +966,5 @@ class TestBatchFsync:
         elapsed = time.perf_counter() - t0
 
         assert len(refs) == 200_000
-        assert len(calls) == 1
+        assert len(calls) == 20
         assert elapsed < 60
