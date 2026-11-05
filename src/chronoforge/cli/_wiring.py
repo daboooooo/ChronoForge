@@ -237,6 +237,19 @@ def _register_and_reopen(
             register_views(con_write, data_dir)
             con_write.close()
             break
+
+    # 注册完成并释放写锁后，并发的另一进程可能立即抢到写锁：此时
+    # read_only 重开同样会抛 "Could not set lock"。复用同一退避 + 只读
+    # 复探（视图已齐全），避免 IOException 冒泡为 CLI 退出码 1（审计 A-9）。
+    delay = _WRITE_OPEN_BACKOFF_S
+    for attempt in range(1, _WRITE_OPEN_ATTEMPTS + 1):
+        con_ro = _open_ready_readonly(catalog_path, data_dir)
+        if con_ro is not None:
+            return con_ro
+        if attempt == _WRITE_OPEN_ATTEMPTS:
+            break
+        time.sleep(delay)
+        delay *= 2
     return duckdb.connect(str(catalog_path), read_only=True)
 
 
