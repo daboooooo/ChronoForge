@@ -61,7 +61,10 @@ def _fetch_chart(self, symbol: str, start: int, end: int, interval: str) -> RawB
     self.rate_limiter.acquire(1)
 
     if response.status_code == 429:
-        raise RateLimitError("Yahoo rate limited", retry_after=60)  # 保守退避
+        # Retry-After 优先（秒/HTTP-date），缺失或非法回退 60s 保守值
+        retry_after = _parse_retry_after(response.headers)
+        self.rate_limiter.on_rate_limited(retry_after)
+        raise RateLimitError("Yahoo rate limited", retry_after=retry_after)
     if response.status_code == 404 or (response.json().get("chart") and not response.json()["chart"].get("result")):
         return RawBatch(endpoint="/v8/finance/chart", payload={"error": "no data"}, raw_meta={...})
 
