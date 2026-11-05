@@ -12,6 +12,7 @@ OI 快照 event_time = fetched_at（无源侧时间）。
 
 from __future__ import annotations
 
+import calendar
 import math
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -61,6 +62,15 @@ _SUPPORTED_INTERVALS = frozenset({
     Interval._1H, Interval._2H, Interval._4H, Interval._6H,
     Interval._8H, Interval._12H, Interval._1D, Interval._1W,
 })
+
+
+def _dt_to_ms(dt: datetime) -> int:
+    """UTC naive datetime → epoch ms（D04 §1：FetchRequest 时间为 UTC naive）。
+
+    不使用 datetime.timestamp()：naive datetime 会被解释为本地时区，
+    在非 UTC 主机上产生偏移。
+    """
+    return calendar.timegm(dt.timetuple()) * 1000 + dt.microsecond // 1000
 
 
 def _cursor_to_ms(cursor: str) -> int:
@@ -269,8 +279,13 @@ class BinanceFuturesConnector(DataConnector):
         """
         params: dict[str, Any] = {"symbol": symbol}
 
+        # startTime/endTime 为 UTC naive → ms；endTime 让服务端在窗口右边界
+        # 截断，避免增量任务越过 end 透支未来数据。
+        end_ms = _dt_to_ms(request.end) if request.end is not None else None
         if request.start is not None:
-            params["startTime"] = int(request.start.timestamp() * 1000)
+            params["startTime"] = _dt_to_ms(request.start)
+        if end_ms is not None:
+            params["endTime"] = end_ms
         if request.cursor is not None:
             # cursor 来自 pipeline checkpoint（ISO 格式）或历史 ms 数字串
             params["startTime"] = _cursor_to_ms(request.cursor)
@@ -300,6 +315,10 @@ class BinanceFuturesConnector(DataConnector):
                     "symbol": symbol,
                 },
             )
+
+            # 到达 end 边界即停止，避免下一页越过窗口右端
+            if end_ms is not None and int(data[-1]["fundingTime"]) >= end_ms:
+                break
 
             # Advance cursor: next startTime = last fundingTime + 1ms
             params["startTime"] = str(int(data[-1]["fundingTime"]) + 1)

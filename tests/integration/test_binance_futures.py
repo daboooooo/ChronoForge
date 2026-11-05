@@ -555,6 +555,62 @@ class TestFundingPagination:
             assert int(params["startTime"]) > 1672444800000
         conn.close()
 
+    def test_fetch_funding_includes_end_time_and_stops(self) -> None:
+        """H1：funding 必须传 endTime，并在到达 end 时停止（不透支未来）。"""
+        page1 = [
+            {
+                "symbol": "BTCUSDT",
+                "fundingRate": "0.00001000",
+                "fundingTime": 1672444800000,
+                "markPrice": "16500.00000000",
+                "nextFundingTime": 1672473600000,
+            },
+            {
+                "symbol": "BTCUSDT",
+                "fundingRate": "0.00001100",
+                "fundingTime": 1672473600000,
+                "markPrice": "16550.00000000",
+                "nextFundingTime": 1672502400000,
+            },
+        ]
+        beyond = [{
+            "symbol": "BTCUSDT",
+            "fundingRate": "0.00001200",
+            "fundingTime": 1672502400000,
+            "markPrice": "16600.00000000",
+            "nextFundingTime": 1672531200000,
+        }]
+        resp1 = _mock_response(status_code=200, json_data=page1, url="")
+        resp2 = _mock_response(status_code=200, json_data=beyond, url="")
+        mock_client = _mock_client([resp1, resp2])
+
+        with patch.object(
+            BinanceFuturesConnector, "__init__", lambda self, s: None
+        ):
+            conn = BinanceFuturesConnector.__new__(BinanceFuturesConnector)
+            conn._client = mock_client
+            conn._rate_limiter = MagicMock()
+
+        # end == 第二笔 fundingTime（1672473600000 = 2022-12-31T08:00Z）
+        end = datetime(2022, 12, 31, 8, 0, tzinfo=UTC).replace(tzinfo=None)
+        req = FetchRequest(
+            dataset_id="test",
+            params={"symbol": "BTCUSDT", "data_type": "funding"},
+            start=None,
+            end=end,
+            cursor=None,
+        )
+
+        batches = list(conn.fetch(req))
+
+        assert len(batches) == 1
+        assert mock_client.get.call_count == 1
+        params = mock_client.get.call_args[1]["params"]
+        assert params["endTime"] == 1672473600000
+        records = conn.normalize(batches[0])
+        assert len(records) == 2
+        conn.close()
+
     def test_fetch_funding_cursor_no_overlap(self) -> None:
         """Given fundingRate 2 pages When normalize Then no duplicate records."""
         page1 = _load_fixture("fundingRate/two_pages.json")
