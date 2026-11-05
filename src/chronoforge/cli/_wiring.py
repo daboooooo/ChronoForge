@@ -56,23 +56,24 @@ __all__ = [
 def open_meta(settings: Settings, *, repair: bool = False) -> MetaStore:
     """打开 MetaStore 并确保迁移（CLI 各命令共用入口）；repair 时执行启动修复。
 
-    审计 SR-01：startup_repair（release_stale_locks → cleanup_orphans →
-    reconcile，D03 §5 顺序）实现完整但此前生产路径从未调用——进程 crash
-    后 dataset 锁永久滞留。
+    审计 SR-01：startup_repair（release_stale_locks → cleanup_orphans，
+    D03 §5 顺序）实现完整但此前生产路径从未调用——进程 crash 后
+    dataset 锁永久滞留。
+
+    审计 M2（2026-11-05）：启动只做清理与恢复，不做对账补记（原
+    reconcile 在 release_stale_locks 之后恒空，已删除）。
 
     R2-03③（审计 2026-09-22）：startup_repair 收敛到写入口（pipeline
     run/replay 显式传 repair=True）——读命令（status/query/registry/
-    quality/research）默认免修复，避免 cron 重叠期间对账/清理误伤在途
+    quality/research）默认免修复，避免 cron 重叠期间清理误伤在途
     run（此前 docstring 自认的「已知权衡」由此收敛）。护栏细节见
-    consistency.startup_repair（年龄护栏 + 租约下限，R2-03①②）。
+    consistency.startup_repair（年龄护栏 + 租约下限，R2-03①）。
     """
     meta = MetaStore(str(settings.meta_dir))
     meta.migrate()
     if repair:
         startup_repair(
             meta,
-            RawStore(str(settings.data_dir)),
-            CanonicalStoreImpl(str(settings.data_dir)),
             str(settings.data_dir),
         )
     return meta

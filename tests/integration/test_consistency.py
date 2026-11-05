@@ -2,14 +2,11 @@
 
 依据：STORAGE-005.md + D03 §5
 测试用例：
-- TC-S-004: 孤儿 run（数据落盘但终态写失败）→ reconciliation 补记
 - TC-S-007: temp/p.old 孤儿清理
 - cleanup: 模拟 crash 留下 p.tmp-xxx → cleanup_orphans 后目录恢复干净
-- reconcile: raw 层有对应 ingest_batch_id 数据 → 补记 SUCCESS（保留 lineage）
-- reconcile: raw 层无数据 → 补记 FAILED（保留 lineage）
-- reconcile: 无孤儿 run → 不产生任何伪造行
 - 边界: 全部 temp 无 rename 的极端态
 - recovery: 启动即修复（startup_repair 完整路径）
+- M2: 启动修复只做清理与恢复，不调用对账补记
 """
 
 from __future__ import annotations
@@ -19,13 +16,11 @@ import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from chronoforge.models.enums import CanonicalType
 from chronoforge.storage.canonical import CanonicalStoreImpl
-from chronoforge.storage.consistency import (
-    cleanup_orphans,
-    reconcile,
-    startup_repair,
-)
+from chronoforge.storage.consistency import cleanup_orphans, startup_repair
 from chronoforge.storage.meta import MetaStore
 from chronoforge.storage.raw import RawStore
 
@@ -200,158 +195,6 @@ class TestCleanupOrphans:
         assert orphans == []
 
 
-# ── TC-S-004: reconcile ──────────────────────────────────────────
-
-
-class TestReconcile:
-    """TC-S-004: 孤儿 run（数据落盘但终态写失败）→ reconciliation 补记。
-
-    审计 H-5：对账源 = run_log 孤儿行（PENDING/RUNNING），匹配键 =
-    ingest_batch_id（try_lock_dataset 写入 = run_id），判定依据 =
-    raw 层 JSONL 逐行携带的 ingest_batch_id。
-    """
-
-    def test_reconcile_orphan_run_raw_landed_then_success(self, tmp_stores) -> None:
-        """Given 孤儿 PENDING run 且 raw 层有对应 batch When reconcile
-        Then 补记 SUCCESS 且 source_id/dataset_id lineage 保留"""
-        data_dir = str(tmp_stores.data_dir)
-        meta_dir = str(tmp_stores.meta_dir)
-
-        with MetaStore(meta_dir) as meta:
-            meta.migrate()
-            _setup_source_and_dataset(meta, "test_source", "test_dataset")
-
-            # 模拟崩溃：try_lock 后未 finish_run（PENDING 孤儿行）
-            row = meta.try_lock_dataset("test_dataset", source_id="test_source")
-            assert row.status == "PENDING"
-
-            # 数据已落盘（raw 行携带 ingest_batch_id = run_id）
-            raw_store = RawStore(data_dir)
-            _append_raw_batch(raw_store, "test_source", "test_dataset", row.ingest_batch_id)
-
-            canonical_store = CanonicalStoreImpl(data_dir)
-            reconciled = reconcile(meta, raw_store, canonical_store, data_dir)
-
-            assert len(reconciled) == 1
-            assert reconciled[0]["run_id"] == row.run_id
-            assert reconciled[0]["status"] == "SUCCESS"
-            assert reconciled[0]["error_summary"] is None
-
-            # lineage 保留（H-5 核心：禁止伪造 source_id=''/dataset_id='' 行）
-            db_row = meta.connection.execute(
-                "SELECT status, source_id, dataset_id, ingest_batch_id "
-                "FROM run_log WHERE run_id = ?",
-                (row.run_id,),
-            ).fetchone()
-            assert db_row[0] == "SUCCESS"
-            assert db_row[1] == "test_source"
-            assert db_row[2] == "test_dataset"
-            assert db_row[3] == row.ingest_batch_id
-
-    def test_reconcile_orphan_run_raw_missing_then_failed(self, tmp_stores) -> None:
-        """Given 孤儿 PENDING run 且 raw 层无对应 batch When reconcile
-        Then 补记 FAILED（no raw data found for batch）且 lineage 保留"""
-        data_dir = str(tmp_stores.data_dir)
-        meta_dir = str(tmp_stores.meta_dir)
-
-        with MetaStore(meta_dir) as meta:
-            meta.migrate()
-            _setup_source_and_dataset(meta, "test_source", "test_dataset")
-
-            row = meta.try_lock_dataset("test_dataset", source_id="test_source")
-
-            raw_store = RawStore(data_dir)
-            canonical_store = CanonicalStoreImpl(data_dir)
-            reconciled = reconcile(meta, raw_store, canonical_store, data_dir)
-
-            assert len(reconciled) == 1
-            assert reconciled[0]["status"] == "FAILED"
-            assert reconciled[0]["error_summary"] == "no raw data found for batch"
-
-            db_row = meta.connection.execute(
-                "SELECT status, source_id, dataset_id FROM run_log WHERE run_id = ?",
-                (row.run_id,),
-            ).fetchone()
-            assert db_row[0] == "FAILED"
-            assert db_row[1] == "test_source"
-            assert db_row[2] == "test_dataset"
-
-    def test_reconcile_orphan_run_missing_batch_id_then_failed(self, tmp_stores) -> None:
-        """Given 孤儿 run 无 ingest_batch_id（legacy 行）When reconcile
-        Then 补记 FAILED（orphaned run: missing ingest_batch_id）"""
-        data_dir = str(tmp_stores.data_dir)
-        meta_dir = str(tmp_stores.meta_dir)
-
-        with MetaStore(meta_dir) as meta:
-            meta.migrate()
-            _setup_source_and_dataset(meta, "test_source", "test_dataset")
-
-            _insert_run_log(
-                meta, "run_legacy", "test_dataset", "test_source", "PENDING",
-                ingest_batch_id="",
-            )
-
-            raw_store = RawStore(data_dir)
-            canonical_store = CanonicalStoreImpl(data_dir)
-            reconciled = reconcile(meta, raw_store, canonical_store, data_dir)
-
-            assert len(reconciled) == 1
-            assert reconciled[0]["status"] == "FAILED"
-            assert reconciled[0]["error_summary"] == "orphaned run: missing ingest_batch_id"
-
-    def test_reconcile_no_orphans_no_fabricated_rows(self, tmp_stores) -> None:
-        """Given 仅有终态 run_log When reconcile Then 返回空且不新增任何行
-        （H-5：禁止伪造 run_log 行污染审计痕迹）"""
-        data_dir = str(tmp_stores.data_dir)
-        meta_dir = str(tmp_stores.meta_dir)
-
-        with MetaStore(meta_dir) as meta:
-            meta.migrate()
-            _setup_source_and_dataset(meta, "test_source", "test_dataset")
-
-            _insert_run_log(
-                meta, "run_001", "test_dataset", "test_source", "SUCCESS",
-                ingest_batch_id="batch_001", checkpoint_after="cursor",
-            )
-            count_before = meta.connection.execute(
-                "SELECT COUNT(*) FROM run_log"
-            ).fetchone()[0]
-
-            raw_store = RawStore(data_dir)
-            canonical_store = CanonicalStoreImpl(data_dir)
-            reconciled = reconcile(meta, raw_store, canonical_store, data_dir)
-
-            assert reconciled == []
-            count_after = meta.connection.execute(
-                "SELECT COUNT(*) FROM run_log"
-            ).fetchone()[0]
-            assert count_after == count_before
-
-    def test_reconcile_running_orphan_reconciled(self, tmp_stores) -> None:
-        """Given RUNNING 孤儿 run（finish_run 前崩溃）When reconcile Then 补记终态"""
-        data_dir = str(tmp_stores.data_dir)
-        meta_dir = str(tmp_stores.meta_dir)
-
-        with MetaStore(meta_dir) as meta:
-            meta.migrate()
-            _setup_source_and_dataset(meta, "test_source", "test_dataset")
-
-            row = meta.try_lock_dataset("test_dataset", source_id="test_source")
-            meta.connection.execute(
-                "UPDATE run_log SET status = 'RUNNING' WHERE run_id = ?",
-                (row.run_id,),
-            )
-            meta.connection.commit()
-
-            raw_store = RawStore(data_dir)
-            _append_raw_batch(raw_store, "test_source", "test_dataset", row.ingest_batch_id)
-            canonical_store = CanonicalStoreImpl(data_dir)
-
-            reconciled = reconcile(meta, raw_store, canonical_store, data_dir)
-            assert len(reconciled) == 1
-            assert reconciled[0]["status"] == "SUCCESS"
-
-
 # ── startup_repair 完整路径 ──────────────────────────────────────
 
 
@@ -363,8 +206,8 @@ class TestStartupRepair:
         Then cleanup + 释放超时锁执行：孤儿目录清除、孤儿 run 置 CANCELLED。
 
         R2-03 护栏语义：cleanup_orphans 需目录年龄超 stale_run_timeout_seconds；
-        超时孤儿 run 由 release_stale_locks 先行置 CANCELLED（租约护栏下
-        reconcile 不再对超时行补记 SUCCESS，数据可经 pipeline replay 重建）。
+        超时孤儿 run 由 release_stale_locks 先行置 CANCELLED（终态，审计 M2：
+        启动路径不再对账补记 SUCCESS，数据可经 pipeline replay 重建）。
         """
         data_dir = str(tmp_stores.data_dir)
         meta_dir = str(tmp_stores.meta_dir)
@@ -402,10 +245,8 @@ class TestStartupRepair:
             raw_store = RawStore(data_dir)
             _append_raw_batch(raw_store, "test_source", "test_dataset", row.ingest_batch_id)
 
-            canonical_store = CanonicalStoreImpl(data_dir)
-
             # 执行启动修复
-            startup_repair(meta, raw_store, canonical_store, data_dir)
+            startup_repair(meta, data_dir)
 
             # 验证超龄孤儿已清理
             assert not tmp_orphan.exists()
@@ -421,7 +262,7 @@ class TestStartupRepair:
             assert db_row[0] == "CANCELLED"
             assert db_row[1] == "test_source"
 
-    def test_startup_repair_no_orphans_no_reconcile_needed(self, tmp_stores) -> None:
+    def test_startup_repair_no_orphans_keeps_run_log(self, tmp_stores) -> None:
         """Given 无孤儿且全部 run 已终态 When startup_repair Then 无异常且 run_log 不变"""
         data_dir = str(tmp_stores.data_dir)
         meta_dir = str(tmp_stores.meta_dir)
@@ -445,15 +286,57 @@ class TestStartupRepair:
                 "SELECT COUNT(*) FROM run_log"
             ).fetchone()[0]
 
-            raw_store = RawStore(data_dir)
-            canonical_store = CanonicalStoreImpl(data_dir)
-
             # 应不报错且不新增行
-            startup_repair(meta, raw_store, canonical_store, data_dir)
+            startup_repair(meta, data_dir)
             count_after = meta.connection.execute(
                 "SELECT COUNT(*) FROM run_log"
             ).fetchone()[0]
             assert count_after == count_before
+
+    def test_startup_repair_does_not_invoke_reconcile(
+        self, tmp_stores, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """M2：启动修复只做清理与恢复，不做对账补记。
+
+        审计 M2：release_stale_locks 用同一 cutoff 先把超时 RUNNING/PENDING
+        置 CANCELLED，紧随其后的 reconcile 再查非终态行恒空（死代码）。
+        修复前本用例红：reconcile 仍被 startup_repair 调用。
+        """
+        data_dir = str(tmp_stores.data_dir)
+        meta_dir = str(tmp_stores.meta_dir)
+        calls: list[int] = []
+
+        def _spy(*args: object, **kwargs: object) -> list[dict[str, object]]:
+            calls.append(1)
+            return []
+
+        monkeypatch.setattr(
+            "chronoforge.storage.consistency.reconcile", _spy, raising=False
+        )
+
+        with MetaStore(meta_dir) as meta:
+            meta.migrate()
+            _setup_source_and_dataset(meta, "test_source", "test_dataset")
+            row = meta.try_lock_dataset("test_dataset", source_id="test_source")
+            stale_start = (
+                datetime.now(UTC) - timedelta(hours=2)
+            ).replace(tzinfo=None).isoformat() + "Z"
+            meta.connection.execute(
+                "UPDATE run_log SET started_at = ? WHERE run_id = ?",
+                (stale_start, row.run_id),
+            )
+            meta.connection.commit()
+
+            raw_store = RawStore(data_dir)
+            _append_raw_batch(
+                raw_store, "test_source", "test_dataset", row.ingest_batch_id
+            )
+            startup_repair(
+                meta, data_dir, stale_run_timeout_seconds=3600.0,
+            )
+
+        # 启动路径不得再调用对账逻辑
+        assert calls == []
 
     def test_startup_repair_releases_stale_locks(self, tmp_stores) -> None:
         """审计 H-7：startup_repair 第 0 步释放超时孤儿锁 → 数据集解除死锁"""
@@ -475,10 +358,7 @@ class TestStartupRepair:
             )
             meta.connection.commit()
 
-            raw_store = RawStore(data_dir)
-            canonical_store = CanonicalStoreImpl(data_dir)
-
-            startup_repair(meta, raw_store, canonical_store, data_dir)
+            startup_repair(meta, data_dir)
 
             # 孤儿 run 已置终态
             status = meta.connection.execute(
@@ -520,58 +400,16 @@ class TestGWT:
         assert not tmp_dir.exists()
         assert normal_file.exists()
 
-    def test_given_rename_ok_run_log_write_failed_when_reconcile_then_supplement(
-        self, tmp_stores
-    ) -> None:
-        """Given 数据 rename 成功但 run_log 终态写失败（孤儿 PENDING 行）
-        When reconcile Then 按真实 batch_id 对账补记 SUCCESS"""
-        data_dir = str(tmp_stores.data_dir)
-        meta_dir = str(tmp_stores.meta_dir)
-
-        with MetaStore(meta_dir) as meta:
-            meta.migrate()
-            _setup_source_and_dataset(meta, "test_src", "test_ds")
-
-            row = meta.try_lock_dataset("test_ds", source_id="test_src")
-            raw_store = RawStore(data_dir)
-            _append_raw_batch(raw_store, "test_src", "test_ds", row.ingest_batch_id)
-
-            canonical_store = CanonicalStoreImpl(data_dir)
-            reconciled = reconcile(meta, raw_store, canonical_store, data_dir)
-
-            assert len(reconciled) == 1
-            assert reconciled[0]["status"] == "SUCCESS"
-
-    def test_given_no_raw_when_reconcile_then_failed_no_raw_data_found(self, tmp_stores) -> None:
-        """Given 孤儿 run 且 raw 层无对应数据 When reconcile Then 补记 FAILED"""
-        data_dir = str(tmp_stores.data_dir)
-        meta_dir = str(tmp_stores.meta_dir)
-
-        with MetaStore(meta_dir) as meta:
-            meta.migrate()
-            _setup_source_and_dataset(meta, "test_src", "test_ds")
-
-            # 产生孤儿 PENDING 行（无需引用返回值）
-            meta.try_lock_dataset("test_ds", source_id="test_src")
-
-            raw_store = RawStore(data_dir)
-            canonical_store = CanonicalStoreImpl(data_dir)
-            reconciled = reconcile(meta, raw_store, canonical_store, data_dir)
-
-            assert len(reconciled) == 1
-            assert reconciled[0]["status"] == "FAILED"
-            assert reconciled[0]["error_summary"] == "no raw data found for batch"
-
 
 # ── R2-03: startup_repair 并发护栏（审计 2026-09-22）──────────────
 
 
 class TestStartupRepairGuards:
-    """R2-03：cleanup_orphans 年龄护栏 + reconcile 租约护栏。
+    """R2-03：启动修复的租约护栏。
 
     防止 startup_repair（每写命令执行）与在途 run 重叠时误伤：
     新鲜 .tmp-*（在途 merge-rewrite 分片）不删，租约内活跃 run
-    不补记中间假终态。
+    不被置为 CANCELLED。
     """
 
     @staticmethod
@@ -607,50 +445,9 @@ class TestStartupRepairGuards:
         assert len(orphans) == 1
         assert not tmp_orphan.exists()
 
-    def test_reconcile_lease_guard_skips_active_run(self, tmp_stores) -> None:
-        """Given 租约内 PENDING 孤儿 run When reconcile(超时 3600s)
-        Then 不补记（保持 PENDING）；started_at 回拨超时后正常对账。"""
-        data_dir = str(tmp_stores.data_dir)
-        meta_dir = str(tmp_stores.meta_dir)
-
-        with MetaStore(meta_dir) as meta:
-            meta.migrate()
-            _setup_source_and_dataset(meta, "test_source", "test_dataset")
-            row = meta.try_lock_dataset("test_dataset", source_id="test_source")
-
-            raw_store = RawStore(data_dir)
-            canonical_store = CanonicalStoreImpl(data_dir)
-
-            # 租约内（started_at = 刚刚）→ 不对账
-            reconciled = reconcile(
-                meta, raw_store, canonical_store, data_dir,
-                stale_run_timeout_seconds=3600.0,
-            )
-            assert reconciled == []
-            status = meta.connection.execute(
-                "SELECT status FROM run_log WHERE run_id = ?", (row.run_id,)
-            ).fetchone()[0]
-            assert status == "PENDING"
-
-            # started_at 回拨 2 小时 → 超出租约 → 补记 FAILED（raw 无数据）
-            stale_start = (
-                datetime.now(UTC) - timedelta(hours=2)
-            ).replace(tzinfo=None).isoformat() + "Z"
-            meta.connection.execute(
-                "UPDATE run_log SET started_at = ? WHERE run_id = ?",
-                (stale_start, row.run_id),
-            )
-            meta.connection.commit()
-            reconciled2 = reconcile(
-                meta, raw_store, canonical_store, data_dir,
-                stale_run_timeout_seconds=3600.0,
-            )
-            assert len(reconciled2) == 1
-            assert reconciled2[0]["status"] == "FAILED"
-
     def test_startup_repair_passes_timeout_to_guards(self, tmp_stores) -> None:
-        """startup_repair 将 stale_run_timeout_seconds 同时传给清理与对账：
-        新鲜 .tmp-* 不删、活跃 run 不补记（并发在途 run 不被误伤）。"""
+        """startup_repair 将 stale_run_timeout_seconds 传给清理与锁释放：
+        新鲜 .tmp-* 不删、活跃 run 不被置为 CANCELLED（在途 run 不被误伤）。"""
         data_dir = str(tmp_stores.data_dir)
         meta_dir = str(tmp_stores.meta_dir)
         tmp_orphan = self._make_tmp_orphan(data_dir, ".tmp-inflight")
@@ -659,16 +456,13 @@ class TestStartupRepairGuards:
             meta.migrate()
             _setup_source_and_dataset(meta, "test_source", "test_dataset")
             row = meta.try_lock_dataset("test_dataset", source_id="test_source")
-            raw_store = RawStore(data_dir)
-            canonical_store = CanonicalStoreImpl(data_dir)
 
             startup_repair(
-                meta, raw_store, canonical_store, data_dir,
-                stale_run_timeout_seconds=3600.0,
+                meta, data_dir, stale_run_timeout_seconds=3600.0,
             )
 
             assert tmp_orphan.exists()  # 新鲜孤儿未删
             status = meta.connection.execute(
                 "SELECT status FROM run_log WHERE run_id = ?", (row.run_id,)
             ).fetchone()[0]
-            assert status == "PENDING"  # 活跃 run 未补记
+            assert status == "PENDING"  # 活跃 run 未被释放

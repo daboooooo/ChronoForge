@@ -70,12 +70,10 @@ EVENT_VOCABULARY: frozenset[str] = frozenset(
         # storage 域
         "storage.staleness_frequency_unparsed",
         "storage.release_stale_locks",
-        "storage.reconcile",
         "storage.partition_time_fallback",
         "storage.drift_detected",
         "storage.cleanup_orphans",
         # quality / research / replay 域
-        "consistency.update_dataset_status_failed",
         "research.snapshot_created",
         "replay.finish",
         "run.finish",

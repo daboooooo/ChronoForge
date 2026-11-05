@@ -81,11 +81,8 @@ os._exit(1)  # 模拟崩溃：SIGKILL 级，无任何清理
                 store.try_lock_dataset("ds_crash")
 
             # startup_repair（timeout=0 → 崩溃 run 立即视为孤儿）→ 恢复
-            raw_store = RawStore(data_dir)
-            canonical_store = CanonicalStoreImpl(data_dir)
             startup_repair(
-                store, raw_store, canonical_store,
-                data_dir, stale_run_timeout_seconds=0.0,
+                store, data_dir, stale_run_timeout_seconds=0.0,
             )
 
             # 锁已可重新获取

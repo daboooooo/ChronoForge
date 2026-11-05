@@ -193,7 +193,7 @@ SELECT * EXCLUDE (rn) FROM (
 
 1. 数据写入唯一完成边界 = **Parquet 分区 rename 成功**
 2. rename 前 crash → temp/p.old 目录启动时清理（`storage.meta.cleanup_orphans()`）
-3. rename 后 run_log 写失败 → 下次启动 reconciliation：扫描 ingest_batch_id 无终态 run_log 的分区 mtime，补记终态（SUCCESS 或 FAILED+备注）
+3. rename 后 run_log 写失败 → **启动只做清理与恢复，不做对账补记**：`release_stale_locks` 已将超时 RUNNING/PENDING 置 CANCELLED（终态），数据可经 `pipeline replay` 重建（审计 M2，2026-11-05 删除启动路径的死对账逻辑）；若未来需要补记历史账目，应另立显式命令
 4. 顺序恒为：raw append → canonical upsert → quality flags → run_log 终态
 5. **checkpoint 损坏恢复（审计 F-14）**：SQLite 文件损坏 → 以 raw 层为事实源重建：`meta.rebuild_checkpoints(dataset_id)` = 重放该 dataset 全部 raw 分片（复用 D05 §4 replay 基础设施）→ 以 durable 数据边界反推 cursor；重建期间 dataset 持锁
 

@@ -53,6 +53,6 @@ status, schema_version, code_version
 | 磁盘写满 | StorageError → run FAILED；释放空间后重放（temp 分片自动清理） |
 | FRED 修订发布 | 追加新 version 记录，历史 vintage 保留 |
 | 重复触发同一 run | natural key upsert 幂等，无重复记录 |
-| 数据 rename 成功但 run_log 写失败 | 以 ingest_batch_id 对账（reconciliation，约束 §69），补记终态 |
+| 数据 rename 成功但 run_log 写失败 | 启动修复把超时 RUNNING/PENDING 置 CANCELLED（终态），数据可经 replay 重建；启动不做对账补记（审计 M2） |
 | rename 前任一阶段失败 | 重放即恢复（temp 分片自动清理），无半写状态 |
 | 本地时钟回拨（NTP 校正） | ingest_time 不假设单调；延迟分析一律以源 event_time 为准（需求 §29） |
