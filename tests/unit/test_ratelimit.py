@@ -247,28 +247,22 @@ class Test429Cooldown:
         assert rl.available_tokens() == 0.0
 
     def test_on_rate_limited_forces_wait(self) -> None:
-        """on_rate_limited(5) → 下次 acquire 需等待 ≥5s。"""
+        """on_rate_limited(5) → 下次 acquire 必须等待剩余冷却时间（M4）。
+
+        修复前仅清空令牌，acquire 只按令牌缺口等待（此处为 0s），
+        Retry-After 的全局冷却语义未实现。
+        """
         clock, clock_fn = make_fixed_clock()
         rl = RateLimiter(rate=10.0, burst=5, clock=clock_fn)
+        rl._sleep = clock.sleep
 
         rl.acquire(1)  # 剩 4 个
         rl.on_rate_limited(5)
 
-        # 推进 0.1s（补充 1 个令牌）
-        clock.advance(0.1)
-
-        # 请求 1 个：当前 tokens=0（on_rate_limited 重置），
-        # refill 到 min(5, 0+0.1*10) = 1 → 立即可用
-        # 所以需推进更多时间来验证等待
-        clock._time = 100.0  # 重置时间
-        rl.on_rate_limited(5)
-
-        # 推进 0.5s（补充 5*0.1=0.5 个令牌）
+        # 冷却期内已过 0.5s → acquire 仍需等待剩余 4.5s
         clock.advance(0.5)
-
-        # 请求 1 个：tokens=0.5，需等待 (1-0.5)/10 = 0.05s
         wait = rl.acquire(1)
-        assert wait >= 0.0
+        assert wait == pytest.approx(4.5)
 
     def test_on_rate_limited_resets_refill_time(self) -> None:
         """on_rate_limited 重置 _last_refill。"""

@@ -28,6 +28,7 @@ from chronoforge.connectors.base import (
 from chronoforge.connectors.errors import (
     ProviderError,
     RateLimitError,
+    TransportError,
 )
 from chronoforge.connectors.yahoo import (
     YahooConnector,
@@ -462,6 +463,31 @@ class TestEdgeCases:
         )
 
         with pytest.raises(ProviderError):
+            list(conn.fetch(request))
+
+        conn.close()
+
+    def test_5xx_raises_transport_error(self) -> None:
+        """Given 503 response When fetch Then TransportError（可重试），非 4xx。
+
+        修复前 `status_code >= 400 < 500` 链式比较恒真，5xx 被误分类为
+        不可重试 ProviderError，L351 的 5xx 分支不可达（M5）。
+        """
+        resp_503 = _mock_response(
+            status_code=503,
+            json_data={"chart": {"error": {"code": "Service Unavailable"}}},
+        )
+        conn, _, _ = _create_mock_connector(resp_503)
+
+        request = FetchRequest(
+            dataset_id="yahoo:aapl:1d",
+            params={"symbol": "AAPL", "interval": "1d"},
+            start=datetime(2023, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+            end=datetime(2023, 1, 2, tzinfo=UTC).replace(tzinfo=None),
+            cursor=None,
+        )
+
+        with pytest.raises(TransportError):
             list(conn.fetch(request))
 
         conn.close()

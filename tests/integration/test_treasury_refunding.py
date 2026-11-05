@@ -10,7 +10,7 @@ import httpx
 import pytest
 
 from chronoforge.connectors.base import FetchRequest, RawBatch
-from chronoforge.connectors.errors import SchemaError
+from chronoforge.connectors.errors import SchemaError, TransportError
 from chronoforge.connectors.treasury_refunding import (
     _DOCS_PAGE,
     TreasuryRefundingConnector,
@@ -102,8 +102,11 @@ def test_fetch_missing_release_link_raises_schema_error() -> None:
     client.close()
 
 
-def test_fetch_release_http_error_raises_schema_error() -> None:
-    """新闻稿页非 200 → SchemaError。"""
+def test_fetch_release_http_error_raises_transport_error() -> None:
+    """新闻稿页 5xx → TransportError（可重试 chunk），而非 SchemaError。
+
+    修复前非 200 一律 SchemaError：5xx 被当作结构漂移直接熔断（M8）。
+    """
     index_html = (_FIXTURES / "most_recent_documents.html").read_text(
         encoding="utf-8"
     )
@@ -119,7 +122,32 @@ def test_fetch_release_http_error_raises_schema_error() -> None:
     )
     connector = _connector()
     connector._client = client
-    with pytest.raises(SchemaError, match="release page status 503"):
+    with pytest.raises(TransportError, match="release page status 503"):
+        list(connector.fetch(_fetch_request()))
+    client.close()
+
+
+def test_fetch_transport_exception_wrapped() -> None:
+    """底层 httpx.TransportError → 连接器 TransportError（M8）。
+
+    修复前裸 httpx 异常直接冒泡，runner 无法按可重试异常处理。
+    """
+    index_html = (_FIXTURES / "most_recent_documents.html").read_text(
+        encoding="utf-8"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == _DOCS_PAGE:
+            return httpx.Response(200, text=index_html)
+        raise httpx.ConnectError("connection refused", request=request)
+
+    client = httpx.Client(
+        base_url="https://home.treasury.gov",
+        transport=httpx.MockTransport(handler),
+    )
+    connector = _connector()
+    connector._client = client
+    with pytest.raises(TransportError, match="release page transport failed"):
         list(connector.fetch(_fetch_request()))
     client.close()
 

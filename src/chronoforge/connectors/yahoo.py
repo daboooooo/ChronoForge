@@ -338,7 +338,7 @@ class YahooConnector(DataConnector):
                 },
             )
 
-        if status_code == 404 or (status_code >= 400 < 500):
+        if 400 <= status_code < 500:
             raise ProviderError(
                 f"yahoo: HTTP {status_code} on chart endpoint",
                 context={

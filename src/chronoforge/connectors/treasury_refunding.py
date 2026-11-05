@@ -33,7 +33,13 @@ from chronoforge.connectors.base import (
     HealthStatus,
     RawBatch,
 )
-from chronoforge.connectors.errors import SchemaError
+from chronoforge.connectors.errors import (
+    ChronoForgeError,
+    RateLimitError,
+    SchemaError,
+    TransportError,
+    map_http_status,
+)
 from chronoforge.connectors.ratelimit import RateLimiter
 from chronoforge.models.base import BaseRecord
 from chronoforge.models.enums import CanonicalType, QualityStatus
@@ -47,6 +53,18 @@ _DOCS_PAGE = (
 )
 _DEFAULT_RATE = 0.1  # req/s（HTML 页面，温和限流）
 _DEFAULT_BURST = 3
+
+
+def _retry_after_seconds(response: httpx.Response) -> int:
+    """解析 Retry-After（仅支持秒数；缺省/非法值回退 60s）。"""
+    raw = response.headers.get("retry-after")
+    if raw is None:
+        return 60
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 60
+
 
 _MONTHS = {
     "january": 1, "february": 2, "march": 3, "april": 4, "may": 5,
@@ -152,11 +170,15 @@ class TreasuryRefundingConnector:
     def fetch(self, request: FetchRequest) -> Iterator[RawBatch]:
         """抓取 most-recent 文档页与最新借款估计新闻稿（单批次全量）。"""
         self._rate_limiter.acquire()
-        index_resp = self._client.get(_DOCS_PAGE)
+        try:
+            index_resp = self._client.get(_DOCS_PAGE)
+        except httpx.TransportError as exc:
+            raise TransportError(
+                f"treasury_refunding: docs page transport failed: {exc}",
+                context={"source": "treasury_refunding", "path": _DOCS_PAGE},
+            ) from exc
         if index_resp.status_code != 200:
-            raise SchemaError(
-                f"treasury_refunding: docs page status {index_resp.status_code}"
-            )
+            raise self._http_error("docs page", _DOCS_PAGE, index_resp)
         index_html = index_resp.text
         link_match = _RELEASE_LINK_RE.search(index_html)
         if not link_match:
@@ -166,11 +188,15 @@ class TreasuryRefundingConnector:
             )
         release_path = link_match.group(1)
         self._rate_limiter.acquire()
-        release_resp = self._client.get(release_path)
+        try:
+            release_resp = self._client.get(release_path)
+        except httpx.TransportError as exc:
+            raise TransportError(
+                f"treasury_refunding: release page transport failed: {exc}",
+                context={"source": "treasury_refunding", "path": release_path},
+            ) from exc
         if release_resp.status_code != 200:
-            raise SchemaError(
-                f"treasury_refunding: release page status {release_resp.status_code}"
-            )
+            raise self._http_error("release page", release_path, release_resp)
         yield RawBatch(
             endpoint=release_path,
             payload={
@@ -182,6 +208,25 @@ class TreasuryRefundingConnector:
                 "http_status": release_resp.status_code,
                 "release_path": release_path,
             },
+        )
+
+    def _http_error(
+        self, label: str, path: str, response: httpx.Response
+    ) -> ChronoForgeError:
+        """非 200 → D04 §3 错误类；429 同时进入全局冷却（M8/M4）。"""
+        status = response.status_code
+        context = {"source": "treasury_refunding", "path": path, "status": status}
+        if status == 429:
+            retry_after = _retry_after_seconds(response)
+            self._rate_limiter.on_rate_limited(retry_after)
+            return RateLimitError(
+                f"treasury_refunding: {label} status 429",
+                context=context,
+                retry_after=retry_after,
+            )
+        exc_cls = map_http_status(status)
+        return exc_cls(
+            f"treasury_refunding: {label} status {status}", context=context
         )
 
     def normalize(self, raw: RawBatch) -> list[BaseRecord]:

@@ -39,6 +39,8 @@ class RateLimiter:
         self._clock = clock or _monotonic
         self._tokens: float = float(burst)  # 初始满桶
         self._last_refill: float = self._clock()
+        # 429 全局冷却截止时刻（M4）：冷却期内即使桶满也不放行
+        self._cooldown_until: float = 0.0
         self._lock = threading.Lock()
         # 可注入的 sleep 函数（测试用），默认 time.sleep
         self._sleep: Callable[[float], None] = _sleep
@@ -66,13 +68,25 @@ class RateLimiter:
         Returns:
             等待秒数（0 = 立即可用）
         """
+        total_wait = 0.0
+
+        # 429 全局冷却：冷却期内即使桶满也不得放行（M4）
+        cooldown = self._cooldown_until - self._clock()
+        if cooldown > 0:
+            self._lock.release()
+            try:
+                self._sleep(cooldown)
+            finally:
+                self._lock.acquire()
+            self._cooldown_until = 0.0
+            total_wait += cooldown
+
         self._refill()
 
         if self._tokens >= n:
             self._tokens -= n
-            return 0.0
+            return total_wait
 
-        total_wait = 0.0
         for _ in range(50):  # 最多重试 50 次，防死循环
             # 需要等待令牌补充
             needed = n - self._tokens
@@ -123,16 +137,21 @@ class RateLimiter:
         self._last_refill = now
 
     def on_rate_limited(self, retry_after: int) -> None:
-        """收到 429 + Retry-After 时的全局冷却（D04 §2）。
+        """收到 429 + Retry-After 时的全局冷却（D04 §2，M4）。
 
-        清空令牌并重置时间戳，强制后续 acquire 等待。
+        清空令牌并设置冷却截止时刻：冷却期内 acquire 必须等待
+        Retry-After 剩余时间，不再只按令牌缺口计算。
 
         Args:
             retry_after: Retry-After 秒数
         """
         with self._lock:
             self._tokens = 0.0
-            self._last_refill = self._clock()
+            now = self._clock()
+            self._last_refill = now
+            self._cooldown_until = max(
+                self._cooldown_until, now + max(0, retry_after)
+            )
 
     def available_tokens(self) -> float:
         """返回当前可用令牌数（用于测试/调试）。"""
