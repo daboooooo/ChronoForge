@@ -1101,7 +1101,11 @@ class CanonicalStoreImpl:
         )
 
         if old_table.num_rows == 0:
-            # 旧分区无实际数据（文件为空或 schema 不兼容），等同于新写
+            # 旧分区无实际数据（文件为空或 schema 不兼容），等同于新写：
+            # 必须真正落盘，否则本批记录被静默丢弃且统计虚报（审计 M3）
+            self._write_new_partition(
+                part_path, new_records, nk_cols, canonical_type
+            )
             # 审计 M-7：批内重复 NK 只计一次（与 _count_changes 语义一致）
             unique_nk = {
                 tuple(new_table[col][i].as_py() for col in nk_cols)

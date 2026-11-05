@@ -1210,3 +1210,39 @@ class TestCountChanges:
             / "year=2026" / "month=04"
         )
         assert _read_parquet_rows(p) == 2
+
+
+# ── 审计 M3：旧分区仅空文件时 upsert 必须落盘 ──────────────────────────
+
+
+class TestEmptyPartitionUpsert:
+    """M3：old_table.num_rows == 0 分支不得只回报统计而不写盘。"""
+
+    def test_upsert_into_zero_row_partition_writes_new_rows(self, tmp_stores) -> None:
+        """给定旧分区 parquet 为 0 行 When upsert 新记录 Then 新记录落盘。
+
+        修复前该分支直接 return 统计：inserted>0 但分区仍 0 行，
+        即静默丢失 + run_log 计数虚报。
+        """
+        store = CanonicalStoreImpl(str(tmp_stores.data_dir))
+        base = datetime(2026, 4, 1, 0, 0)
+        store.upsert(
+            [_make_ohlcv_record(event_time=base)], CanonicalType.OHLCV, "BTC"
+        )
+
+        part = (
+            tmp_stores.data_dir / "canonical" / "OHLCV" / "entity=BTC"
+            / "year=2026" / "month=04"
+        )
+        files = sorted(part.glob("part-*.parquet"))
+        assert len(files) == 1
+        # 模拟"分区存在但文件 0 行"（历史空写/恢复残留）
+        pq.write_table(pq.read_table(files[0]).slice(0, 0), files[0])
+
+        new_rec = _make_ohlcv_record(
+            market_id="BINANCE:ETHUSDT:SPOT",
+            event_time=base + timedelta(minutes=1),
+        )
+        stats = store.upsert([new_rec], CanonicalType.OHLCV, "BTC")
+        assert stats.inserted == 1
+        assert _read_parquet_rows(part) == 1
