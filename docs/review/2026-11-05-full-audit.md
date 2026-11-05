@@ -14,7 +14,7 @@
 
 ### 0.1 总体判定：READY（G1–G7 全部通过）
 
-架构分层、类型安全、测试独立性和日频源的幂等回退实现质量扎实：mypy strict 全绿、import-linter 两个架构契约均 KEPT、1873 个测试全过。本轮最初发现的**数据正确性核心不变量破口已于 2026-11-05 全部关闭**：
+架构分层、类型安全、测试独立性和日频源的幂等回退实现质量扎实：mypy strict 全绿、import-linter 两个架构契约均 KEPT、1882 个测试全过。本轮最初发现的**数据正确性核心不变量破口已于 2026-11-05 全部关闭**：
 
 1. ~~管道层 `normalize` 全失败/零产出时仍推进 checkpoint（C1）~~ —— **异常路径与逐行静默跳过路径均已修复（2026-11-05）**：全失败/高丢弃率现在触发 `QualityError` 并阻止 checkpoint 推进；新增行级丢弃率门禁（A-8，阈值 `normalize_drop_threshold=0.5`），合法跳过按 reason 白名单排除（见 §5.2）；
 2. ~~三个连接器按**想象出来的 API 结构**编码（deribit chart、sec_edgar companyfacts、ccxt trades），生产中静默产出 0 行~~ —— deribit 与 sec_edgar **已修复（C2/C3/A-1，2026-11-05）**；ccxt trades 的分页/`order` 参数问题（报告编号 **H3**，由用户任务中的"H1"指代）**已于 2026-11-05 修复**；
@@ -28,9 +28,9 @@
 |---|---|---|
 | CRITICAL | **6**（现存 0，C1/C2/C3/A-1/TGA-1/B-1 均已修复） | C1、C2、C3、A-1、TGA-1、B-1 |
 | HIGH | **14**（现存 0；H1–H7、A-2、A-3、A-8 均已修复并关闭） | H1–H7、A-2、A-3、A-8、G-1、D-1、D-2、D-3 |
-| MEDIUM | **19**（现存 13，M6、C-2、C-3、D-4、D-5、TGA-3 已修复） | M1–M10、A-4–A-6、C-2、C-3、C-4、D-4、D-5、TGA-3 |
+| MEDIUM | **20**（现存 5：M2、M7、M9、M10、C-4；M1、M3、M4、M5、M6、M8、A-4、A-5、A-6、A-9、C-2、C-3、D-4、D-5、TGA-3 已修复） | M1–M10、A-4–A-6、C-2、C-3、C-4、D-4、D-5、TGA-3 |
 | LOW | **11**（现存 10，D-7 已修复；D-6 按历史留痕不处理） | L1–L6、A-7、C-6、C-7、D-6、D-7 |
-| 合计 | **50** | |
+| 合计 | **51** | |
 
 ### 0.3 最需要先修的事项（按顺序）
 
@@ -119,7 +119,7 @@
 | 门禁 | 标准 | 本次结果 |
 |---|---|---|
 | G1 静态质量 | `mypy src` 0 error；`ruff check src` 0 error；`lint-imports` 全 KEPT | ✅ 通过（ruff 仅 scripts 有错） |
-| G2 测试 | 全量 `pytest` 通过；无真实网络依赖；失败恢复测试为真实链路 | ✅ 通过（1873 passed，含 C1/C2/C3/A-1/A-2/A-8/A-9/TGA-1、G3 全批次回归；`TZ=Asia/Shanghai` 下同为 1873 passed） |
+| G2 测试 | 全量 `pytest` 通过；无真实网络依赖；失败恢复测试为真实链路 | ✅ 通过（1882 passed，含 C1/C2/C3/A-1/A-2/A-8/A-9/TGA-1、G3 全批次回归及 MEDIUM 批 M1/M3/M4/M5/M8/A-4/A-5/A-6；`TZ=Asia/Shanghai` 下同为 1882 passed） |
 | G3 契约测试 | 每条连接器有"真实响应样本 → fetch → normalize"全链路测试，禁止仅直喂内层结构 | ✅ 通过（2026-11-05：13 个连接器均有 fetch→normalize 全链路 + 负向用例 + `SOURCE.md`；真实抓包：treasury_fiscal/treasury_refunding/alternative/coinmetrics；文档/客户端模型：binance_spot/binance_futures/yahoo/fred/ccxt_bridge/deribit/sec_edgar；历史实测形状：sosovalue/coinmarketcap） |
 | G4 静默丢失 | 任何"有输入但零产出"必须置为失败或阻止 checkpoint 推进 | ✅ 通过（2026-11-05：C1 覆盖批量异常路径，A-8 覆盖连接器逐行跳过路径——非白名单丢弃率 ≥0.5 即 `QualityError`，checkpoint 不推进；白名单外零产出已不可静默） |
 | G5 约束核验 | 项目硬性约束逐条有代码/配置/文档三方证据 | ✅ 通过（2026-11-05：H4 起点回退、C-2 死键均已修复；TGA-1 亦已修复；A-8 配置项已写入 `.env.example`/README/设计文档） |
@@ -269,16 +269,16 @@
 
 | ID | 位置 | 问题 |
 |---|---|---|
-| M1 | [raw.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/storage/raw.py)（约 L130-L143） | 滚动切文件时旧句柄 `close()` 前未 `fsync`；append 末尾 dirty 循环跳过 `file_obj=None` 句柄 —— 违反 docstring "append 返回 ⇒ 本批已 durable" |
-| M2 | [consistency.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/storage/consistency.py)（约 L278-L303） | startup_repair 先 `release_stale_locks` 把超时 RUNNING/PENDING 置 CANCELLED，reconcile 再查 PENDING/RUNNING 恒空 —— 按 raw 对账补记逻辑为死代码 |
-| M3 | canonical.py `merge_rewrite`（约 L923-L936） | `old_table.num_rows == 0` 分支直接 `return`，却声称 inserted/rewritten=1，未实际写盘 —— 静默丢失 + run_log 计数虚报 |
-| M4 | [ratelimit.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/ratelimit.py)（约 L125-L135） | `on_rate_limited(retry_after)` 忽略 `retry_after`，docstring 承诺的"429 全局冷却"未实现；多数连接器从不调用 |
-| M5 | yahoo.py 约 L293 | `status_code >= 400 < 500` 链式比较恒等于 `>= 400`；5xx 被误分类为不可重试 ProviderError，L303 的 TransportError 分支为死代码 |
+| M1 | [raw.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/storage/raw.py)（约 L130-L143） | 滚动切文件时旧句柄 `close()` 前未 `fsync`；append 末尾 dirty 循环跳过 `file_obj=None` 句柄 —— 违反 docstring "append 返回 ⇒ 本批已 durable"。**✅ 已修复（2026-11-05，已提交 `60576bc`）**：滚动前先 `_sync_handle` 再 `close`；新增 `TestBatchFsync::test_rollover_fsyncs_full_handle_before_close`（保存 1 次 → 2 次），吞吐用例改为断言 200k 行 20 次 fsync（仍为有界，非逐行） |
+| M2 | [consistency.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/storage/consistency.py)（约 L278-L303） | startup_repair 先 `release_stale_locks` 把超时 RUNNING/PENDING 置 CANCELLED，reconcile 再查 PENDING/RUNNING 恒空 —— 按 raw 对账补记逻辑为死代码。**⏳ 待决策（2026-11-05，复核仍成立）**：恢复"按 raw 对账补记"会改变启动修复终态写入（CANCELLED → SUCCESS/FAILED），删除则放弃该能力，需确认取舍 |
+| M3 | canonical.py `merge_rewrite`（约 L923-L936） | `old_table.num_rows == 0` 分支直接 `return`，却声称 inserted/rewritten=1，未实际写盘 —— 静默丢失 + run_log 计数虚报。**✅ 已修复（2026-11-05，已提交 `1ace9ac`）**：0 行分支改走 `_write_new_partition` 真正落盘，统计按批内唯一 NK 计数；新增 `TestEmptyPartitionUpsert::test_upsert_into_zero_row_partition_writes_new_rows`（修复前写入 0 行） |
+| M4 | [ratelimit.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/ratelimit.py)（约 L125-L135） | `on_rate_limited(retry_after)` 忽略 `retry_after`，docstring 承诺的"429 全局冷却"未实现（原描述"多数连接器从不调用"已与现状不符：yahoo/treasury_fiscal/alternative/coinmarketcap/coinmetrics/sosovalue 等 6 处均已调用，实际缺陷是忽略 `retry_after`）。**✅ 已修复（2026-11-05，已提交 `9d465a3`）**：记录 `_cooldown_until`，`_wait_for_tokens` 冷却期阻塞并计入 `total_wait`；回归 `Test429Cooldown::test_on_rate_limited_forces_wait`（修复前 wait=0，修复后 ≈4.5s） |
+| M5 | yahoo.py 约 L293 | `status_code >= 400 < 500` 链式比较恒等于 `>= 400`；5xx 被误分类为不可重试 ProviderError，L303 的 TransportError 分支为死代码。**✅ 已修复（2026-11-05，已提交 `9d465a3`）**：改为 `400 <= status_code < 500`，5xx 落到 `TransportError`；回归 `TestEdgeCases::test_5xx_raises_transport_error`（503，修复前 ProviderError） |
 | M6 | deribit.py L301-L309、L660-L732、yahoo.py L219-L237、L477-L567 | start 无回退 / 无 `closeTime > now` 过滤 —— live 末根未收盘 K 线永久入库且不修正（与 binance_spot 口径不一致）。**✅ 已修复（2026-11-05）**：deribit 起点回退一个 resolution、yahoo `period1` 回退一个 interval；两者 normalize 对 `event_time + interval > now` 的 bar 记 `normalize_skip`（reason=`unclosed_bar`，debug）并跳过，未收盘计数进入 summary（debug 级，避免每轮 warning 噪声） |
-| M7 | [fred.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/fred.py) | 观测日早于窗口起点的历史修订永不回补（vintage 机制对增量失效）；`units`/`seasonal_adjustment` 读响应回显而真实端点不回显 → canonical 恒 `""`，Q-NULL-001 只查 None 不查空串 |
-| M8 | [treasury_refunding.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/treasury_refunding.py)（约 L155-L160） | httpx 传输异常未包装为 TransportError（裸异常 → run FAILED 而非 chunk 重试）；非 200 一律 SchemaError → 5xx 触发熔断而非重试 |
-| M9 | [calendar.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/quality/calendar.py)（约 L20-L31） | `US_MARKET_HOLIDAYS` 为 2026/27 具体日期且浮动假日写死，跨年份应用 → 真假日判 REGULAR、真实交易日判 EXPECTED_GAP（掩盖真缺失） |
-| M10 | sec_edgar.py 约 L336、L527 | 只读 `filings.recent`（≈1000 条上限），忽略 `filings.files` 分页 → 老 filing 永久缺失；`_extract_doc_url` 缺 CIK 路径段，primary_doc_url 恒 404 |
+| M7 | [fred.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/fred.py) | 观测日早于窗口起点的历史修订永不回补（vintage 机制对增量失效）；`units`/`seasonal_adjustment` 读响应回显而真实端点不回显 → canonical 恒 `""`，Q-NULL-001 只查 None 不查空串。**⏳ 待决策（2026-11-05，复核仍成立）**：回补窗口/成本，以及 units/seasonal_adjustment 用请求参数注入还是元数据端点，均会改变 canonical 输出语义 |
+| M8 | [treasury_refunding.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/treasury_refunding.py)（约 L155-L160） | httpx 传输异常未包装为 TransportError（裸异常 → run FAILED 而非 chunk 重试）；非 200 一律 SchemaError → 5xx 触发熔断而非重试。**✅ 已修复（2026-11-05，已提交 `9d465a3`）**：两次 GET 的 `httpx.TransportError` 统一包装为 chronoforge `TransportError`；非 200 改走 `map_http_status`（429 → `RateLimitError` 并写入全局冷却、5xx → `TransportError`、其他 4xx → `ProviderError`）；回归 `test_fetch_transport_exception_wrapped`、`test_fetch_release_http_error_raises_transport_error` |
+| M9 | [calendar.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/quality/calendar.py)（约 L20-L31） | `US_MARKET_HOLIDAYS` 为 2026/27 具体日期且浮动假日写死，跨年份应用 → 真假日判 REGULAR、真实交易日判 EXPECTED_GAP（掩盖真缺失）。**⏳ 待决策（2026-11-05，复核仍成立）**：需在"多年度动态计算"与"配置化假日源"之间取舍，并定义跨已知年份区间的行为 |
+| M10 | sec_edgar.py 约 L336、L527 | 只读 `filings.recent`（≈1000 条上限），忽略 `filings.files` 分页 → 老 filing 永久缺失；`_extract_doc_url` 缺 CIK 路径段，primary_doc_url 恒 404。**⏳ 待决策（2026-11-05，复核仍成立）**：需真实 `-submissions-001.json` 与 `primaryDocument` 样本后才能实现分页与 URL（避免再次按想象结构编码） |
 
 ### 3.4 LOW
 
@@ -435,9 +435,9 @@
 
 ### 5.3 MEDIUM
 
-- **A-4**：TC-C-015（SchemaError 触发熔断）无直接测试，仅有 `test_retry` 的"不重试"语义。
-- **A-5**：Q-GAP-001 的"分散缺失 → 区间合并"分支（[rules.py#L972](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/quality/rules.py#L972)）无测试，现有用例只覆盖连续缺失。
-- **A-6**：DST 切换日、分页上界 1000 / 下界 1 无边界测试（闰日、跨年界已有覆盖）。
+- **A-4**：TC-C-015（SchemaError 触发熔断）无直接测试，仅有 `test_retry` 的"不重试"语义。**✅ 已修复（2026-11-05，已提交 `f12dd5c`）**：新增 `test_tcp004_schema_error_counts_toward_circuit`（3 次 SchemaError → FAILED，第 4 次 `CANCELLED` 且 `error_summary="circuit open"`，fetch 不再调用）。
+- **A-5**：~~Q-GAP-001~~ 实际为 **Q-GAP-002** 的"分散缺失 → 区间合并"分支（`gap_detection`，[rules.py#L972](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/quality/rules.py#L972)）无测试，现有用例只覆盖连续缺失（Q-GAP-001 走 `expected_grid` 逐区间列出，原描述已修正）。**✅ 已修复（2026-11-05，已提交 `f12dd5c`）**：新增 `test_dispersed_gaps_split_and_adjacent_merged`（10:00/10:03/10:06 → 单 finding、`gap_ranges` 长度 2）。
+- **A-6**：DST 切换日、分页上界 1000 / 下界 1 无边界测试（闰日、跨年界已有覆盖）。**✅ 已修复（2026-11-05，已提交 `f12dd5c`）**：新增 DST 切换日用例（`test_acceptance_datetime_dst_switch_days`）、`acquire(0/-1)` ValueError 用例、deribit `_MAX_CHART_PAGES == 1000` 上界用例。
 
 ### 5.4 LOW
 
@@ -545,11 +545,11 @@
 |---|---|---|
 | CRITICAL | 6（现存 0） | 核心源码 3（C1/C2/C3 已修复）、测试 1（A-1 已修复）、脚本 1（B-1 已修复）、TGA 1（TGA-1 已修复） |
 | HIGH | 14（现存 0） | 核心源码 8（H1–H7 已修复并提交；A-8 已修复）、测试 2（A-2、A-3，均已修复）、工程卫生 1（G-1，已修复）、文档 3（D-1–D-3，已修复） |
-| MEDIUM | 20（现存 14） | 核心源码 10（M1–M10，M6 已修复）、测试 3（A-4–A-6）、配置/卫生/并发 5（C-2、C-3、C-4 计入 LOW 故为 3，A-9 已修复）、文档 3（D-4、D-5、TGA-3）；已修复 C-2、C-3、D-4、D-5、TGA-3、A-9 |
+| MEDIUM | 20（现存 5：M2、M7、M9、M10、C-4） | 核心源码 10（M1–M10，已修复 M1/M3/M4/M5/M6/M8，余 M2/M7/M9/M10）、测试 3（A-4–A-6，已修复）、配置/卫生/并发 4（C-2、C-3 已修复，C-4 待决策，A-9 已修复）、文档 3（D-4、D-5、TGA-3，已修复） |
 | LOW | 11 | L1–L6、A-7、C-6、C-7、D-6、D-7 |
 | 合计 | 51 | |
 
-> 说明：C-7 归入 LOW，MEDIUM 实为 20 = 10 + 3 + 3 + 3 + 1（A-9）。A-8 为 2026-11-05 复核 A-2 时实测发现，计入 HIGH，同日修复关闭；A-9 为 2026-11-05 并发压测发现，计入 MEDIUM，同日修复关闭。
+> 说明：C-7 归入 LOW，MEDIUM 实为 20 = 10 + 3 + 3 + 3 + 1（A-9）。A-8 为 2026-11-05 复核 A-2 时实测发现，计入 HIGH，同日修复关闭；A-9 为 2026-11-05 并发压测发现，计入 MEDIUM，同日修复关闭。**2026-11-05 MEDIUM 批量处理**：本轮修复 8 项（M1 `60576bc`、M3 `1ace9ac`、M4/M5/M8 `9d465a3`、A-4/A-5/A-6 `f12dd5c`），现存由 14 降至 **5**（M2/M7/M9/M10/C-4 均需改对外契约、配置语义、数据迁移或真实样本，保留待决策）。
 
 ### 8.2 优先级与修复批次
 
@@ -571,10 +571,10 @@
 | ~~**H4**~~ | ~~treasury_fiscal 加 T+1 起点回退（与 sosovalue 一致）~~ **已完成（2026-11-05）** |
 | ~~**H2 + M6**~~ | ~~ccxt / deribit / yahoo 统一 rewind + 未收盘过滤~~ **已完成（2026-11-05）**：ccxt OHLCV `since -= interval_seconds`；deribit start 回退一个 resolution；yahoo `period1` 回退一个 interval；三者 normalize 均跳过 `close_time > now` 的 bar 并记 `normalize_skip`/summary（deribit/yahoo）。回归：`TestOHLCVRewind`、`TestChartRewindAndUnclosed`、`TestRewindAndUnclosed` |
 | ~~**H5**~~ | ~~yahoo 限流公式改为 `_DEFAULT_RATE/60`（不乘超时）~~ **已完成并提交（2026-11-05，`0f5583f`/`d2425e5`）**：速率固定 0.5 req/s；429 解析 `Retry-After`（秒/HTTP-date，缺省 60s）并调用 `on_rate_limited`；重试沿用 `connectors.retry`。回归：`tests/unit/test_yahoo_ratelimit.py`（8 条） |
-| ~~**H6**~~ | ~~canonical 换名用"先写新分区再交换"或保留旧目录可回滚~~ **已完成并提交（2026-11-05，`0b0f4d0`/`d21a8c3`）**：`.old-*`/`.tmp-*` 名内嵌目标分区名可配对；`_atomic_rename` 交换前写 `._commit` 标记并 fsync；`recover_partition_orphans` 在启动清理与每次 `_process_partition` 前前滚已提交 tmp / 回滚 `.old-*`，无完整快照才删半成品；`cleanup_orphans` 从"只删"改为"先恢复后清理"。回归：`TestRenameSwapCrashRecovery`（6 条，修复前 4 条红）。M1/M3 仍待处理 |
+| ~~**H6**~~ | ~~canonical 换名用"先写新分区再交换"或保留旧目录可回滚~~ **已完成并提交（2026-11-05，`0b0f4d0`/`d21a8c3`）**：`.old-*`/`.tmp-*` 名内嵌目标分区名可配对；`_atomic_rename` 交换前写 `._commit` 标记并 fsync；`recover_partition_orphans` 在启动清理与每次 `_process_partition` 前前滚已提交 tmp / 回滚 `.old-*`，无完整快照才删半成品；`cleanup_orphans` 从"只删"改为"先恢复后清理"。回归：`TestRenameSwapCrashRecovery`（6 条，修复前 4 条红）。M1/M3 已于 2026-11-05 另行修复（`60576bc`/`1ace9ac`） |
 | ~~**H1 / H3**~~ | ~~funding 补 `endTime`；trades 补分页并修正 `order` 参数~~ **已完成（2026-11-05）**：funding `endTime` + 边界停止；trades fromId-only/ISO→since 归一化、`order` 校验透传、asc/desc 双向翻页、客户端 end 截断与去重。回归：`TestFetchTradesPagination`（6 条）+ `test_fetch_funding_includes_end_time_and_stops` |
 | ~~**H7**~~ | ~~统一 UTC 时间助手，消除 naive `.timestamp()` 的主机时区偏移~~ **已完成并提交（2026-11-05，`ecdbe38`/`d27b5dd`/`0d71036`）**：新增 `timeutil.py` 单一换算入口；binance_spot/futures 窗口上下界与 `close_time > now`、spot/futures/ccxt/deribit/yahoo `checkpoint_from`、`_cursor_to_ms`、canonical `_revision_seq`、raw 保留截止日全部改走 UTC 助手。回归：`tests/integration/test_timezone_utc.py`（25 条，TZ 参数化；修复前 UTC+8 下 12 条失败）。数据核验：本机无 binance_spot/futures 采集记录，Binance 源 OHLCV 零缺口，无需重采 |
-| **M1 / M3** | raw 滚动前 fsync；0 行分支不虚报计数（H6 已关闭） |
+| ~~**M1 / M3**~~ | ~~raw 滚动前 fsync；0 行分支不虚报计数~~ **已完成（2026-11-05，已提交 `60576bc`/`1ace9ac`）**：滚动前 `_sync_handle` 再 close；0 行分区改为真正落盘并按批内唯一 NK 计数 |
 | ~~**A-2**~~ | ~~补 e2e/quality 两层最小骨架~~ **已完成（2026-11-05，已提交 `0bbada0`/`8965770`）**：e2e 2 条（真实 connector + MockTransport 全链路、增量 checkpoint）+ quality 2 条（错误率门禁、block_on 门禁）+ 共享 harness；4 条用例在 4 处临时注入下全红、撤回后全绿。A-3 fixtures 六形态与 13 连接器契约覆盖已于 2026-11-05 完成 |
 | ~~**A-8**~~ | ~~连接器逐行静默跳过导致"非空 payload → 0 行产出"仍 SUCCESS 并推进 checkpoint~~ **已完成（2026-11-05，已提交 `9758771`）**：`note_skip` 结构化计数 + `normalize_drop_threshold=0.5` 行级丢弃率门禁；6 条新用例先红后绿；全量 1872 passed 双时区（当次验证） |
 | ~~**A-9**~~ | ~~并发 `cf query` 偶发退出码 1（注册后只读重开撞锁）~~ **已完成（2026-11-05，已提交 `4d28b93`/`4840f28`）**：只读重开复用退避 + 复探；确定性回归用例先红后绿；单跑 50/50、并发压测 40/40、双时区全量 4 次全绿 |
@@ -583,8 +583,9 @@
 
 | 项 | 动作 |
 |---|---|
-| M2 / M4 / M5 / M7 / M8 / M9 / M10 | 逐条修复（对账死代码、429 冷却、5xx 分类、FRED 修订回补、错误包装、交易日历、SEC 分页与 URL） |
-| A-4 / A-5 / A-6 / A-7 | 补测试并标注 TC-ID |
+| ~~M4 / M5 / M8~~ | **已完成（2026-11-05，已提交 `9d465a3`）**：429 全局冷却按 `retry_after` 生效；yahoo 5xx 归 `TransportError`；treasury_refunding 传输异常包装 + 非 200 按 `map_http_status` 分类 |
+| M2 / M7 / M9 / M10 / C-4 | **⏳ 待用户决策（2026-11-05）**：对账死代码取舍、FRED vintage 回补策略、交易日历来源、SEC `filings.files` 真实样本、`config_hash` 全字段（分别涉及启动修复语义/外部字段语义/配置语义/真实样本/配置 hash 迁移） |
+| ~~A-4 / A-5 / A-6~~ / A-7 | **A-4/A-5/A-6 已完成（2026-11-05，已提交 `f12dd5c`）**：TC-C-015 熔断、Q-GAP-002 分散区间合并、DST/分页上下界边界；A-7 仍待标注 TC-ID |
 | **新发现（2026-11-05，已修复）** | deribit chart fetch 未读取 `result.continuation`：当 `end` 缺失且接口持续返回非空 ticks 时存在无限分页/重复采集风险。已改为 continuation 驱动（null 终止）+ `end` 边界双重收敛；重复 token 或页数 > 1000 抛 `ProviderError`（[deribit.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/deribit.py#L301-L370)），并补 5 条分页契约测试 |
 | ~~C-2~~ / C-4 | **C-2 已完成（2026-11-05）**：删除 7 个死键 + 注释 + 回归测试；C-4 仍需 config_hash 覆盖 unmatched 全字段 |
 | ~~D-1 ~ D-5、TGA-3~~ | **已完成（2026-11-05）**：README 源数/类型数/环境变量表、TGA 概念文档定位声明、DECISIONS 状态、dispatch-log 状态均已对齐代码；新增 `test_docs_consistency.py` 守卫 |
@@ -609,9 +610,9 @@ uv run pytest -q
 
 ### 9.1 结论
 
-ChronoForge 的基础工程质量（分层、类型、测试独立性、幂等回退、TGA 的 PIT 与情景口径改造）达到较高水准，本轮审计未发现架构性返工需求。**6 项 CRITICAL 已全部修复，现存 CRITICAL 为 0**；G-1/C-3（版本库/生成物忽略）已于 2026-11-05 以提交 `5590163` 关闭（G6 ✅）；文档一致性 D-1/D-2/D-3/D-4/D-5/TGA-3 已修复、D-7 重命名（G7 ✅）；H4/C-2 修复并复核（G5 ✅）。**G3 于 2026-11-05 关闭**：13 个连接器全部具备"可溯源响应样本 → fetch → normalize → 行数与关键字段断言"全链路用例，并配有缺字段、非空零行、异常状态码等负向用例与 `SOURCE.md` 取证说明；全量 `pytest` 1873 passed，`ruff` / `mypy` / `lint-imports` 均通过；**A-2 已关闭**（e2e/quality 两层落地，4 条用例在临时注入下全红、撤回后全绿）；**A-8 已关闭**（`note_skip` 结构化计数 + 行级丢弃率门禁，6 条用例先红后绿）；**A-9 已关闭**（并发 query 只读重开撞锁，确定性用例先红后绿，单跑 50/50、并发压测 40/40 绿）。据此，§1.6 的 **G1–G7 全部为 ✅，按门禁标准判定 READY（2026-11-05 复评）**。
+ChronoForge 的基础工程质量（分层、类型、测试独立性、幂等回退、TGA 的 PIT 与情景口径改造）达到较高水准，本轮审计未发现架构性返工需求。**6 项 CRITICAL 已全部修复，现存 CRITICAL 为 0**；G-1/C-3（版本库/生成物忽略）已于 2026-11-05 以提交 `5590163` 关闭（G6 ✅）；文档一致性 D-1/D-2/D-3/D-4/D-5/TGA-3 已修复、D-7 重命名（G7 ✅）；H4/C-2 修复并复核（G5 ✅）。**G3 于 2026-11-05 关闭**：13 个连接器全部具备"可溯源响应样本 → fetch → normalize → 行数与关键字段断言"全链路用例，并配有缺字段、非空零行、异常状态码等负向用例与 `SOURCE.md` 取证说明；全量 `pytest` 1882 passed，`ruff` / `mypy` / `lint-imports` 均通过；**A-2 已关闭**（e2e/quality 两层落地，4 条用例在临时注入下全红、撤回后全绿）；**A-8 已关闭**（`note_skip` 结构化计数 + 行级丢弃率门禁，6 条用例先红后绿）；**A-9 已关闭**（并发 query 只读重开撞锁，确定性用例先红后绿，单跑 50/50、并发压测 40/40 绿）。据此，§1.6 的 **G1–G7 全部为 ✅，按门禁标准判定 READY（2026-11-05 复评）**。
 
-**READY（G1–G7 全部通过）**。残余风险综合等级 **MEDIUM**，须在下一迭代清除：(a) **H1（funding `endTime`）、H2（ccxt/deribit/yahoo rewind 与未收盘过滤）、H3（ccxt trades 分页与 `order` 参数）已于 2026-11-05 修复**——用户任务中的"H1（ccxt trades）"对应本报告 **H3**，此处已按实际编号修正；(b) **H6 已于 2026-11-05 阶段 B 修复并提交（`0b0f4d0`/`d21a8c3`）**——两次 rename 之间的强杀窗口改为"提交标记 + 前滚/回滚自愈"，新增 6 条崩溃恢复用例（修复前 4 条红）；A-2 已于 2026-11-05 关闭；**A-8 已于 2026-11-05 修复（已提交 `9758771`）**——连接器逐行跳过改为结构化计数 + 行级丢弃率门禁，G4 因此通过；**A-9 已于 2026-11-05 修复（已提交 `4d28b93`/`4840f28`）**——并发 query 注册后只读重开复用锁退避，消除偶发退出码 1；(c) **A-3 取证分层**——真实抓包为 treasury_fiscal、treasury_refunding、alternative、coinmetrics（其中 alternative/coinmetrics 当日 HTTP 200 并归档 live fixture），官方文档/客户端模型为 binance_spot、binance_futures、yahoo、fred、ccxt_bridge、deribit、sec_edgar，**sosovalue（当日 403 Cloudflare）与 coinmarketcap（未文档化网页端点，当日超时）为依据历史实测形状、未当日重新抓包的 BLOCKED 项**（已在各自 `SOURCE.md` 如实记录尝试方式与状态码）；(d) **deribit chart 分页缺陷已修复（2026-11-05）**：改为 `result.continuation` 驱动并以 `end` 边界双重收敛，重复 token / 页数 > 1000 抛 `ProviderError`；`raw_meta` 语义不变，`checkpoint_from` 仍取末页末根 tick。历史上 yahoo fixture 假形状造成过同类事故，说明测试契约层（真实响应 → fetch → normalize）是制度性缺口，本次 13/13 覆盖即为该缺口的制度化闭环，后续新增连接器必须沿用同一门槛。
+**READY（G1–G7 全部通过）**。残余风险综合等级 **MEDIUM**，须在下一迭代清除：(a) **H1（funding `endTime`）、H2（ccxt/deribit/yahoo rewind 与未收盘过滤）、H3（ccxt trades 分页与 `order` 参数）已于 2026-11-05 修复**——用户任务中的"H1（ccxt trades）"对应本报告 **H3**，此处已按实际编号修正；(b) **H6 已于 2026-11-05 阶段 B 修复并提交（`0b0f4d0`/`d21a8c3`）**——两次 rename 之间的强杀窗口改为"提交标记 + 前滚/回滚自愈"，新增 6 条崩溃恢复用例（修复前 4 条红）；A-2 已于 2026-11-05 关闭；**A-8 已于 2026-11-05 修复（已提交 `9758771`）**——连接器逐行跳过改为结构化计数 + 行级丢弃率门禁，G4 因此通过；**A-9 已于 2026-11-05 修复（已提交 `4d28b93`/`4840f28`）**——并发 query 注册后只读重开复用锁退避，消除偶发退出码 1；(c) **A-3 取证分层**——真实抓包为 treasury_fiscal、treasury_refunding、alternative、coinmetrics（其中 alternative/coinmetrics 当日 HTTP 200 并归档 live fixture），官方文档/客户端模型为 binance_spot、binance_futures、yahoo、fred、ccxt_bridge、deribit、sec_edgar，**sosovalue（当日 403 Cloudflare）与 coinmarketcap（未文档化网页端点，当日超时）为依据历史实测形状、未当日重新抓包的 BLOCKED 项**（已在各自 `SOURCE.md` 如实记录尝试方式与状态码）；(d) **deribit chart 分页缺陷已修复（2026-11-05）**：改为 `result.continuation` 驱动并以 `end` 边界双重收敛，重复 token / 页数 > 1000 抛 `ProviderError`；`raw_meta` 语义不变，`checkpoint_from` 仍取末页末根 tick。历史上 yahoo fixture 假形状造成过同类事故，说明测试契约层（真实响应 → fetch → normalize）是制度性缺口，本次 13/13 覆盖即为该缺口的制度化闭环，后续新增连接器必须沿用同一门槛。**(e) MEDIUM 现存 5 项（M2/M7/M9/M10/C-4）**：均已复核仍成立，但分别涉及启动修复终态语义、FRED vintage/字段语义、交易日历来源、SEC 真实分页样本、`config_hash` 迁移，保留待用户决策；本轮已完成 M1/M3/M4/M5/M8 与 A-4/A-5/A-6（见 §3.3/§5.3 与 §8.2 P1/P2）。
 
 TGA 方面值得肯定：11 条硬性约束均已有落实证据，日报已彻底转为情景口径且能力边界如实声明；TGA-1 修复同时揭示并修正了"同子类流入/流出基线被合并"的第二层缺陷。
 
@@ -619,7 +620,7 @@ TGA 方面值得肯定：11 条硬性约束均已有落实证据，日报已彻�
 
 ### 9.2 后续动作清单
 
-1. P0 的 6 项 CRITICAL 已全部关闭；G-1 成套提交与 `reports/` 忽略已完成（提交 `5590163`，G6 ✅）；文档一致性 D 类已关闭、G7 ✅；H4/C-2 已修复、G5 ✅；**G3 已于 2026-11-05 关闭（A-3 完成）**；H5 已提交，H6 已于阶段 B 修复并提交（`0b0f4d0`/`d21a8c3`）；A-2 与 **A-8** 已于 2026-11-05 关闭（e2e/quality 两层落地、行级丢弃率门禁落地）；下一步为 M1/M3；
+1. P0 的 6 项 CRITICAL 已全部关闭；G-1 成套提交与 `reports/` 忽略已完成（提交 `5590163`，G6 ✅）；文档一致性 D 类已关闭、G7 ✅；H4/C-2 已修复、G5 ✅；**G3 已于 2026-11-05 关闭（A-3 完成）**；H5 已提交，H6 已于阶段 B 修复并提交（`0b0f4d0`/`d21a8c3`）；A-2 与 **A-8** 已于 2026-11-05 关闭（e2e/quality 两层落地、行级丢弃率门禁落地）；**M1/M3 已于 2026-11-05 修复（`60576bc`/`1ace9ac`），M4/M5/M8 与 A-4/A-5/A-6 同批关闭（`9d465a3`/`f12dd5c`），MEDIUM 现存 5 项（M2/M7/M9/M10/C-4）待用户决策**；
 2. 连接器契约门禁落地：每个连接器必须有一条 `raw 响应样本 → fetch → normalize → 行数断言` 的用例，纳入 CI（**13 个连接器已于 2026-11-05 全覆盖**；新增连接器须沿用）；
 3. 对既有数据做一次完整性回溯（treasury_fiscal、TGA forecast 产物，以及历史 run 中曾记成功的 deribit/sec_edgar checkpoint），量化历史缺口；**TGA 0.4.0 已重跑当日预测与 2 个回测窗口（`de0ff140cf2560b7`、`fe7a9c621dc3dc4b`）；审计原列的其余 forecast 窗口（2026-11-02/10-29、11-03/10-30、11-04/10-30）与 backtest 窗口（2023-11-01→11-02）尚未重跑**；
 4. 重新运行本报告 §2 的基线命令与 §4.1 约束矩阵，逐项勾销后复评 READY/NOT READY；
