@@ -18,7 +18,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from enum import Enum
 from pathlib import Path
 from typing import TypedDict
@@ -36,6 +36,7 @@ from chronoforge.storage.base import (
     natural_key,
     partition_time_field,
 )
+from chronoforge.timeutil import to_epoch_microseconds
 
 logger = structlog.get_logger()
 
@@ -1076,7 +1077,7 @@ class CanonicalStoreImpl:
         以当前时间（微秒）为基准，但不小于上一批最大值 + 1；批内逐条递增，
         保证同批多条记录的 _revision_seq 不重复（keep-last 去重确定性）。
         """
-        now_us = int(datetime.now().replace(tzinfo=None).timestamp() * 1_000_000)
+        now_us = to_epoch_microseconds(datetime.now(UTC))
         base = max(now_us, self._last_revision_seq + 1)
         self._last_revision_seq = base + len(records) - 1
         return [

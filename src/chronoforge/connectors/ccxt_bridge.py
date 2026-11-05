@@ -15,7 +15,6 @@ market_id 格式：CCXT-{EX}:{symbol}:{type}
 
 from __future__ import annotations
 
-import calendar
 import math
 import os
 from collections.abc import Iterator
@@ -46,6 +45,7 @@ from chronoforge.models.derivatives import Interval
 from chronoforge.models.enums import CanonicalType, QualityStatus
 from chronoforge.models.market import OHLCV, TICKER, TRADE, Side, interval_seconds
 from chronoforge.models.quality import QualityFinding, QualityReport
+from chronoforge.timeutil import to_epoch_milliseconds
 
 logger = structlog.get_logger()
 
@@ -58,12 +58,8 @@ _MAX_TRADE_PAGES = 1000
 
 
 def _dt_to_ms(dt: datetime) -> int:
-    """UTC naive datetime → epoch ms（D04 §1：FetchRequest 时间为 UTC naive）。
-
-    不使用 datetime.timestamp()：naive datetime 会被解释为本地时区，
-    在非 UTC 主机上产生偏移。
-    """
-    return calendar.timegm(dt.timetuple()) * 1000 + dt.microsecond // 1000
+    """UTC naive datetime → epoch ms（统一委托 timeutil，避免主机时区偏移）。"""
+    return to_epoch_milliseconds(dt)
 
 
 def _trade_cursor_to_ms(cursor: str) -> int:
@@ -75,9 +71,7 @@ def _trade_cursor_to_ms(cursor: str) -> int:
             f"ccxt_bridge: invalid trades cursor {cursor!r}: expected a numeric "
             "trade id or an ISO-8601 timestamp"
         ) from e
-    if dt.tzinfo is None:
-        return calendar.timegm(dt.timetuple()) * 1000 + dt.microsecond // 1000
-    return int(dt.timestamp() * 1000)
+    return to_epoch_milliseconds(dt)
 
 
 def _map_ccxt_error(op: str, exc: Exception) -> TransportError | ProviderError:
@@ -1015,7 +1009,7 @@ class CcxtBridgeConnector(DataConnector):
         elif isinstance(raw, list) and raw:
             last_record = raw[-1]
             if isinstance(last_record, OHLCV):
-                return str(int(last_record.event_time.timestamp() * 1000))
+                return str(_dt_to_ms(last_record.event_time))
             if isinstance(last_record, TRADE):
                 return last_record.trade_id
 

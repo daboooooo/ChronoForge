@@ -13,7 +13,6 @@
 
 from __future__ import annotations
 
-import calendar
 import math
 from collections import defaultdict
 from collections.abc import Iterator
@@ -55,6 +54,7 @@ from chronoforge.models.reference import (
     OptionType,
     parse_deribit,
 )
+from chronoforge.timeutil import to_epoch_milliseconds
 
 # Deribit 限流配置（D04 §4.3）
 # Deribit: 100 req/min for public endpoints, 2000 for authenticated
@@ -86,8 +86,8 @@ logger = structlog.get_logger()
 
 
 def _dt_to_ms(dt: datetime) -> int:
-    """UTC naive datetime → epoch ms（D04 §1：FetchRequest 时间为 UTC naive）。"""
-    return calendar.timegm(dt.timetuple()) * 1000 + dt.microsecond // 1000
+    """UTC naive datetime → epoch ms（统一委托 timeutil，避免主机时区偏移）。"""
+    return to_epoch_milliseconds(dt)
 
 
 def _quote_float(value: Any) -> float | None:
@@ -804,7 +804,7 @@ class DeribitConnector(DataConnector):
         elif isinstance(raw, list) and raw:
             last_record = raw[-1]
             if hasattr(last_record, "source_timestamp") and last_record.source_timestamp:
-                return str(int(last_record.source_timestamp.timestamp() * 1000))
+                return str(_dt_to_ms(last_record.source_timestamp))
 
         return None
 

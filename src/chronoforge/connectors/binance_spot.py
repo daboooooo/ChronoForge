@@ -42,6 +42,7 @@ from chronoforge.models.enums import CanonicalType, QualityStatus
 from chronoforge.models.market import OHLCV, TICKER, TRADE, Side, interval_seconds
 from chronoforge.models.quality import QualityFinding, QualityReport
 from chronoforge.models.reference import parse_binance
+from chronoforge.timeutil import to_epoch_milliseconds
 
 logger = structlog.get_logger()
 
@@ -197,9 +198,11 @@ class BinanceSpotConnector(DataConnector):
             # 永久漏采（1d K 线在小时级增量调度下必漏）。回退后未收盘
             # K 线由 normalize 过滤，重复 K 线由 natural key upsert 幂等收敛。
             rewind_ms = interval_seconds(interval) * 1000
-            params["startTime"] = int(request.start.timestamp() * 1000) - rewind_ms
+            params["startTime"] = (
+                to_epoch_milliseconds(request.start) - rewind_ms
+            )
         if request.end is not None:
-            params["endTime"] = int(request.end.timestamp() * 1000)
+            params["endTime"] = to_epoch_milliseconds(request.end)
 
         while True:
             # Rate limit
@@ -235,7 +238,7 @@ class BinanceSpotConnector(DataConnector):
             # If end is set and last candle's closeTime >= end, stop
             if request.end is not None:
                 last_close_time = data[-1][6]  # closeTime in ms
-                if last_close_time >= int(request.end.timestamp() * 1000):
+                if last_close_time >= to_epoch_milliseconds(request.end):
                     break
             # Advance cursor: next window start = last closeTime + 1ms
             params["startTime"] = data[-1][6] + 1
@@ -254,14 +257,16 @@ class BinanceSpotConnector(DataConnector):
         # cursor 为纯数字时走 fromId 分页（时间边界客户端截断）；
         # 否则（ISO cursor/None）走时间窗口；翻页统一改 fromId-only。
         end_ms = (
-            int(request.end.timestamp() * 1000) if request.end is not None else None
+            to_epoch_milliseconds(request.end)
+            if request.end is not None
+            else None
         )
         params: dict[str, Any] = {"symbol": symbol, "limit": 1000}
         if request.cursor is not None and request.cursor.isdigit():
             params["fromId"] = request.cursor
         else:
             if request.start is not None:
-                params["startTime"] = int(request.start.timestamp() * 1000)
+                params["startTime"] = to_epoch_milliseconds(request.start)
             if end_ms is not None:
                 params["endTime"] = end_ms
 
@@ -443,7 +448,7 @@ class BinanceSpotConnector(DataConnector):
             # Discard unfinished kline: check if openTime + some reasonable interval > now
             # Since we don't know the exact interval here, we check if closeTime > now
             # (a kline that hasn't closed yet has closeTime in the future)
-            if close_time_ms > int(now.timestamp() * 1000):
+            if close_time_ms > to_epoch_milliseconds(now):
                 # 未完成 K 线是增量获取的常态（最后一根），debug 级即可
                 logger.debug(
                     "connector.normalize_skip",
@@ -688,7 +693,7 @@ class BinanceSpotConnector(DataConnector):
         elif isinstance(raw, list) and raw:
             last_record = raw[-1]
             if isinstance(last_record, OHLCV):
-                return str(int(last_record.event_time.timestamp() * 1000))
+                return str(to_epoch_milliseconds(last_record.event_time))
             if isinstance(last_record, TRADE):
                 return last_record.trade_id
 

@@ -16,7 +16,6 @@ market_id 格式：YAHOO:{SYMBOL}:SPOT
 
 from __future__ import annotations
 
-import calendar
 import math
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -46,13 +45,14 @@ from chronoforge.models.derivatives import Interval
 from chronoforge.models.enums import CanonicalType, QualityStatus
 from chronoforge.models.market import OHLCV, interval_seconds
 from chronoforge.models.quality import QualityFinding, QualityReport
+from chronoforge.timeutil import to_epoch_seconds
 
 logger = structlog.get_logger()
 
 
 def _epoch_seconds(dt: datetime) -> int:
-    """UTC naive datetime → epoch 秒（D04 §1：FetchRequest 时间为 UTC naive）。"""
-    return calendar.timegm(dt.timetuple())
+    """UTC naive datetime → epoch 秒（统一委托 timeutil，避免主机时区偏移）。"""
+    return to_epoch_seconds(dt)
 
 
 # Yahoo Finance 保守限流配置（无官方限流文档）
@@ -625,7 +625,7 @@ class YahooConnector(DataConnector):
         elif isinstance(raw, list) and raw and len(raw) > 0:
             last_record = raw[-1]
             if isinstance(last_record, OHLCV):
-                return str(int(last_record.event_time.timestamp()))
+                return str(_epoch_seconds(last_record.event_time))
 
         return None
 

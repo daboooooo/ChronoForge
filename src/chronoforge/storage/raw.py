@@ -29,7 +29,7 @@ import os
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, TypedDict
 
@@ -381,7 +381,7 @@ class RawStore:
         """
         import shutil as _shutil
 
-        now_date = datetime.now().replace(tzinfo=None).date()
+        now_date = datetime.now(UTC).date()
         if retention_days == 0:
             cutoff = now_date
         else:

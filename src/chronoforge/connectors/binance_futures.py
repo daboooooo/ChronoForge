@@ -12,7 +12,6 @@ OI 快照 event_time = fetched_at（无源侧时间）。
 
 from __future__ import annotations
 
-import calendar
 import math
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -49,6 +48,7 @@ from chronoforge.models.market import (
 )
 from chronoforge.models.quality import QualityFinding, QualityReport
 from chronoforge.models.reference import parse_binance
+from chronoforge.timeutil import to_epoch_milliseconds
 
 # Binance Futures USDT-M 限流配置（D04 §4.2）
 _BINFREQ_PER_MIN = 1200
@@ -65,23 +65,20 @@ _SUPPORTED_INTERVALS = frozenset({
 
 
 def _dt_to_ms(dt: datetime) -> int:
-    """UTC naive datetime → epoch ms（D04 §1：FetchRequest 时间为 UTC naive）。
-
-    不使用 datetime.timestamp()：naive datetime 会被解释为本地时区，
-    在非 UTC 主机上产生偏移。
-    """
-    return calendar.timegm(dt.timetuple()) * 1000 + dt.microsecond // 1000
+    """UTC naive datetime → epoch ms（统一委托 timeutil，避免主机时区偏移）。"""
+    return to_epoch_milliseconds(dt)
 
 
 def _cursor_to_ms(cursor: str) -> int:
     """cursor 字符串 → ms 时间戳。
 
     兼容两种格式：纯数字（历史 ms 串）与 ISO datetime（pipeline checkpoint）。
+    naive ISO 按 UTC 解释，不随主机时区漂移。
     """
     try:
         return int(cursor)
     except ValueError:
-        return int(datetime.fromisoformat(cursor).timestamp() * 1000)
+        return to_epoch_milliseconds(datetime.fromisoformat(cursor))
 
 
 @dataclass
@@ -223,9 +220,9 @@ class BinanceFuturesConnector(DataConnector):
             # 永久漏采（1d K 线在小时级增量调度下必漏）。回退后未收盘
             # K 线由 normalize 过滤，重复 K 线由 natural key upsert 幂等收敛。
             rewind_ms = interval_seconds(interval) * 1000
-            params["startTime"] = int(request.start.timestamp() * 1000) - rewind_ms
+            params["startTime"] = _dt_to_ms(request.start) - rewind_ms
         if request.end is not None:
-            params["endTime"] = int(request.end.timestamp() * 1000)
+            params["endTime"] = _dt_to_ms(request.end)
 
         while True:
             self._rate_limiter.acquire(_KLINE_WEIGHT)
@@ -262,7 +259,7 @@ class BinanceFuturesConnector(DataConnector):
             # Pagination check
             if request.end is not None:
                 last_close_time = data[-1][6]  # closeTime in ms
-                if last_close_time >= int(request.end.timestamp() * 1000):
+                if last_close_time >= _dt_to_ms(request.end):
                     break
             # Advance cursor: next window start = last closeTime + 1ms
             params["startTime"] = data[-1][6] + 1
@@ -478,7 +475,7 @@ class BinanceFuturesConnector(DataConnector):
             ).replace(tzinfo=None)
 
             # Discard unfinished kline: closeTime in future
-            if close_time_ms > int(now.timestamp() * 1000):
+            if close_time_ms > _dt_to_ms(now):
                 continue
 
             try:
@@ -714,15 +711,15 @@ class BinanceFuturesConnector(DataConnector):
             last_record = raw[-1]
             if isinstance(last_record, OHLCV):
                 return str(
-                    int(last_record.event_time.timestamp() * 1000)
+                    _dt_to_ms(last_record.event_time)
                 )
             if isinstance(last_record, FUNDING):
                 return str(
-                    int(last_record.event_time.timestamp() * 1000)
+                    _dt_to_ms(last_record.event_time)
                 )
             if isinstance(last_record, OPEN_INTEREST):
                 return str(
-                    int(last_record.event_time.timestamp() * 1000)
+                    _dt_to_ms(last_record.event_time)
                 )
 
         return None
