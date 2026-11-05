@@ -164,6 +164,14 @@ class TestBoundaryConditions:
         wait = rl.acquire(1)
         assert wait == pytest.approx(0.05, abs=0.01)
 
+    def test_acquire_rejects_zero_or_negative(self) -> None:
+        """n 下界为 1（A-6）：0/负数显式 ValueError，不得静默放行。"""
+        rl = RateLimiter(rate=1.0, burst=1, clock=lambda: 0.0)
+        with pytest.raises(ValueError, match="n"):
+            rl.acquire(0)
+        with pytest.raises(ValueError, match="n"):
+            rl.acquire(-1)
+
     def test_low_rate_0_1(self) -> None:
         """rate=0.1：低频场景，acquire(1) 需等待较长。
 

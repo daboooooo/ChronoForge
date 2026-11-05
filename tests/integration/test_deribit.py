@@ -1044,6 +1044,10 @@ class TestChartPagination:
         assert mock_client.post.call_count == 2
         conn.close()
 
+    def test_page_cap_boundary_is_1000(self) -> None:
+        """分页上界固定为 1000（护栏不得被放宽，A-6）。"""
+        assert deribit_module._MAX_CHART_PAGES == 1000
+
     def test_fetch_chart_data_pagination(self) -> None:
         """Given chart data with 2 pages When fetch Then cursor advances correctly."""
         page1 = {

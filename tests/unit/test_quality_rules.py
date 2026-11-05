@@ -799,6 +799,32 @@ class TestQGap002:
         findings = rule.check(recs, CanonicalType.LIQUIDATION_AGGREGATE, context=ctx)
         assert len(findings) == 0
 
+    def test_dispersed_gaps_split_and_adjacent_merged(self):
+        """A-5：gap_detection 区间合并的拆/并两条路径。
+
+        10:00/10:03/10:06 缺 10:01-10:02 与 10:04-10:05：
+        同簇相邻点合并为 1 区间，跨簇（间隔 > freq）拆分为第 2 区间。
+        既有用例只覆盖单簇连续缺失。
+        """
+        now = datetime(2026, 3, 2, 10, 0, tzinfo=UTC)
+        recs = [
+            {"event_time": now},
+            {"event_time": now + timedelta(minutes=3)},
+            {"event_time": now + timedelta(minutes=6)},
+        ]
+        ctx = GapContext(
+            dataset_id="test",
+            continuity_model="ALWAYS_OPEN",
+            frequency="1min",
+        )
+        rule = get_rule("Q-GAP-002")
+        findings = rule.check(
+            recs, CanonicalType.LIQUIDATION_AGGREGATE, context=ctx
+        )
+        assert len(findings) == 1
+        detail = json.loads(findings[0].detail)
+        assert len(detail["gap_ranges"]) == 2
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Q-OHLC-001

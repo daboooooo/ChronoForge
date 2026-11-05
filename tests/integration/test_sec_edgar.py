@@ -435,6 +435,18 @@ class TestTimezoneConversion:
 
         conn.close()
 
+    def test_acceptance_datetime_dst_switch_days(self) -> None:
+        """DST 切换日边界：EDT/EST 后缀换算不受主机时区影响（A-6）。"""
+        conn, _ = _create_mock_connector(_load_fixture("happy.json"))
+
+        # 2026-03-08 美国进入夏令时；2026-11-01 退出夏令时
+        spring = conn._parse_acceptance_datetime("2026-03-08 03:30:00 EDT")
+        fall = conn._parse_acceptance_datetime("2026-11-01 01:30:00 EST")
+
+        assert spring == datetime(2026, 3, 8, 7, 30)
+        assert fall == datetime(2026, 11, 1, 6, 30)
+        conn.close()
+
     def test_acceptance_datetime_utc_no_conversion(self) -> None:
         """Given UTC 后缀 When normalize Then accepted_datetime 不变。"""
         conn, _ = _create_mock_connector(_load_fixture("happy.json"))

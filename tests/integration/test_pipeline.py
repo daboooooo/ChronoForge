@@ -664,6 +664,33 @@ def test_tcp004_circuit_breaker_after_three_failures(tmp_stores, monkeypatch) ->
     assert row5.status == "CANCELLED"
 
 
+def test_tcp004_schema_error_counts_toward_circuit(tmp_stores, monkeypatch) -> None:
+    """TC-C-015：SchemaError（结构漂移）同样计入 dataset 级熔断（A-4）。
+
+    既有熔断用例只覆盖 TransportError；SchemaError 会 re-raise 并写 FAILED，
+    必须同样累计连续失败，第 4 次 run 直接 CANCELLED。
+    """
+    h = _harness(
+        tmp_stores,
+        monkeypatch,
+        "tcp004_schema",
+        connector=FakeConnector(chunk_failures={1: SchemaError}),
+    )
+    for _ in range(3):
+        h.connectors[DS_ID].start_new_run()
+        with pytest.raises(SchemaError):
+            h.runner.run(_make_job())
+
+    h.connectors[DS_ID].start_new_run()
+    calls_before = len(h.connectors[DS_ID].fetch_calls)
+    row4 = h.runner.run(_make_job())
+    assert row4.status == "CANCELLED"
+    assert row4.error_summary == "circuit open"
+    assert len(h.connectors[DS_ID].fetch_calls) == calls_before
+    db = _run_log_row(h.meta, row4.run_id)
+    assert db["status"] == "CANCELLED"
+
+
 # ── TC-P-005：cursor 仅终态更新 ───────────────────────────────────────
 
 
