@@ -13,11 +13,12 @@
 
 from __future__ import annotations
 
+import calendar
 import math
 from collections import defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
 import httpx
@@ -45,7 +46,7 @@ from chronoforge.models.derivatives import (
     Interval,
 )
 from chronoforge.models.enums import CanonicalType, QualityStatus
-from chronoforge.models.market import OHLCV
+from chronoforge.models.market import OHLCV, interval_seconds
 from chronoforge.models.quality import QualityFinding, QualityReport
 from chronoforge.models.reference import (
     INSTRUMENT,
@@ -82,6 +83,11 @@ _DERIBIT_RESOLUTION_MAP: dict[str, Interval] = {
 _DERIBIT_INTERVALS: frozenset[Interval] = frozenset(_DERIBIT_RESOLUTION_MAP.values())
 
 logger = structlog.get_logger()
+
+
+def _dt_to_ms(dt: datetime) -> int:
+    """UTC naive datetime → epoch ms（D04 §1：FetchRequest 时间为 UTC naive）。"""
+    return calendar.timegm(dt.timetuple()) * 1000 + dt.microsecond // 1000
 
 
 def _quote_float(value: Any) -> float | None:
@@ -292,11 +298,15 @@ class DeribitConnector(DataConnector):
             "resolution": resolution,
         }
 
-        # Deribit API 参数名为 start_timestamp / end_timestamp（毫秒）
+        # Deribit API 参数名为 start_timestamp / end_timestamp（毫秒）。
+        # start 回退一个 resolution：增量窗口按收线推进，边界 bar 的
+        # openTime 落在窗口起点之前时会被 start_timestamp 过滤永久漏采；
+        # 未收盘/重复 bar 由 normalize 跳过 + natural key upsert 幂等收敛。
+        rewind_ms = interval_seconds(_DERIBIT_RESOLUTION_MAP[resolution]) * 1000
         if request.start is not None:
-            params["start_timestamp"] = int(request.start.timestamp() * 1000)
+            params["start_timestamp"] = _dt_to_ms(request.start) - rewind_ms
         if request.end is not None:
-            params["end_timestamp"] = int(request.end.timestamp() * 1000)
+            params["end_timestamp"] = _dt_to_ms(request.end)
 
         # 分页由 result.continuation 驱动（Deribit v2 语义）；记录已用 token，
         # 出现重复 token 或页数超限时显式失败，禁止静默无限分页。
@@ -353,7 +363,7 @@ class DeribitConnector(DataConnector):
 
             # 双重收敛条件 1：end 边界（末根 tick 已到达/越过 end 即停止）
             if request.end is not None:
-                end_ms = int(request.end.timestamp() * 1000)
+                end_ms = _dt_to_ms(request.end)
                 if int(ticks[-1]) >= end_ms:
                     break
 
@@ -620,6 +630,7 @@ class DeribitConnector(DataConnector):
             raise ProviderError(
                 f"deribit: unsupported chart resolution: {resolution}"
             )
+        bar_seconds = interval_seconds(interval_enum)
 
         parsed = parse_deribit(instrument_name)
         market_id = cast(str, parsed["market_id"])
@@ -646,6 +657,19 @@ class DeribitConnector(DataConnector):
                 event_time = datetime.fromtimestamp(
                     ts_ms / 1000, tz=UTC
                 ).replace(tzinfo=None)
+
+                # 未收盘 bar（close_time 在未来）跳过并记数；已收盘 bar
+                # 正常入库，重复采集由 natural key upsert 幂等收敛。
+                if event_time + timedelta(seconds=bar_seconds) > now:
+                    logger.debug(
+                        "connector.normalize_skip",
+                        source="deribit",
+                        instrument_name=instrument_name,
+                        reason="unclosed_bar",
+                        index=i,
+                    )
+                    skipped["unclosed_bar"] += 1
+                    continue
 
                 values: dict[str, float] = {}
                 for name, arr in arrays.items():
@@ -690,7 +714,13 @@ class DeribitConnector(DataConnector):
                 skipped[reason] += 1
 
         if skipped:
-            logger.warning(
+            # 未收盘 bar 是增量采集常态 → debug；其他跳过原因仍为 warning
+            log = (
+                logger.debug
+                if set(skipped) == {"unclosed_bar"}
+                else logger.warning
+            )
+            log(
                 "connector.normalize_summary",
                 source="deribit",
                 instrument_name=instrument_name,

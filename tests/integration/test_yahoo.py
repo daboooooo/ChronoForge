@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -573,6 +573,78 @@ class TestCheckpoint:
         )
         cursor = conn.checkpoint_from(raw)
         assert cursor is None
+        conn.close()
+
+
+# ── H2: rewind / 未收盘过滤 ─────────────────────────────────────────────
+
+
+class TestRewindAndUnclosed:
+    """H2：yahoo chart 起点回退与未收盘过滤。"""
+
+    def test_fetch_chart_rewinds_one_interval(self) -> None:
+        """period1 回退一个 interval，覆盖边界 bar。"""
+        conn, client, _ = _create_mock_connector(_load_fixture("happy.json"))
+        start = datetime(2023, 1, 1, tzinfo=UTC).replace(tzinfo=None)
+        end = datetime(2023, 1, 6, tzinfo=UTC).replace(tzinfo=None)
+        request = FetchRequest(
+            dataset_id="test",
+            params={"symbol": "AAPL", "interval": "1d"},
+            start=start,
+            end=end,
+            cursor=None,
+        )
+
+        list(conn.fetch(request))
+
+        params = client.get.call_args.kwargs["params"]
+        assert params["period1"] == int(start.replace(tzinfo=UTC).timestamp()) - 86_400
+        conn.close()
+
+    def test_normalize_skips_unclosed_daily_bar(self) -> None:
+        """当日未收盘 bar 跳过；前一日已收盘 bar 正常入库。"""
+        now = datetime.now(UTC).replace(tzinfo=None)
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        yesterday = today - timedelta(days=1)
+        timestamps = [
+            int(yesterday.replace(tzinfo=UTC).timestamp()),
+            int(today.replace(tzinfo=UTC).timestamp()),
+        ]
+        chart = {
+            "chart": {
+                "result": [
+                    {
+                        "meta": {"symbol": "AAPL"},
+                        "timestamp": timestamps,
+                        "indicators": {
+                            "quote": [
+                                {
+                                    "open": [100.0, 101.0],
+                                    "high": [110.0, 111.0],
+                                    "low": [90.0, 91.0],
+                                    "close": [105.0, 106.0],
+                                    "volume": [1000, 1001],
+                                }
+                            ]
+                        },
+                        "events": {},
+                    }
+                ],
+                "error": None,
+            }
+        }
+        conn, _, _ = _create_mock_connector(chart)
+
+        records = conn.normalize(
+            RawBatch(
+                endpoint="/v8/finance/chart",
+                payload=chart,
+                raw_meta={"symbol": "AAPL", "interval": "1d"},
+            )
+        )
+
+        assert len(records) == 1
+        assert records[0].event_time == yesterday
         conn.close()
 
 

@@ -16,13 +16,15 @@ market_id 格式：YAHOO:{SYMBOL}:SPOT
 
 from __future__ import annotations
 
+import calendar
 import math
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
+import structlog
 
 from chronoforge.connectors.base import (
     CapabilityMatrix,
@@ -42,8 +44,16 @@ from chronoforge.connectors.ratelimit import RateLimiter
 from chronoforge.models.base import BaseRecord
 from chronoforge.models.derivatives import Interval
 from chronoforge.models.enums import CanonicalType, QualityStatus
-from chronoforge.models.market import OHLCV
+from chronoforge.models.market import OHLCV, interval_seconds
 from chronoforge.models.quality import QualityFinding, QualityReport
+
+logger = structlog.get_logger()
+
+
+def _epoch_seconds(dt: datetime) -> int:
+    """UTC naive datetime → epoch 秒（D04 §1：FetchRequest 时间为 UTC naive）。"""
+    return calendar.timegm(dt.timetuple())
+
 
 # Yahoo Finance 保守限流配置（无官方限流文档）
 _DEFAULT_RATE = 30.0  # requests per minute
@@ -207,13 +217,22 @@ class YahooConnector(DataConnector):
         yahoo_interval = self._normalize_interval(interval)
 
         # epoch 秒（D04 §4.5：period1/period2 为 epoch 秒）
-        start_epoch = int(request.start.timestamp()) if request.start else None
-        end_epoch = int(request.end.timestamp()) if request.end else None
+        start_epoch = _epoch_seconds(request.start) if request.start else None
+        end_epoch = _epoch_seconds(request.end) if request.end else None
 
         if start_epoch is None:
             raise ValueError("yahoo: start is required")
         if end_epoch is None:
             raise ValueError("yahoo: end is required")
+
+        # period1 回退一个 interval：增量窗口按收线推进时，边界 bar 的
+        # openTime 落在窗口起点之前会被 period1 过滤永久漏采；未收盘/重复
+        # bar 由 normalize 跳过 + natural key upsert 幂等收敛。
+        try:
+            rewind_s = interval_seconds(interval)
+        except ValueError as e:
+            raise ValueError(f"yahoo: unsupported interval '{interval}'") from e
+        start_epoch -= rewind_s
 
         yield self._fetch_chart(symbol, start_epoch, end_epoch, yahoo_interval, interval)
 
@@ -434,6 +453,7 @@ class YahooConnector(DataConnector):
             raise ProviderError(
                 f"yahoo: unsupported chart interval: {interval_raw}"
             ) from e
+        bar_seconds = interval_seconds(interval_enum)
 
         # 提取数据数组（D04 §4.5）
         # 真实响应形状：OHLCV 数组在 indicators.quote[0]（result.quote 不存在）
@@ -451,6 +471,7 @@ class YahooConnector(DataConnector):
         _dividends = events.get("dividends", {})  # noqa: F841
 
         records: list[OHLCV] = []
+        unclosed_bars = 0
         now = datetime.now(UTC).replace(tzinfo=None)
 
         for i, ts in enumerate(timestamps):
@@ -458,6 +479,19 @@ class YahooConnector(DataConnector):
                 # ts 是 epoch 秒 → datetime UTC（审计 F-09；R2-06：替换
                 # 已弃用的 utcfromtimestamp，Python 3.14 移除）
                 event_time = datetime.fromtimestamp(ts, UTC).replace(tzinfo=None)
+
+                # 未收盘 bar（close_time 在未来）跳过并记数；已收盘 bar
+                # 正常入库，重复采集由 natural key upsert 幂等收敛。
+                if event_time + timedelta(seconds=bar_seconds) > now:
+                    logger.debug(
+                        "connector.normalize_skip",
+                        source="yahoo",
+                        reason="unclosed_bar",
+                        symbol=symbol,
+                        event_time=str(event_time),
+                    )
+                    unclosed_bars += 1
+                    continue
 
                 open_list = quote.get("open", [])
                 high_list = quote.get("high", [])
@@ -519,6 +553,16 @@ class YahooConnector(DataConnector):
             except (ValueError, IndexError, TypeError):
                 # 时间戳转换失败或数组索引越界 → 跳过
                 continue
+
+        if unclosed_bars:
+            logger.debug(
+                "connector.normalize_summary",
+                source="yahoo",
+                symbol=symbol,
+                kept=len(records),
+                skipped=unclosed_bars,
+                reasons={"unclosed_bar": unclosed_bars},
+            )
 
         return records  # type: ignore[return-value]
 

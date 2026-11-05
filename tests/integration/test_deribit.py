@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -1206,6 +1206,51 @@ class TestFetchToNormalize:
         assert first.open == pytest.approx(16500.0, rel=1e-6)
         assert first.close == pytest.approx(16550.0, rel=1e-6)
         assert first.volume == pytest.approx(100.5, rel=1e-6)
+        conn.close()
+
+
+class TestChartRewindAndUnclosed:
+    """H2：deribit chart 起点回退与未收盘过滤。"""
+
+    def test_chart_fetch_rewinds_one_resolution(self) -> None:
+        """起点回退一个 resolution，覆盖边界 bar。"""
+        start = datetime(2022, 12, 31, 1, 0)
+        start_ms = int(start.replace(tzinfo=UTC).timestamp() * 1000)
+        page = _chart_page([start_ms - 3_600_000, start_ms], None)
+        mock_client = _mock_client([_mock_response(200, page)])
+        conn = _bare_connector(mock_client)
+
+        list(conn.fetch(_chart_request(start=start)))
+
+        params = mock_client.post.call_args[1]["json"]["params"]
+        assert params["start_timestamp"] == start_ms - 3_600_000
+        conn.close()
+
+    def test_normalize_skips_unclosed_candle(self) -> None:
+        """未收盘 bar 跳过并留痕；已收盘 bar 正常入库。"""
+        now = datetime.now(UTC).replace(tzinfo=None)
+        current_hour = now.replace(minute=0, second=0, microsecond=0)
+        old = current_hour - timedelta(hours=2)
+        ticks = [
+            int(old.replace(tzinfo=UTC).timestamp() * 1000),
+            int(current_hour.replace(tzinfo=UTC).timestamp() * 1000),
+        ]
+        payload = _chart_page(ticks, None)
+        conn = _bare_connector(MagicMock())
+
+        records = conn.normalize(
+            RawBatch(
+                endpoint="/public/get_tradingview_chart_data",
+                payload=payload,
+                raw_meta={
+                    "instrument_name": "BTC-26SEP26-100000-C",
+                    "resolution": "60",
+                },
+            )
+        )
+
+        assert len(records) == 1
+        assert records[0].event_time == old
         conn.close()
 
 
