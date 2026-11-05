@@ -354,6 +354,11 @@ class TreasuryFiscalConnector(DataConnector):
         endpoint = _ENDPOINTS[table]
         start_date = request.start.date() if request.start else None
         end_date = request.end.date() if request.end else None
+        # DTS T+1 发布回补：起点回退 1 天，重采上一窗口发布时尚未入账的行。
+        # pipeline cursor = 窗口右界（连续窗口无重叠），不回退时边界日行永久漏采；
+        # 下游按 natural key upsert，重采幂等。
+        if start_date is not None:
+            start_date -= timedelta(days=1)
         sort = "record_date"
 
         page = 1

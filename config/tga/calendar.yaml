@@ -57,10 +57,11 @@ monthly_events:
 # 事件影响窗口（事件日前后各 N 个联邦工作日，§6.5 P0 步骤 2 的 -10..+10）
 event_window_business_days: 10
 
-# 退税季（REFUND 组件的季节性窗口，§6.7）
-refund_season_months: [1, 2, 3, 4]
+# 退税季：REFUND 组件按运行率/同月率基线逐日预测，无月份窗口限制，
+# 故不提供配置项（C-2）。
 
-# 支出周期（§6.6 P0；仅列可识别固定周期的项目，其余走通用日分布）
+# 支出周期（§6.6 P0；仅列可识别固定周期的项目，其余走通用日分布；
+# federal_pay 双周规则未实现，走通用日分布，故不提供配置项）
 outlay_cycles:
   social_security:
     rule: nth_weekday_of_month
@@ -75,7 +76,3 @@ outlay_cycles:
     day_of_month: 1
     shift: previous
     subcategories: ["ssi", "veterans"]
-  federal_pay:
-    rule: biweekly
-    anchor: null      # P0 不做双周锚定，走通用日分布；Phase 4 再启用
-    subcategory: null

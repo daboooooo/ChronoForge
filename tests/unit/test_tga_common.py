@@ -12,12 +12,31 @@ _SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from tga_common import config_hash, is_business_day, load_taxonomy  # noqa: E402
+from tga_common import (  # noqa: E402
+    config_hash,
+    is_business_day,
+    load_taxonomy,
+    load_yaml,
+)
 
 
 @pytest.fixture(scope="module")
 def taxonomy():
     return load_taxonomy()
+
+
+def test_tga_config_has_no_dead_keys():
+    """C-2：不得保留未被脚本读取的死键（改键只变 config_hash、不生效）。"""
+    root = Path(__file__).resolve().parents[2]
+    model = load_yaml(str(root / "config" / "tga" / "model.yaml"))
+    calendar = load_yaml(str(root / "config" / "tga" / "calendar.yaml"))
+    assert "monthly_median_weeks" not in model["windows"]
+    assert "same_month_years" not in model["windows"]
+    assert "layer2_confidence" not in model["issuance"]
+    assert "layer3_confidence" not in model["issuance"]
+    assert "components" not in model
+    assert "refund_season_months" not in calendar
+    assert "federal_pay" not in calendar["outlay_cycles"]
 
 
 def test_taxonomy_version_loaded(taxonomy):

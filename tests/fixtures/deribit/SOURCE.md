@@ -17,5 +17,8 @@
   - `get_instruments/{happy,empty}.json`：`result` 为 instrument 列表。
   - `get_tradingview_chart_data/{happy,empty}.json`：JSON-RPC envelope，
     `result` 为并行数组（此前误写为 `candles` 列表）。
+  - `get_tradingview_chart_data/continuation_page{1,2}.json`：两页分页样本，
+    page1 的 `continuation` 为 `"tok-page-2"`，page2 为 `null`（终止）；
+    连接器按 token 请求下一页，不再用 `start_timestamp` 时间步进。
   - `get_book_summary/happy.json`：JSON-RPC envelope，`result` 为
     BookSummary 列表（此前误写为按币种键控的 dict）。

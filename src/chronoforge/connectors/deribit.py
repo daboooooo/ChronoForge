@@ -63,6 +63,10 @@ _INSTRUMENT_WEIGHT = 1
 _BOOK_SUMMARY_WEIGHT = 1
 _CHART_DATA_WEIGHT = 1
 
+# chart 分页护栏：continuation token 重复或页数超限即失败，
+# 避免源端分页异常导致无限请求/重复采集（审计 P2，2026-11-05）
+_MAX_CHART_PAGES = 1000
+
 # Supported intervals mapped from D04 §4.3 resolution values (in minutes)
 # Deribit get_tradingview_chart_data uses: 1, 5, 15, 30, 60, 240, 1440
 _DERIBIT_RESOLUTION_MAP: dict[str, Interval] = {
@@ -294,12 +298,20 @@ class DeribitConnector(DataConnector):
         if request.end is not None:
             params["end_timestamp"] = int(request.end.timestamp() * 1000)
 
+        # 分页由 result.continuation 驱动（Deribit v2 语义）；记录已用 token，
+        # 出现重复 token 或页数超限时显式失败，禁止静默无限分页。
+        seen_continuations: set[str] = set()
+        pages_requested = 0
+
         while True:
             self._rate_limiter.acquire(_CHART_DATA_WEIGHT)
 
+            # 每次请求使用独立 dict：httpx 会序列化，但测试/日志中保留
+            # 调用当时的参数快照，避免 append continuation 后回写历史请求。
+            page_params = dict(params)
             response = self._client.post("/api/v2", json={
                 "method": "public/get_tradingview_chart_data",
-                "params": params,
+                "params": page_params,
             })
             self._handle_response(response)
             data = response.json()
@@ -318,6 +330,17 @@ class DeribitConnector(DataConnector):
             if not isinstance(ticks, list) or not ticks:
                 break
 
+            continuation = result.get("continuation")
+            token: str | None = None
+            if continuation not in (None, ""):
+                token = str(continuation)
+                if token in seen_continuations:
+                    raise ProviderError(
+                        "deribit: repeated chart continuation token: "
+                        f"{token} (instrument={instrument_name})"
+                    )
+                seen_continuations.add(token)
+
             yield RawBatch(
                 endpoint="/public/get_tradingview_chart_data",
                 payload=data,
@@ -328,16 +351,23 @@ class DeribitConnector(DataConnector):
                 },
             )
 
-            # Pagination: use last tick as start for next page
-            # 审计 SR-08：步进按 resolution 计算（60000 硬编码 1m 假设使
-            # 1D 分辨率同一根 K 线重复返回约 1440 次/天，请求放大三个数量级）
-            last_ts = int(ticks[-1])
-            params["start_timestamp"] = last_ts + int(resolution) * 60_000
-            # If end is set and we've passed it, stop
+            # 双重收敛条件 1：end 边界（末根 tick 已到达/越过 end 即停止）
             if request.end is not None:
                 end_ms = int(request.end.timestamp() * 1000)
-                if last_ts >= end_ms:
+                if int(ticks[-1]) >= end_ms:
                     break
+
+            # 双重收敛条件 2：continuation 缺失/null 表示无更多数据
+            if token is None:
+                break
+
+            pages_requested += 1
+            if pages_requested >= _MAX_CHART_PAGES:
+                raise ProviderError(
+                    "deribit: chart pagination exceeded "
+                    f"{_MAX_CHART_PAGES} pages (instrument={instrument_name})"
+                )
+            params["continuation"] = token
 
     def normalize(self, raw: RawBatch) -> list[BaseRecord]:
         """将原始响应转为 Canonical Type 记录（D04 §4.3）。

@@ -1,0 +1,17 @@
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "status": "ok",
+    "ticks": [1672444800000],
+    "open": [16500.0],
+    "high": [16600.0],
+    "low": [16450.0],
+    "close": [16550.0],
+    "volume": [100.5],
+    "cost": [1661025.0],
+    "continuation": "tok-page-2"
+  },
+  "usIn": 1190000,
+  "usOut": 1191000,
+  "testnet": false
+}

@@ -20,6 +20,7 @@ import httpx
 import pytest
 from structlog.testing import capture_logs
 
+import chronoforge.connectors.deribit as deribit_module
 from chronoforge.connectors.base import (
     CapabilityMatrix,
     FetchRequest,
@@ -109,6 +110,60 @@ def _create_mock_connector() -> tuple[DeribitConnector, MagicMock]:
         conn._resolver = MagicMock()
 
     return conn, mock_client
+
+
+def _bare_connector(mock_client: MagicMock) -> DeribitConnector:
+    """用给定 mock client 构造不初始化网络的连接器（分页测试用）。"""
+    with patch.object(DeribitConnector, "__init__", lambda self, s: None):
+        conn = DeribitConnector.__new__(DeribitConnector)
+        conn._client = mock_client
+        conn._rate_limiter = MagicMock()
+    return conn
+
+
+def _chart_page(
+    ticks: list[int],
+    continuation: Any = None,
+    *,
+    base_price: float = 16500.0,
+) -> dict[str, Any]:
+    """构造最小真实形状的 chart JSON-RPC envelope。"""
+    n = len(ticks)
+    return {
+        "jsonrpc": "2.0",
+        "result": {
+            "status": "ok",
+            "ticks": ticks,
+            "open": [base_price] * n,
+            "high": [base_price + 100.0] * n,
+            "low": [base_price - 50.0] * n,
+            "close": [base_price + 50.0] * n,
+            "volume": [100.0] * n,
+            "cost": [base_price * 100.0] * n,
+            "continuation": continuation,
+        },
+    }
+
+
+def _chart_request(
+    *,
+    start: datetime | None = None,
+    end: datetime | None = None,
+    resolution: str = "60",
+    instrument_name: str = "BTC-PERP",
+) -> FetchRequest:
+    """构造 chart FetchRequest。"""
+    return FetchRequest(
+        dataset_id="test",
+        params={
+            "data_type": "chart",
+            "instrument_name": instrument_name,
+            "resolution": resolution,
+        },
+        start=start,
+        end=end,
+        cursor=None,
+    )
 
 
 # ── capabilities ───────────────────────────────────────────────────────
@@ -885,6 +940,110 @@ class TestErrorPaths:
 class TestChartPagination:
     """chart data 分页测试。"""
 
+    def test_fetch_chart_data_follows_continuation(self) -> None:
+        """真实 continuation 多页：按 token 取下一页，null 终止，无重复 tick。"""
+        page1 = _load_fixture(
+            "get_tradingview_chart_data/continuation_page1.json"
+        )
+        page2 = _load_fixture(
+            "get_tradingview_chart_data/continuation_page2.json"
+        )
+        mock_client = _mock_client([
+            _mock_response(200, page1),
+            _mock_response(200, page2),
+        ])
+        conn = _bare_connector(mock_client)
+
+        request = _chart_request(
+            instrument_name="BTC-26SEP26-100000-C",
+            end=None,
+        )
+        batches = list(conn.fetch(request))
+
+        assert len(batches) == 2
+        calls = mock_client.post.call_args_list
+        assert len(calls) == 2
+        assert "continuation" not in calls[0][1]["json"]["params"]
+        assert calls[1][1]["json"]["params"]["continuation"] == "tok-page-2"
+        # continuation 驱动后不再用时间步进，避免与 token 叠加造成错位
+        assert "start_timestamp" not in calls[1][1]["json"]["params"]
+
+        records = [r for batch in batches for r in conn.normalize(batch)]
+        assert len(records) == 2
+        assert len({r.source_id for r in records}) == 2
+        assert records[0].event_time == datetime.fromtimestamp(
+            1672444800000 / 1000, tz=UTC
+        ).replace(tzinfo=None)
+        assert records[0].close == pytest.approx(16550.0, rel=1e-6)
+        assert records[1].event_time == datetime.fromtimestamp(
+            1672448400000 / 1000, tz=UTC
+        ).replace(tzinfo=None)
+        assert records[1].close == pytest.approx(16600.0, rel=1e-6)
+        # 末页末根 tick 即 checkpoint
+        assert conn.checkpoint_from(batches[-1]) == "1672448400000"
+        conn.close()
+
+    def test_fetch_chart_data_stops_when_continuation_null(self) -> None:
+        """continuation 为 null 时首页即终止，不再发起猜测性下一页请求。"""
+        page1 = _load_fixture("get_tradingview_chart_data/happy.json")
+        mock_client = _mock_client([_mock_response(200, page1)])
+        conn = _bare_connector(mock_client)
+
+        batches = list(conn.fetch(_chart_request(end=None)))
+
+        assert len(batches) == 1
+        assert mock_client.post.call_count == 1
+        conn.close()
+
+    def test_fetch_chart_data_repeated_continuation_raises(self) -> None:
+        """重复 continuation token 必须显式失败，避免重复采集/无限分页。"""
+        dup = "tok-dup"
+        mock_client = _mock_client([
+            _mock_response(200, _chart_page([1672444800000], dup)),
+            _mock_response(200, _chart_page([1672448400000], dup)),
+        ])
+        conn = _bare_connector(mock_client)
+
+        with pytest.raises(ProviderError, match="continuation"):
+            list(conn.fetch(_chart_request(end=None)))
+        conn.close()
+
+    def test_fetch_chart_data_end_boundary_stops_before_continuation(
+        self,
+    ) -> None:
+        """end 边界是双重收敛条件：即使还有 continuation 也提前停止。"""
+        t1 = 1672444800000
+        t2 = 1672448400000
+        mock_client = _mock_client([
+            _mock_response(200, _chart_page([t1, t2], "tok-more")),
+        ])
+        conn = _bare_connector(mock_client)
+
+        end = datetime.fromtimestamp(t2 / 1000, tz=UTC).replace(tzinfo=None)
+        batches = list(conn.fetch(_chart_request(end=end)))
+
+        assert len(batches) == 1
+        assert mock_client.post.call_count == 1
+        conn.close()
+
+    def test_fetch_chart_data_page_cap_raises(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """页数超过上限必须抛错，不得静默无限分页。"""
+        monkeypatch.setattr(deribit_module, "_MAX_CHART_PAGES", 2)
+        pages = [
+            _mock_response(200, _chart_page([1672444800000 + i * 3_600_000], f"tok-{i}"))
+            for i in range(3)
+        ]
+        mock_client = _mock_client(pages)
+        conn = _bare_connector(mock_client)
+
+        with pytest.raises(ProviderError, match="exceeded"):
+            list(conn.fetch(_chart_request(end=None)))
+        assert mock_client.post.call_count == 2
+        conn.close()
+
     def test_fetch_chart_data_pagination(self) -> None:
         """Given chart data with 2 pages When fetch Then cursor advances correctly."""
         page1 = {
@@ -898,7 +1057,7 @@ class TestChartPagination:
                 "close": [16550.0],
                 "volume": [100.0],
                 "cost": [1650000.0],
-                "continuation": None,
+                "continuation": "tok-page-2",
             },
         }
         page2 = {
@@ -915,17 +1074,6 @@ class TestChartPagination:
                 "continuation": None,
             },
         }
-        empty_page = {
-            "jsonrpc": "2.0",
-            "result": {
-                "status": "ok",
-                "ticks": [],
-                "open": [], "high": [], "low": [],
-                "close": [], "volume": [], "cost": [],
-                "continuation": None,
-            },
-        }
-
         resp1 = _mock_response(
             status_code=200,
             json_data=page1,
@@ -936,13 +1084,8 @@ class TestChartPagination:
             json_data=page2,
             url="https://www.deribit.com/api/v2",
         )
-        resp3 = _mock_response(
-            status_code=200,
-            json_data=empty_page,
-            url="https://www.deribit.com/api/v2",
-        )
 
-        mock_client = _mock_client([resp1, resp2, resp3])
+        mock_client = _mock_client([resp1, resp2])
 
         with patch.object(
             DeribitConnector, "__init__", lambda self, s: None
@@ -966,20 +1109,23 @@ class TestChartPagination:
         assert batches[0].endpoint == "/public/get_tradingview_chart_data"
         assert batches[1].endpoint == "/public/get_tradingview_chart_data"
 
-        # Verify 3 API calls: page1 → page2 → empty (loop break)
+        # continuation 驱动：page1（token）→ page2（null 终止），共 2 次调用
         call_args = mock_client.post.call_args_list
-        assert len(call_args) >= 2
+        assert len(call_args) == 2
         # First call has instrument_name and resolution
         first_call_params = call_args[0][1]["json"]["params"]
         assert first_call_params["instrument_name"] == "BTC-PERP"
         assert first_call_params["resolution"] == "60"
+        assert "continuation" not in first_call_params
+        second_call_params = call_args[1][1]["json"]["params"]
+        assert second_call_params["continuation"] == "tok-page-2"
         conn.close()
 
-    def test_fetch_chart_data_step_advances_by_resolution(self) -> None:
-        """审计 SR-08：分页步进 = last_ts + resolution×60000（非 1m 硬编码）。
+    def test_fetch_chart_data_1d_stops_without_continuation(self) -> None:
+        """continuation=null 时首页即停，不再做时间步进猜测（SR-08）。
 
-        Given 1D 分辨率首页返回 1 根 K 线 When fetch Then 第二次请求的
-        start_timestamp = 首页末根 ts + 1440×60000；空页触发循环终止。
+        Given 1D 分辨率首页返回 1 根 K 线且 continuation 为 null
+        When fetch Then 只发 1 次请求，不会按 resolution 反复推进 start。
         """
         ts = 1672444800000  # 2023-01-01T00:00:00Z
         page1 = {
@@ -996,20 +1142,7 @@ class TestChartPagination:
                 "continuation": None,
             },
         }
-        empty_page = {
-            "jsonrpc": "2.0",
-            "result": {
-                "status": "ok",
-                "ticks": [],
-                "open": [], "high": [], "low": [],
-                "close": [], "volume": [], "cost": [],
-                "continuation": None,
-            },
-        }
-
-        resp1 = _mock_response(status_code=200, json_data=page1)
-        resp2 = _mock_response(status_code=200, json_data=empty_page)
-        mock_client = _mock_client([resp1, resp2])  # 第 3 次队列耗尽 → 空页
+        mock_client = _mock_client([_mock_response(status_code=200, json_data=page1)])
 
         with patch.object(
             DeribitConnector, "__init__", lambda self, s: None
@@ -1029,14 +1162,51 @@ class TestChartPagination:
         batches = list(conn.fetch(req))
 
         assert len(batches) == 1
-        calls = mock_client.post.call_args_list
-        assert len(calls) == 2  # page1 + 空页 break
-        second_params = calls[1][1]["json"]["params"]
-        assert second_params["start_timestamp"] == ts + 1440 * 60_000
+        assert mock_client.post.call_count == 1
+        assert "start_timestamp" not in mock_client.post.call_args[1]["json"]["params"]
         conn.close()
 
 
 # ── checkpoint_from ────────────────────────────────────────────────────
+
+
+class TestFetchToNormalize:
+    """真实 JSON-RPC envelope → fetch → normalize 全链路。"""
+
+    def test_chart_fixture_e2e(self) -> None:
+        payload = _load_fixture("get_tradingview_chart_data/happy.json")
+        conn, mock_client = _create_mock_connector()
+        mock_client.post.return_value = _mock_response(200, payload)
+
+        request = FetchRequest(
+            dataset_id="test",
+            params={
+                "instrument_name": "BTC-26SEP26-100000-C",
+                "resolution": "60",
+                "data_type": "chart",
+            },
+            # end 取 fixture 最后一个 tick，确保分页在首页后停止
+            # （连接器当前未读取 result.continuation，见测试报告说明）
+            start=datetime(2022, 12, 31),
+            end=datetime(2022, 12, 31, 1, 0),
+            cursor=None,
+        )
+        batches = list(conn.fetch(request))
+        assert len(batches) == 1
+        assert batches[0].raw_meta["resolution"] == "60"
+
+        records = conn.normalize(batches[0])
+        assert len(records) == 2
+        first = records[0]
+        assert isinstance(first, OHLCV)
+        assert first.market_id == "DERIBIT:BTC-26SEP26-100000-C:OPTION"
+        assert first.event_time == datetime.fromtimestamp(
+            1672444800000 / 1000, tz=UTC
+        ).replace(tzinfo=None)
+        assert first.open == pytest.approx(16500.0, rel=1e-6)
+        assert first.close == pytest.approx(16550.0, rel=1e-6)
+        assert first.volume == pytest.approx(100.5, rel=1e-6)
+        conn.close()
 
 
 class TestCheckpoint:

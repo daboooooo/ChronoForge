@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import date, datetime
 from types import SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
+from structlog.testing import capture_logs
 
 from chronoforge.connectors.base import FetchRequest, RawBatch
 from chronoforge.connectors.errors import SchemaError
@@ -368,6 +369,87 @@ def test_pagination_walks_all_pages_without_overlap_or_gap() -> None:
     ]
     assert merged == dates
     assert len(set(merged)) == len(merged)
+
+
+def test_fetch_rewinds_start_by_one_day_for_t_plus_1() -> None:
+    """DTS 次日发布：起点须回退 1 天，否则边界日行永久漏采（H4）。"""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"data": [], "meta": {"total-pages": 1}})
+
+    connector = _connector()
+    connector._client = httpx.Client(
+        base_url="https://example.test", transport=httpx.MockTransport(handler)
+    )
+    list(connector.fetch(FetchRequest(
+        dataset_id="treasury_fiscal_dts_operating_cash_balance",
+        params={"table": "operating_cash_balance"},
+        start=datetime(2026, 10, 1),
+        end=datetime(2026, 11, 1),
+        cursor=None,
+    )))
+    assert seen
+    assert seen[0].url.params["filter"] == (
+        "record_date:gte:2026-09-30,record_date:lte:2026-11-01"
+    )
+
+
+def test_fetch_to_normalize_operating_cash_balance_e2e() -> None:
+    """真实 fixture → fetch（2 页）→ normalize：行数与关键字段对齐。"""
+    root = f"{_FIXTURES}/dts_operating_cash_balance"
+    pages: dict[int, dict[str, Any]] = {}
+    for page, name in ((1, "first_page.json"), (2, "last_page.json")):
+        with open(f"{root}/{name}", encoding="utf-8") as handle:
+            body = json.load(handle)
+        body["meta"] = {**body.get("meta", {}), "total-pages": 2}
+        pages[page] = body
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        page = int(request.url.params.get("page[number]", "1"))
+        return httpx.Response(200, json=pages[page])
+
+    connector = _connector()
+    connector._client = httpx.Client(
+        base_url="https://example.test", transport=httpx.MockTransport(handler)
+    )
+    batches = list(connector.fetch(FetchRequest(
+        dataset_id="treasury_fiscal_dts_operating_cash_balance",
+        params={"table": "operating_cash_balance"},
+        start=datetime(2026, 10, 1),
+        end=datetime(2026, 11, 1),
+        cursor=None,
+    )))
+    assert [batch.raw_meta["page"] for batch in batches] == [1, 2]
+
+    records = [
+        record for batch in batches for record in connector.normalize(batch)
+    ]
+    # first_page 4 行（历史单行拆 OPENING/CLOSING）+ last_page 3 行
+    assert len(records) == 7
+    first = records[0]
+    assert first.observation_time.date() == date(2005, 10, 3)
+    assert first.balance_type == "OPENING"
+    assert first.amount_usd_millions == pytest.approx(4381.0)
+    second = records[1]
+    assert second.balance_type == "CLOSING"
+    assert second.amount_usd_millions == pytest.approx(5448.0)
+    assert records[-1].observation_time.date() == date(2026, 10, 29)
+
+
+def test_non_empty_payload_with_unparseable_rows_skips_with_warning() -> None:
+    """非空但缺字段的行 → normalize 返回 0 行并记录 normalize_skipped。"""
+    raw = _raw("operating_cash_balance", {"data": [
+        {"account_type": "TGA", "open_today_bal": "1"},  # 缺 record_date
+        {"record_date": "bad", "close_today_bal": "x"},  # 日期非法
+    ]})
+    with capture_logs() as logs:
+        records = _connector().normalize(raw)
+    assert records == []
+    assert any(
+        entry["event"] == "treasury_fiscal.normalize_skipped" for entry in logs
+    )
 
 
 def test_checkpoint_from_raw_uses_max_record_date() -> None:

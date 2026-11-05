@@ -13,10 +13,11 @@ version: "1"
 horizons: [7, 14, 30, 60, 90]
 
 # 历史统计窗口（周）
+# 注：同月基准固定回看去年同月（through−365..−427 天，见
+# run_rate_and_month_rate）；中期中位数未实现，均不提供配置项（C-2：
+# 死键只改 config_hash 不改变行为）。
 windows:
   recent_run_rate_weeks: 4        # 近期运行率（§6.5 P0 步骤 4 / §6.7）
-  monthly_median_weeks: 13        # 中期中位数窗口
-  same_month_years: 3             # 同月同日历史中位数回看年数
   trend_months: 12                # 趋势因子回看月数
   interest_baseline_weeks: 13     # 付息非事件日基线窗口
   coupon_baseline_weeks: 26       # 历史付息日历标记窗口
@@ -40,19 +41,14 @@ confidence:
   STATISTICAL: 0.5
   UNCLASSIFIED: 0.2
 
-# 组件开关（§6.1 组件协议）
-components:
-  debt_events: true      # 发行/到期（三层）+ 付息
-  tax: true              # TAX + REFUND
-  outlays: true          # BENEFIT
-  other: true            # OTHER + UNCLASSIFIED（双向）
+# 组件开关：不提供配置项——compute_base_components 恒计算五组件（§6.1）；
+# 需要停用某类现金流时通过 scenarios.yaml 调整或改代码（C-2）。
 
 # 国债发行预测（§6.3）
+# 置信度不在此配置：组件置信度统一由上方 confidence 映射按 source_type 提供。
 issuance:
   cadence_history_weeks: 104       # 发行节奏统计回看窗口
   offering_median_count: 8         # 规模中位数取最近 N 次同类发行
-  layer3_confidence: 0.4           # 未公告层置信度
-  layer2_confidence: 0.7           # 已公告未结果层置信度
   cadence_dedupe_days: 3           # Layer 3 与已知事件去重容差（天）
   # Layer 3 节奏外推校准（Phase 5 回测结论：默认 none，保持 7/14/30 原行为）
   # - none：原逻辑（median_gap 外推 + 最近 N 次发行规模中位数）
