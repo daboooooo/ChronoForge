@@ -119,7 +119,7 @@
 | 门禁 | 标准 | 本次结果 |
 |---|---|---|
 | G1 静态质量 | `mypy src` 0 error；`ruff check src` 0 error；`lint-imports` 全 KEPT | ✅ 通过（ruff 仅 scripts 有错） |
-| G2 测试 | 全量 `pytest` 通过；无真实网络依赖；失败恢复测试为真实链路 | ✅ 通过（1823 passed，含 C1/C2/C3/A-1/TGA-1、G3 全批次回归、deribit 分页修复与 H1–H3/H2/M6 回归） |
+| G2 测试 | 全量 `pytest` 通过；无真实网络依赖；失败恢复测试为真实链路 | ✅ 通过（1848 passed，含 C1/C2/C3/A-1/TGA-1、G3 全批次回归、deribit 分页修复与 H1–H3/H2/M6/H7 回归；`TZ=Asia/Shanghai` 下同为 1848 passed） |
 | G3 契约测试 | 每条连接器有"真实响应样本 → fetch → normalize"全链路测试，禁止仅直喂内层结构 | ✅ 通过（2026-11-05：13 个连接器均有 fetch→normalize 全链路 + 负向用例 + `SOURCE.md`；真实抓包：treasury_fiscal/treasury_refunding/alternative/coinmetrics；文档/客户端模型：binance_spot/binance_futures/yahoo/fred/ccxt_bridge/deribit/sec_edgar；历史实测形状：sosovalue/coinmarketcap） |
 | G4 静默丢失 | 任何"有输入但零产出"必须置为失败或阻止 checkpoint 推进 | ✅ 通过（C1 于 2026-11-05 修复，含 2 条回归测试） |
 | G5 约束核验 | 项目硬性约束逐条有代码/配置/文档三方证据 | ✅ 通过（2026-11-05：H4 起点回退、C-2 死键均已修复；TGA-1 亦已修复） |
@@ -164,10 +164,11 @@
 
 | 检查 | 实跑命令 | 结果 |
 |---|---|---|
-| 全量测试 | `timeout 600 uv run pytest -q` | ✅ **1823 passed, 11 warnings**（exit 0；警告均为 `tests/integration/test_yahoo.py` 的 `utcfromtimestamp` DeprecationWarning；含 H1/H3/H2/M6 修复后的新增回归） |
+| 全量测试 | `timeout 600 uv run pytest -q` | ✅ **1848 passed, 10 warnings**（exit 0；含 H1/H3/H2/M6 与 H7 跨时区回归） |
+| 跨时区全量 | `TZ=Asia/Shanghai uv run pytest -q` | ✅ **1848 passed, 10 warnings**（与默认 TZ 结果一致；H7 修复前同一用例在 UTC+8 下失败） |
 | Lint | `uv run ruff check src tests` | ✅ All checks passed（exit 0） |
-| 类型检查 | `uv run mypy src` | ✅ Success: no issues found in 82 source files（exit 0） |
-| 架构契约 | `uv run lint-imports` | ✅ 2 kept, 0 broken（82 files / 277 dependencies，exit 0） |
+| 类型检查 | `uv run mypy src` | ✅ Success: no issues found in 83 source files（exit 0） |
+| 架构契约 | `uv run lint-imports` | ✅ 2 kept, 0 broken（83 files / 283 dependencies，exit 0） |
 | Batch 3 定向 | `uv run pytest tests/integration/{test_sosovalue,test_coinmarketcap,test_coinmetrics,test_alternative}.py -q` | ✅ 111 passed in 0.43s |
 | Batch 4 定向 | `uv run pytest tests/integration/{test_ccxt_bridge,test_deribit,test_sec_edgar}.py -q` | ✅ 123 passed in 0.63s |
 
@@ -261,6 +262,7 @@
 | H4 | [treasury_fiscal.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/treasury_fiscal.py) fetch 窗口过滤（L354-L362） | 原按 `record_date >= start` 过滤，**无 T+1 起点回退**（sosovalue/alternative/coinmetrics/coinmarketcap 均有回退 1 天） | DTS T+1 发布语义下边界日行永久漏采，违反项目硬性约束。**✅ 已修复（2026-11-05）**：`fetch` 在计算窗口后统一 `start_date -= 1 day`（下游 natural key upsert 幂等），新增回归测试 `test_fetch_rewinds_start_by_one_day_for_t_plus_1` 断言实际请求 filter 为 `record_date:gte:2026-09-30` |
 | H5 | [yahoo.py#L77-L80](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/yahoo.py#L77-L80) | `RateLimiter(rate=http_timeout_s * 30/60)`：超时 30s 时 15 req/s = 900 req/min（本意 30 req/min） | 限流形同失效，429 风暴与 getcrumb 封禁风险 |
 | H6 | [canonical.py#L582-L614](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/storage/canonical.py#L582-L614) | `target→.old-*` 与 `tmp→target` 两次 rename 之间崩溃 → 分区缺失；`cleanup_orphans` 只删不合并；下次 upsert 视 `has_old_data=False` 直接覆盖 | 该月历史数据丢失（原子提交契约破口） |
+| H7 | [binance_spot.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/binance_spot.py)、[binance_futures.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/binance_futures.py)、`checkpoint_from`（spot/futures/ccxt/deribit/yahoo）、[canonical.py#L1079](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/storage/canonical.py#L1079)、[raw.py#L384](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/storage/raw.py#L384) | 对 **naive UTC** datetime 直接调用 `.timestamp()`：被解释为主机本地时区；`datetime.now()` 取本地时间；`_cursor_to_ms` ISO 分支同样本地化 | 在 UTC+8 生产主机上整体偏移 **-8h**：klines/aggTrades 的 `endTime` 提前 8h（尾段 8h 静默缺失且 cursor 照常推进 → 不可自愈的空洞）、未收盘判定阈值提前 8h（已收盘 bar 被误删）、checkpoint 游标回退 8h。**✅ 已修复（2026-11-05，阶段 B，未提交）**：新增唯一换算助手 [timeutil.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/timeutil.py)（naive 一律 `calendar.timegm`，aware 按自身时偏移），binance_spot/futures 窗口与未收盘判定、五个 `checkpoint_from`、canonical `_revision_seq`、raw 保留截止日全部改走该助手；新增 `tests/integration/test_timezone_utc.py`（25 条，按 `TZ=UTC` / `TZ=Asia/Shanghai` 参数化） |
 
 ### 3.3 MEDIUM
 
@@ -539,10 +541,10 @@
 | 级别 | 数量 | 分布 |
 |---|---|---|
 | CRITICAL | 6（现存 0） | 核心源码 3（C1/C2/C3 已修复）、测试 1（A-1 已修复）、脚本 1（B-1 已修复）、TGA 1（TGA-1 已修复） |
-| HIGH | 12（现存 3） | 核心源码 6（H1–H6，H1/H2/H3/H4 已修复）、测试 2（A-2、A-3，A-3 已修复）、工程卫生 1（G-1，已修复）、文档 3（D-1–D-3，已修复） |
+| HIGH | 13（现存 3） | 核心源码 7（H1–H7，H1/H2/H3/H4 已修复，H7 已修复未提交）、测试 2（A-2、A-3，A-3 已修复）、工程卫生 1（G-1，已修复）、文档 3（D-1–D-3，已修复） |
 | MEDIUM | 19（现存 13） | 核心源码 10（M1–M10，M6 已修复）、测试 3（A-4–A-6）、配置/卫生 4（C-2、C-3、C-4、C-7 计入 LOW 故为 3）、文档 3（D-4、D-5、TGA-3）；已修复 C-2、C-3、D-4、D-5、TGA-3 |
 | LOW | 11 | L1–L6、A-7、C-6、C-7、D-6、D-7 |
-| 合计 | 48 | |
+| 合计 | 49 | |
 
 > 说明：C-7 归入 LOW，MEDIUM 实为 19 = 10 + 3 + 3 + 3。
 
@@ -567,6 +569,7 @@
 | ~~**H2 + M6**~~ | ~~ccxt / deribit / yahoo 统一 rewind + 未收盘过滤~~ **已完成（2026-11-05）**：ccxt OHLCV `since -= interval_seconds`；deribit start 回退一个 resolution；yahoo `period1` 回退一个 interval；三者 normalize 均跳过 `close_time > now` 的 bar 并记 `normalize_skip`/summary（deribit/yahoo）。回归：`TestOHLCVRewind`、`TestChartRewindAndUnclosed`、`TestRewindAndUnclosed` |
 | **H5** | yahoo 限流公式改为 `_DEFAULT_RATE/60`（不乘超时） |
 | ~~**H1 / H3**~~ | ~~funding 补 `endTime`；trades 补分页并修正 `order` 参数~~ **已完成（2026-11-05）**：funding `endTime` + 边界停止；trades fromId-only/ISO→since 归一化、`order` 校验透传、asc/desc 双向翻页、客户端 end 截断与去重。回归：`TestFetchTradesPagination`（6 条）+ `test_fetch_funding_includes_end_time_and_stops` |
+| ~~**H7**~~ | ~~统一 UTC 时间助手，消除 naive `.timestamp()` 的主机时区偏移~~ **已完成（2026-11-05，阶段 B，未提交）**：新增 `timeutil.py` 单一换算入口；binance_spot/futures 窗口上下界与 `close_time > now`、spot/futures/ccxt/deribit/yahoo `checkpoint_from`、`_cursor_to_ms`、canonical `_revision_seq`、raw 保留截止日全部改走 UTC 助手。回归：`tests/integration/test_timezone_utc.py`（25 条，TZ 参数化；修复前 UTC+8 下 12 条失败） |
 | **H6 / M1 / M3** | canonical 换名用"先写新分区再交换"或保留旧目录可回滚；raw 滚动前 fsync；0 行分支不虚报计数 |
 | **A-2** | 补 e2e/quality 两层最小骨架；A-3 的 fixtures 六形态与 13 连接器契约覆盖**已于 2026-11-05 完成** |
 
