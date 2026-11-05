@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -798,3 +798,218 @@ class TestCcxtErrorMapping:
         mapped = _map_ccxt_error("fetchTicker", ccxt.BadSymbol("no such symbol"))
         assert isinstance(mapped, ProviderError)
         assert not isinstance(mapped, TransportError)
+
+
+# ── H1: fetchTrades 分页与 order 语义 ──────────────────────────────────
+
+
+def _trade(trade_id: str, ts_ms: int, price: float = 16500.0) -> dict[str, Any]:
+    """最小 ccxt 统一 trade 形状。"""
+    return {
+        "id": trade_id,
+        "timestamp": ts_ms,
+        "price": price,
+        "amount": 1.0,
+        "side": "buy",
+        "symbol": "BTC/USDT",
+    }
+
+
+def _trades_request(
+    *,
+    start: datetime | None = None,
+    end: datetime | None = None,
+    cursor: str | None = None,
+    order: str = "asc",
+    limit: int = 2,
+) -> FetchRequest:
+    """构造 trades FetchRequest。"""
+    return FetchRequest(
+        dataset_id="test",
+        params={
+            "symbol": "BTC/USDT",
+            "type": "trades",
+            "limit": limit,
+            "order": order,
+        },
+        start=start,
+        end=end,
+        cursor=cursor,
+    )
+
+
+def _ms(dt: datetime) -> int:
+    """naive UTC datetime → epoch ms。"""
+    return int(dt.replace(tzinfo=UTC).timestamp() * 1000)
+
+
+class TestFetchTradesPagination:
+    """H1：fromId-only 分页 + 客户端 end 截断 + order 透传。"""
+
+    def test_fetch_trades_paginates_by_from_id(self) -> None:
+        """多页 trades 按 fromId 连续翻页，无重复无漏采。"""
+        base = 1672444800000
+        conn, exchange = _create_mock_connector()
+        exchange.fetchTrades.side_effect = [
+            [_trade("101", base), _trade("102", base + 60_000)],
+            [_trade("103", base + 120_000), _trade("104", base + 180_000)],
+            [],
+        ]
+        request = _trades_request(
+            start=datetime.fromtimestamp(base / 1000, tz=UTC).replace(tzinfo=None),
+            end=datetime.fromtimestamp((base + 600_000) / 1000, tz=UTC).replace(tzinfo=None),
+        )
+
+        batches = list(conn.fetch(request))
+
+        assert len(batches) == 2
+        calls = exchange.fetchTrades.call_args_list
+        assert calls[0].kwargs["since"] == base
+        assert "fromId" not in calls[0].kwargs["params"]
+        assert calls[0].kwargs["params"]["order"] == "asc"
+        # 第二页：fromId-only，不再带 since（避免非法组合）
+        assert calls[1].kwargs["since"] is None
+        assert calls[1].kwargs["params"]["fromId"] == "103"
+        assert calls[1].kwargs["params"]["order"] == "asc"
+
+        records = [r for batch in batches for r in conn.normalize(batch)]
+        assert len(records) == 4
+        ids = [r.source_id for r in records]
+        assert ids == ["101", "102", "103", "104"]
+        assert len(set(ids)) == 4
+        conn.close()
+
+    def test_fetch_trades_iso_cursor_becomes_since(self) -> None:
+        """ISO 字符串游标归一化为 since（毫秒），不得当作 order 传入。"""
+        base = 1672444800000
+        conn, exchange = _create_mock_connector()
+        exchange.fetchTrades.return_value = [_trade("201", base)]
+        request = _trades_request(cursor="2022-12-31T00:00:00Z")
+
+        list(conn.fetch(request))
+
+        call = exchange.fetchTrades.call_args
+        assert call.kwargs["since"] == base
+        assert call.kwargs["params"]["order"] == "asc"
+        assert "fromId" not in call.kwargs["params"]
+        conn.close()
+
+    def test_fetch_trades_order_desc_paginates_backwards(self) -> None:
+        """order=desc：从新到旧翻页，下一页 fromId = 本页首条 id - 1。"""
+        base = 1672444800000
+        conn, exchange = _create_mock_connector()
+        exchange.fetchTrades.side_effect = [
+            [_trade("106", base + 180_000), _trade("105", base + 120_000)],
+            [_trade("104", base + 60_000), _trade("103", base)],
+            [],
+        ]
+        request = _trades_request(order="desc")
+
+        batches = list(conn.fetch(request))
+
+        calls = exchange.fetchTrades.call_args_list
+        assert calls[0].kwargs["params"]["order"] == "desc"
+        assert calls[1].kwargs["params"]["fromId"] == "104"
+        assert calls[1].kwargs["params"]["order"] == "desc"
+
+        records = [r for batch in batches for r in conn.normalize(batch)]
+        ids = [r.source_id for r in records]
+        assert ids == ["106", "105", "104", "103"]
+        assert len(set(ids)) == 4
+        conn.close()
+
+    def test_fetch_trades_truncates_at_end(self) -> None:
+        """客户端按 end 截断：超出窗口的 trade 不得入库。"""
+        base = 1672444800000
+        end_ms = base + 60_000
+        conn, exchange = _create_mock_connector()
+        exchange.fetchTrades.return_value = [
+            _trade("301", base),
+            _trade("302", end_ms),
+            _trade("303", end_ms + 60_000),
+        ]
+        request = _trades_request(
+            end=datetime.fromtimestamp(end_ms / 1000, tz=UTC).replace(tzinfo=None),
+            limit=3,
+        )
+
+        batches = list(conn.fetch(request))
+
+        assert len(batches) == 1
+        assert len(batches[0].payload) == 2
+        assert len(exchange.fetchTrades.call_args_list) == 1
+        conn.close()
+
+    def test_fetch_trades_invalid_order_raises(self) -> None:
+        """非法 order 必须给出可诊断错误，而不是静默降级。"""
+        conn, _ = _create_mock_connector()
+        with pytest.raises(ProviderError, match="order"):
+            list(conn.fetch(_trades_request(order="sideways")))
+        conn.close()
+
+    def test_fetch_trades_invalid_cursor_raises(self) -> None:
+        """既非数字 id 也非 ISO 时间的游标必须给出可诊断错误。"""
+        conn, _ = _create_mock_connector()
+        with pytest.raises(ProviderError, match="cursor"):
+            list(conn.fetch(_trades_request(cursor="not-a-date")))
+        conn.close()
+
+
+class TestOHLCVRewind:
+    """H2：ccxt OHLCV 起点回退与未收盘过滤。"""
+
+    def test_fetch_ohlcv_rewinds_one_interval(self) -> None:
+        """起点回退一个 interval，覆盖边界 bar。"""
+        t0 = 1672444800000  # 2023-01-01T00:00:00Z
+        conn, exchange = _create_mock_connector()
+        exchange.fetchOHLCV.side_effect = [
+            [
+                [t0 - 3_600_000, 1.0, 1.0, 1.0, 1.0, 1.0],
+                [t0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            ],
+            [],
+        ]
+        request = FetchRequest(
+            dataset_id="test",
+            params={"symbol": "BTCUSDT", "type": "ohlcv", "interval": "1h"},
+            start=datetime.fromtimestamp(t0 / 1000, tz=UTC).replace(tzinfo=None),
+            end=datetime.fromtimestamp((t0 + 3_600_000) / 1000, tz=UTC).replace(
+                tzinfo=None
+            ),
+            cursor=None,
+        )
+
+        batches = list(conn.fetch(request))
+
+        first_call = exchange.fetchOHLCV.call_args_list[0]
+        assert first_call.kwargs["since"] == t0 - 3_600_000
+        # 边界 bar（open=t0-1h）未被漏采
+        assert len(batches[0].payload) == 2
+        conn.close()
+
+    def test_normalize_skips_unclosed_candle(self) -> None:
+        """未收盘 bar 跳过并留痕；已收盘 bar 正常入库且可重复 normalize。"""
+        now = datetime.now(UTC).replace(tzinfo=None)
+        current_hour = now.replace(minute=0, second=0, microsecond=0)
+        closed = current_hour - timedelta(hours=2)
+        payload = [
+            [_ms(closed), 1.0, 1.0, 1.0, 1.0, 1.0],
+            [_ms(current_hour), 1.0, 1.0, 1.0, 1.0, 1.0],
+        ]
+        conn, _ = _create_mock_connector()
+        raw = RawBatch(
+            endpoint="fetchOHLCV",
+            payload=payload,
+            raw_meta={"symbol": "BTCUSDT", "timeframe": "1h"},
+        )
+
+        records = conn.normalize(raw)
+
+        assert len(records) == 1
+        assert records[0].event_time == closed
+        # 幂等：同一 raw 重复 normalize 产生相同自然键集合
+        again = conn.normalize(raw)
+        assert [r.raw_record_id for r in records] == [
+            r.raw_record_id for r in again
+        ]
+        conn.close()

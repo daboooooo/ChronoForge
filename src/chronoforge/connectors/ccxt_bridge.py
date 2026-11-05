@@ -15,14 +15,16 @@ market_id 格式：CCXT-{EX}:{symbol}:{type}
 
 from __future__ import annotations
 
+import calendar
 import math
 import os
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import ccxt
+import structlog
 
 from chronoforge.config.settings import Settings
 from chronoforge.connectors.base import (
@@ -42,12 +44,40 @@ from chronoforge.exceptions import (
 from chronoforge.models.base import BaseRecord
 from chronoforge.models.derivatives import Interval
 from chronoforge.models.enums import CanonicalType, QualityStatus
-from chronoforge.models.market import OHLCV, TICKER, TRADE, Side
+from chronoforge.models.market import OHLCV, TICKER, TRADE, Side, interval_seconds
 from chronoforge.models.quality import QualityFinding, QualityReport
+
+logger = structlog.get_logger()
 
 # 保守默认限流配置（不同交易所差异大，按 exchange 调整）
 _DEFAULT_RATE = 60.0  # requests per second
 _DEFAULT_BURST = 60
+
+# trades 分页护栏：连续翻页上限，防止源侧游标异常时无限请求
+_MAX_TRADE_PAGES = 1000
+
+
+def _dt_to_ms(dt: datetime) -> int:
+    """UTC naive datetime → epoch ms（D04 §1：FetchRequest 时间为 UTC naive）。
+
+    不使用 datetime.timestamp()：naive datetime 会被解释为本地时区，
+    在非 UTC 主机上产生偏移。
+    """
+    return calendar.timegm(dt.timetuple()) * 1000 + dt.microsecond // 1000
+
+
+def _trade_cursor_to_ms(cursor: str) -> int:
+    """ISO-8601 游标 → epoch ms；非法游标给出可诊断的 ProviderError。"""
+    try:
+        dt = datetime.fromisoformat(cursor)
+    except ValueError as e:
+        raise ProviderError(
+            f"ccxt_bridge: invalid trades cursor {cursor!r}: expected a numeric "
+            "trade id or an ISO-8601 timestamp"
+        ) from e
+    if dt.tzinfo is None:
+        return calendar.timegm(dt.timetuple()) * 1000 + dt.microsecond // 1000
+    return int(dt.timestamp() * 1000)
 
 
 def _map_ccxt_error(op: str, exc: Exception) -> TransportError | ProviderError:
@@ -370,14 +400,21 @@ class CcxtBridgeConnector(DataConnector):
         timeframe = request.params.get("interval", "1m")
         limit = int(request.params.get("limit", 500))
 
-        # Convert datetime to ms epoch (handle naive datetime as UTC)
-        def _dt_to_ms(dt: datetime) -> int:
-            """Convert datetime to ms epoch (naive assumed UTC)."""
-            import calendar
-            return int(calendar.timegm(dt.timetuple()) * 1000)
-
         since = _dt_to_ms(request.start) if request.start else None
         until = _dt_to_ms(request.end) if request.end else None
+
+        # 起点回退一根 K 线：增量窗口按收线推进，bar 的 openTime 可能落在
+        # 窗口起点之前（如 1d bar 在小时级增量调度下），不满足 since 过滤
+        # 会被永久漏采。回退后重复/未收盘 bar 由 natural key upsert 幂等
+        # 收敛，未收盘 bar 由 normalize 显式跳过。
+        if since is not None:
+            try:
+                rewind_ms = interval_seconds(timeframe) * 1000
+            except ValueError as e:
+                raise ValueError(
+                    f"ccxt_bridge: unsupported fetchOHLCV timeframe: {timeframe}"
+                ) from e
+            since -= rewind_ms
 
         # ccxt fetchOHLCV 可能只支持 since，不支持 until
         # 需要在客户端做窗口切分
@@ -473,38 +510,154 @@ class CcxtBridgeConnector(DataConnector):
                 )
 
     def _fetch_trades(self, symbol: str, request: FetchRequest) -> Iterator[RawBatch]:
-        """通过 ccxt fetchTrades 获取成交数据。
+        """通过 ccxt fetchTrades 获取成交数据（分页由实现内聚）。
 
         ccxt fetchTrades 签名：
             fetchTrades(symbol, since=None, limit=100, params={})
 
         返回格式：[{id, timestamp, price, amount, ...}, ...]
+
+        分页语义（对齐 Binance aggTrades 教训，项目记忆）：
+        - ``fromId`` 与 ``startTime/endTime`` 组合非法（-1128/-1100），
+          故游标只走单一模式：数字游标 = fromId-only；时间游标 = since。
+        - ISO 字符串不能当 fromId（也不能当 order），必须先归一化为 ms。
+        - ``order`` 是翻页方向（asc/desc），不是游标，必须显式校验并透传。
+        - candlestick 之外的 end 截断在客户端完成（源侧 until 不可靠）。
         """
         limit = int(request.params.get("limit", 100))
-        since = int(request.start.timestamp() * 1000) if request.start else None
-        cursor = request.cursor
-
-        params: dict[str, Any] = {"limit": limit}
-        if since:
-            params["since"] = since
-        if cursor:
-            params["order"] = cursor
-
-        try:
-            self._rate_limiter.acquire(1)
-            trades_data = self.exchange.fetchTrades(symbol, params=params)
-        except (ccxt.NetworkError, ccxt.ExchangeError) as e:
-            raise _map_ccxt_error("fetchTrades", e) from e
-
-        if trades_data:
-            yield RawBatch(
-                endpoint="fetchTrades",
-                payload=trades_data,
-                raw_meta={
-                    "symbol": symbol,
-                    "trade_count": len(trades_data),
-                },
+        order = str(request.params.get("order", "asc")).lower()
+        if order not in ("asc", "desc"):
+            raise ProviderError(
+                f"ccxt_bridge: invalid trades order {order!r}: "
+                "expected 'asc' or 'desc'"
             )
+
+        start_ms = _dt_to_ms(request.start) if request.start else None
+        end_ms = _dt_to_ms(request.end) if request.end else None
+
+        # 游标类型归一化：纯数字 = 成交 id（fromId）；其余按 ISO 时间解析。
+        # 二者互斥，禁止把 fromId 与 since 同时传给交易所。
+        since_ms: int | None = None
+        from_id: str | None = None
+        if request.cursor is not None:
+            raw_cursor = str(request.cursor).strip()
+            if raw_cursor.isdigit():
+                from_id = raw_cursor
+            else:
+                since_ms = _trade_cursor_to_ms(raw_cursor)
+        else:
+            since_ms = start_ms
+
+        seen_ids: set[str] = set()
+        pages = 0
+
+        while True:
+            params: dict[str, Any] = {"order": order}
+            if from_id is not None:
+                params["fromId"] = from_id
+
+            try:
+                self._rate_limiter.acquire(1)
+                trades_data = self.exchange.fetchTrades(
+                    symbol,
+                    since=None if from_id is not None else since_ms,
+                    limit=limit,
+                    params=params,
+                )
+            except (ccxt.NetworkError, ccxt.ExchangeError) as e:
+                raise _map_ccxt_error("fetchTrades", e) from e
+
+            if not trades_data:
+                break
+
+            page: list[dict[str, Any]] = []
+            raw_timestamps: list[int] = []
+            for trade in trades_data:
+                if not isinstance(trade, dict):
+                    continue
+                ts_raw = trade.get("timestamp")
+                if ts_raw is None:
+                    continue
+                ts = int(ts_raw)
+                raw_timestamps.append(ts)
+                if start_ms is not None and ts < start_ms:
+                    continue
+                if end_ms is not None and ts > end_ms:
+                    continue
+                trade_id = str(trade.get("id", ""))
+                if trade_id and trade_id in seen_ids:
+                    continue
+                if trade_id:
+                    seen_ids.add(trade_id)
+                page.append(trade)
+
+            if page:
+                yield RawBatch(
+                    endpoint="fetchTrades",
+                    payload=page,
+                    raw_meta={
+                        "symbol": symbol,
+                        "trade_count": len(page),
+                        "order": order,
+                    },
+                )
+
+            # 收敛条件：asc 末条已到/越过 end；desc 首条已到/越过 start。
+            if (
+                end_ms is not None
+                and order == "asc"
+                and raw_timestamps
+                and raw_timestamps[-1] >= end_ms
+            ):
+                break
+            if (
+                start_ms is not None
+                and order == "desc"
+                and raw_timestamps
+                and raw_timestamps[0] <= start_ms
+            ):
+                break
+
+            # 短页表示源侧已无更多数据
+            if len(trades_data) < limit:
+                break
+
+            pages += 1
+            if pages >= _MAX_TRADE_PAGES:
+                raise ProviderError(
+                    "ccxt_bridge: fetchTrades pagination exceeded "
+                    f"{_MAX_TRADE_PAGES} pages (symbol={symbol})"
+                )
+
+            # 下一页游标：id 必须为数字才能用 fromId 续拉；asc 取 max+1，
+            # desc 取 min-1。无进展时显式失败，禁止死循环或静默漏采。
+            ids = [
+                str(t.get("id"))
+                for t in trades_data
+                if isinstance(t, dict) and t.get("id") not in (None, "")
+            ]
+            numeric_ids = [int(i) for i in ids if i.isdigit()]
+            if len(numeric_ids) != len(ids):
+                raise ProviderError(
+                    "ccxt_bridge: fetchTrades page returned non-numeric trade ids; "
+                    "cannot continue fromId pagination "
+                    f"(symbol={symbol}, cursor={from_id or since_ms})"
+                )
+            if not numeric_ids:
+                raise ProviderError(
+                    "ccxt_bridge: fetchTrades page returned no trade ids; "
+                    f"cannot paginate (symbol={symbol})"
+                )
+            next_id = (
+                max(numeric_ids) + 1 if order == "asc" else min(numeric_ids) - 1
+            )
+            next_from_id = str(next_id)
+            if next_from_id == from_id:
+                raise ProviderError(
+                    "ccxt_bridge: fetchTrades cursor did not advance "
+                    f"(symbol={symbol}, fromId={from_id})"
+                )
+            from_id = next_from_id
 
     def _fetch_ticker(self, symbol: str, request: FetchRequest) -> Iterator[RawBatch]:
         """通过 ccxt fetchTicker 获取 Ticker 数据。
@@ -583,6 +736,7 @@ class CcxtBridgeConnector(DataConnector):
             raise ValueError(
                 f"ccxt_bridge: unsupported fetchOHLCV timeframe: {timeframe_raw}"
             ) from e
+        bar_seconds = interval_seconds(interval_enum)
 
         for candle in payload:
             if not isinstance(candle, (list, tuple)):
@@ -612,6 +766,18 @@ class CcxtBridgeConnector(DataConnector):
             event_time = datetime.fromtimestamp(
                 timestamp_ms / 1000, tz=UTC
             ).replace(tzinfo=None)
+
+            # 未收盘 bar（close_time 在未来）显式跳过并留痕；已收盘 bar 正常
+            # 入库，重复采集由 natural key upsert 幂等收敛。
+            if event_time + timedelta(seconds=bar_seconds) > now:
+                logger.debug(
+                    "connector.normalize_skip",
+                    source="ccxt",
+                    reason="unclosed_bar",
+                    symbol=symbol,
+                    event_time=str(event_time),
+                )
+                continue
 
             # Validate price/volume are finite
             values = [open_val, high_val, low_val, close_val, volume_val]
