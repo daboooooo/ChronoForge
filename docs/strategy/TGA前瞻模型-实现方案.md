@@ -10,7 +10,7 @@
 > **v1.3 变更**：Phase 1 回填完成（DTS 2005-10-03 起、拍卖 1979-10-31 起、upcoming 2024-03-08 起，canonical 合计约 72.8 万行）；修正 TIPS/FRN 判定（实测 `auctions_query` 的 TIPS/FRN 行 `security_type` 仍为 "Note"，需以 `inflation_index_security` / `floating_rate` 字段判定）；补充分页无重叠/缺口单测。
 > **v1.4 变更**：Phase 2 完成。落地 `config/tga/taxonomy.yaml`（v1.0）、`scripts/tga_common.py`、`scripts/tga_store.py`（Derived 原子写 + `meta/tga.duckdb` 四视图 + `tga_anomaly`）、`scripts/tga_reconstruct.py`（三类残差 + Q-TGA-003/004/005/006/011/015 + Model 0 报告）。实测修正：①QueryService 视图按 canonical type 组织，同类型多 dataset 返回同一视图，禁止按 dataset 重复拼接；②Table II 的 Sub-Total 行（365 天）必须经 taxonomy `is_subtotal` 排除；③IIIB 的 `Public Debt (Issues|Redemptions) (Table III-A/IIIA)` 行是面值锚定行（= IIIA 合计），分量行合计才是现金口径；④DTS 整数百万舍入致 Table I/II 官方数字间存在 ±9M 累积差，残差验收采用 ±15M 舍入带 + 带外日全部落 anomaly（ledger_residual 带内 98.66%，带外 71 日集中于 2008-2011 危机时代）。验收 7/8 PASS（#3 见报告解释），新增依赖 pyyaml。
 > **v1.5 变更**：Phase 3 完成。落地 `config/tga/calendar.yaml` + `model.yaml`（horizons 7/14/30、bands 简化带宽、组件开关）、`scripts/tga_forecast.py`（五组件：debt/interest/tax/outlay/other + 聚合器守恒 + Q-TGA-012/013/014 + run 编排幂等复用）、`scripts/tga_store.py` 扩展 ForecastStore（forecast_runs 元数据 + run_date/scenario 分区写 + `tga_forecast_components`/`tga_forecast` 视图）、`scripts/tga_report.py`（日报 MVP，八章节）、`tga_common.config_hash` 叠加 calendar/model。实测修正：⑤拍卖查询再次确认 v1.4 教训①——`auctions_results` 与 `upcoming` 返回同一视图，concat 即翻倍（赎回虚增至 5.0T），只查一次；⑥TGA CUSIP 在再发行（`is_reopening=true`）间复用，未偿本金 = 同 CUSIP 全部 RESULT 拍卖 `total_accepted` 求和（17W 原始 + 8W/4W 再发行），到期赎回按该口径计；⑦到期/付息/节奏外推日必须顺延到联邦工作日并落在预测网格（origin 后工作日），聚合器加网格外断言；⑧DTS 发布时间采用保守规则 `next_business_day(record_date) < origin`（21:00 UTC 发布跨入次日）。验收：1753 tests passed（新增 TGA forecast/report 单测 15 项）；ruff/mypy/lint-imports 全绿；实跑 run `c1498dc3fdf05c76-r2`（origin 2026-11-02，T+30 预测 770.5B）。实施后修正⑨：拍卖行 `source_id` 曾落成 CUSIP（entity 分区散成数万个），与 §4.3 注册声明 `entity_id=US_TREASURY` 不一致致 `dataset_stats.py` 判"无 canonical 数据"——已改回固定 `US_TREASURY` 并从 Raw 重放（results 68,612 / upcoming 637 规范化记录，自然键去重后 canonical 11,250 行），`match_datasets` 增加"无标识符 params 的类型级 dataset"第三级回退。
-> **v1.6 变更**：模型定位正式由"点位预测"改为"情景与事件解释"。T+7～T+90 数值的角色是**情景锚点 / 条件路径**，不再作为点位预测或置信区间；对外表述解释余额变动的事件驱动与情景切换条件，并显式引用 DM/MAE 证据声明当前不优于 Naive、不可用于交易决策（T+7 差距不显著）。`scenarios.yaml` 增加 `triggers` / `key_drivers` / `interpretation` / `usage` / `confidence`；`tga_forecast.py` 预测输出新增 `output_type=scenario` / `usage` / `confidence` / `drivers` 标签（只增列，历史 run 兼容）；`tga_report.py` 章节重构为"情景路径 + 驱动归因 + 切换条件"，结论不再出现点位预测口径。Phase 4/5 的既有内容不推翻。
+> **v1.6 变更**：模型定位正式由"点位预测"改为"情景与事件解释"。T+7～T+90 数值的角色是**情景锚点 / 条件路径**，不再作为点位预测或置信区间；对外表述解释余额变动的事件驱动与情景切换条件，并显式引用 DM/MAE 证据声明当前不优于 Naive、不可用于交易决策（0.4.0 重跑后 T+7 亦显著劣于 Naive）。`scenarios.yaml` 增加 `triggers` / `key_drivers` / `interpretation` / `usage` / `confidence`；`tga_forecast.py` 预测输出新增 `output_type=scenario` / `usage` / `confidence` / `drivers` 标签（只增列，历史 run 兼容）；`tga_report.py` 章节重构为"情景路径 + 驱动归因 + 切换条件"，结论不再出现点位预测口径。Phase 4/5 的既有内容不推翻。
 
 ---
 
@@ -59,9 +59,9 @@
 
 **使用边界（引用 §7 样本外证据）**
 
-- 主模型 vs Naive：T+7 平均损失差 +7.8B（DM 1.52，Bonferroni p=1.0，**不显著**）；T+14 +35.6B（p_Bonf=0.0043）、T+30 +100.6B（0.0001）、T+60 +168.7B（0.0000）、T+90 +206.3B（0.0000）——T+14 以上**显著更差**。
-- 默认 MAE（USD B）：T+7 73.3 / T+14 119.4 / T+30 207.2 / T+60 287.0 / T+90 332.4；Naive 为 65.5 / 83.8 / 106.6 / 118.4 / 126.1。各档全面高于 Naive。
-- 结论：模型当前只用于情景与事件解释；T+7 档与 Naive 差距不显著，也不构成可用预测。
+- 主模型 vs Naive（0.4.0 重跑，backtest run `fe7a9c621dc3dc4b`，2023-11-01→2026-10-29 / stride 5）：T+7 平均损失差 +16.0B（DM 3.39，Bonferroni p=0.0138，**显著更差**）；T+14 +54.2B（p_Bonf=0.0000）、T+30 +153.7B（0.0000）、T+60 +265.0B（0.0000）、T+90 +372.9B（0.0000）——**全档显著更差**。T+7 对 seasonal_naive 为 +17.3B（p_Bonf=0.178，不显著）。
+- 默认 MAE（USD B，0.4.0）：T+7 81.5 / T+14 138.0 / T+30 260.3 / T+60 383.4 / T+90 499.0；Naive 为 65.5 / 83.8 / 106.6 / 118.4 / 126.1，Seasonal Naive 为 64.2 / 83.9 / 127.9 / 179.7 / 214.2。各档全面高于 Naive。
+- 结论：模型当前只用于情景与事件解释；0.4.0 起 T+7 也在 Bonferroni 校正后显著劣于 Naive，所有档位都不构成可用预测。
 - 机器可读产物带 `output_type=scenario` / `usage=scenario_anchor` / `confidence=exploratory` / `drivers`；下游必须检查 `output_type`，不得按点位预测消费（§8.2）。
 
 交付节奏：Phase 0 研究/契约变更 → Phase 1 数据接入 → Phase 2 历史重建（Model 0）→ Phase 3 基准预测（Model 1/2）→ Phase 4 中期与情景 → Phase 5 回测 → Phase 6 自动化与报告。每个 Phase 有独立退出条件，未通过不得进入下一阶段。
@@ -123,8 +123,8 @@
 | Phase 2 历史重建 | 完成（2026-11-02） | `config/tga/taxonomy.yaml` + `scripts/tga_common.py` / `tga_store.py` / `tga_reconstruct.py`；Derived 四数据集（balance 5,294 日 / cashflow 498,942 / recon 5,294 / debt 118,224）+ `meta/tga.duckdb` 四视图；`tga_anomaly` 工作流；Model 0 报告 `reports/tga/`，验收 7/8 PASS |
 | `treasury_refunding` | 未开始 | Phase 4 |
 | `config/tga/calendar|scenarios|model`、`scripts/tga_forecast|backtest|report|daily|export_liquidity` | 部分完成（Phase 3） | `calendar.yaml`/`model.yaml`、`tga_forecast.py`、`tga_report.py` 已落地；`scenarios.yaml`、`tga_backtest/report 完整版/daily/export_liquidity` 未开始（Phase 4/5/6） |
-| Phase 3 基准预测 | 完成（2026-11-02） | 五组件预测引擎 + 聚合守恒 + ForecastStore + 日报 MVP；实跑 run `c1498dc3fdf05c76-r2`（origin 2026-11-02：T+7 982.1B / T+14 888.1B / T+30 770.5B）；详见 §12 Phase 3 |
-| 测试 | 通过 | 1753 passed（含 TGA taxonomy/重建/预测/报告单测 35 项）；ruff（src/tests）/mypy/lint-imports 全绿，见 §11.6 |
+| Phase 3 基准预测 | 完成（2026-11-02） | 五组件预测引擎 + 聚合守恒 + ForecastStore + 日报 MVP；实跑 run `c1498dc3fdf05c76-r2`（0.3.0 旧逻辑，受 TGA-1 去重坍缩影响，数值不可比）；0.4.0 已修复 TGA-1 并重跑（当日 origin 2026-11-05：T+7 846.80B / T+14 667.06B / T+30 828.77B / T+60 1,000.80B / T+90 633.24B，run `3349f9d395b9dd56-r2`）；详见 §12 Phase 3 |
+| 测试 | 通过 | 1782 passed（含 TGA taxonomy/重建/预测/报告单测 39 项）；ruff（src/tests）/mypy/lint-imports 全绿，见 §11.6 |
 
 ---
 

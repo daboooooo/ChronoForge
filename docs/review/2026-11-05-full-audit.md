@@ -6,7 +6,7 @@
 | 审计对象 | `/Users/horsenli/Works/ChronoForge`（Python 3.12，uv + polars + DuckDB + Parquet） |
 | 审计范围 | `src/chronoforge`（82 文件 / 23,026 行）、`scripts`（26 文件 / 12,848 行）、`tests`（69 文件 / 31,552 行 / 71 fixtures）、`docs`（94 篇 / 24,702 行）、`config/`、README、git 工作区 |
 | 审计性质 | 只读审计（除本报告外未修改任何源码/文档/配置） |
-| 最终判定 | **NOT READY**（现存 CRITICAL 0；C1/C2/C3/A-1/TGA-1/B-1 已修复；G6/G7 等门禁仍未通过） |
+| 最终判定 | **NOT READY**（现存 CRITICAL 0；C1/C2/C3/A-1/TGA-1/B-1 已修复；G-1/C-3 已于 2026-11-05 关闭；G7 与 G3/G5 仍未通过） |
 
 ---
 
@@ -20,15 +20,15 @@
 2. ~~三个连接器按**想象出来的 API 结构**编码（deribit chart、sec_edgar companyfacts、ccxt trades），生产中静默产出 0 行~~ —— deribit 与 sec_edgar **已修复（C2/C3/A-1，2026-11-05）**；ccxt trades 仍在 H1/A-3 范围；
 3. ~~TGA 主模型的组件聚合去重键缺少 subcategory，导致同类多子类的基线/事件现金流被**静默坍缩**（TGA-1），直接污染主模型输出~~ —— **已修复（2026-11-05）**：仅事件行去重且键含 detail，基线行不再去重；去重前后月度守恒断言锁死组件丢失；
 4. ~~`scripts/fdam_attention.py` 存在语法错误，FDAM 日报流程完全不可用（B-1）~~ —— **已修复（2026-11-05）**：删除重复 `__main__` 入口与 281 行死代码，`py_compile` 通过；
-5. 整个 TGA 子系统（`scripts/tga_*.py`、`config/tga/`、treasury 连接器、迁移 0005、TGA 测试）**全部未纳入版本控制**，且 38 个已跟踪文件处于修改态，部分提交会直接 ImportError。
+5. ~~整个 TGA 子系统（`scripts/tga_*.py`、`config/tga/`、treasury 连接器、迁移 0005、TGA 测试）**全部未纳入版本控制**，且 38 个已跟踪文件处于修改态，部分提交会直接 ImportError。~~ —— **已修复（2026-11-05）**：以单次成套提交 `5590163` 纳入 101 个文件（27,774 insertions / 454 deletions），提交前全量 1782 passed、ruff/mypy/lint-imports 通过，提交后工作区干净；`reports/` 已入 `.gitignore`。
 
 ### 0.2 严重级别统计
 
 | 级别 | 数量 | 编号 |
 |---|---|---|
 | CRITICAL | **6**（现存 0，C1/C2/C3/A-1/TGA-1/B-1 均已修复） | C1、C2、C3、A-1、TGA-1、B-1 |
-| HIGH | **12** | H1–H6、A-2、A-3、G-1、D-1、D-2、D-3 |
-| MEDIUM | **19** | M1–M10、A-4–A-6、C-2、C-3、C-4、D-4、D-5、TGA-3 |
+| HIGH | **12**（现存 11，G-1 已修复） | H1–H6、A-2、A-3、G-1、D-1、D-2、D-3 |
+| MEDIUM | **19**（现存 18，C-3 已修复） | M1–M10、A-4–A-6、C-2、C-3、C-4、D-4、D-5、TGA-3 |
 | LOW | **11** | L1–L6、A-7、C-6、C-7、D-6、D-7 |
 | 合计 | **48** | |
 
@@ -123,10 +123,10 @@
 | G3 契约测试 | 每条连接器有"真实响应样本 → fetch → normalize"全链路测试，禁止仅直喂内层结构 | ⚠️ 部分通过（deribit/sec_edgar 已于 2026-11-05 达标；A-2/A-3 其余连接器仍缺） |
 | G4 静默丢失 | 任何"有输入但零产出"必须置为失败或阻止 checkpoint 推进 | ✅ 通过（C1 于 2026-11-05 修复，含 2 条回归测试） |
 | G5 约束核验 | 项目硬性约束逐条有代码/配置/文档三方证据 | ⚠️ 部分通过（H4 违反、C-2 死键；TGA-1 已于 2026-11-05 修复） |
-| G6 版本库 | 工作区可构建；生成物不入库；变更成套 | ❌ 未通过（G-1、C-3） |
+| G6 版本库 | 工作区可构建；生成物不入库；变更成套 | ✅ 通过（2026-11-05 提交 `5590163` 成套纳入 101 文件；`reports/` 已入 `.gitignore`；提交后工作区干净） |
 | G7 文档一致 | README/设计文档/TGA 文档与实现一致 | ❌ 未通过（D-1、D-2、D-3） |
 
-**通过标准**：G1–G7 全部为 ✅ 方判定 READY。本次 **2 项 ❌（G6、G7）、2 项 ⚠️（G3、G5）**，故判定 **NOT READY**。
+**通过标准**：G1–G7 全部为 ✅ 方判定 READY。本次 **1 项 ❌（G7）、2 项 ⚠️（G3、G5）**，故判定 **NOT READY**。
 
 ### 1.7 审计执行顺序
 
@@ -453,21 +453,22 @@
 
 ### 6.2 HIGH
 
-#### G-1. 整个 TGA 子系统未纳入版本控制，且修改态文件依赖未跟踪文件
+#### G-1. 整个 TGA 子系统未纳入版本控制，且修改态文件依赖未跟踪文件 —— 已修复
 
-- **证据**：`git status --porcelain` = 38 个 `M` + 30 个 `??`。全部 **untracked** 的关键项包括：
+- **证据（修复前）**：`git status --porcelain` = 38 个 `M` + 30 个 `??`。全部 **untracked** 的关键项包括：
   - `scripts/tga_*.py`（7 个）、`scripts/register_treasury_datasets.py`、`scripts/tga_howto.md`
   - `config/`（整个 TGA 配置目录）
   - `src/chronoforge/connectors/treasury_fiscal.py`、`treasury_refunding.py`、`src/chronoforge/models/treasury.py`、`storage/migrations/0005_forecast_metadata.py`
   - `docs/strategy/`、`docs/tga/`、TGA 全部单元/架构测试（7 个）、`tests/fixtures/treasury_fiscal/`
   - `reports/`（每日生成的报告）
-- **影响**：已修改的 `registry/service.py`（L107-L118 引用 treasury 源）与 `cli/_wiring.py` 依赖上述未跟踪文件；**只提交 M 而不提交 ?? 会直接 ImportError**，主干不可构建。同时 TGA 全部工作存在丢失风险。
-- **修复建议**：一次成套提交（M + 相关 ?? 同批），提交前跑全量 pytest；`reports/` 与运行产物应先补 `.gitignore` 再提交（见 C-3）。
+- **影响（修复前）**：已修改的 `registry/service.py`（L107-L118 引用 treasury 源）与 `cli/_wiring.py` 依赖上述未跟踪文件；**只提交 M 而不提交 ?? 会直接 ImportError**，主干不可构建。同时 TGA 全部工作存在丢失风险。
+- **修复（2026-11-05）**：`reports/` 先入 `.gitignore`（C-3），随后按模块分 6 组显式 `git add`（不使用 `git add -A`），以单次语义完整提交 `5590163`（`feat(tga): 接入 TGA 预测链路并修复审计发现的静默数据丢失`）纳入 **101 文件 / +27,774 / −454**，TGA 脚本、`config/tga`、treasury 连接器/模型、迁移 0005、`docs/strategy`+`docs/tga`、TGA 测试与 fixtures 与 `registry/service.py`、`cli/_wiring.py` 同批落地。
+- **验证**：提交前 `uv run pytest -q` → **1782 passed**；`ruff check src tests`、`uv run mypy src`（82 files）、`uv run lint-imports`（2 kept）通过；提交后 `git status --porcelain` **无输出**；`git show --stat` 文件数与清单一致。
 
 ### 6.3 MEDIUM
 
 - **C-2**：见 §4.2（TGA 死键，已核实）。
-- **C-3. `reports/` 未被 .gitignore 覆盖**：`output/` 已命中（[.gitignore#L56](file:///Users/horsenli/Works/ChronoForge/.gitignore#L56)），但 `reports/` 仍为 `??`，内含 `reports/tga/TGA_MODEL0_RECONSTRUCTION_2026-11-0{2,3,4}.md` 与 `reports/daily/TGA_Forecast_2026-11-0{2,3,4}.md` 6 份生成物 → 误提交风险。
+- **C-3. `reports/` 未被 .gitignore 覆盖 —— 已修复（2026-11-05）**：修复前 `output/` 已命中（[.gitignore#L56](file:///Users/horsenli/Works/ChronoForge/.gitignore#L56)），但 `reports/` 仍为 `??`，内含 `reports/tga/TGA_MODEL0_RECONSTRUCTION_2026-11-0{2,3,4}.md` 与 `reports/daily/TGA_Forecast_2026-11-0{2,3,4}.md` 6 份生成物 → 误提交风险。现已把 `reports/` 加入 [.gitignore](file:///Users/horsenli/Works/ChronoForge/.gitignore)（`git check-ignore` 验证命中）；确认 `reports/` 下均为可再生产物，无需纳管文件；`data/`、`meta/`、`var/`、`*.db` 沿用既有忽略规则。
 - **C-4. `config_hash` 对 `taxonomy.unmatched` 覆盖不全**：[tga_common.py#L189-L192](file:///Users/horsenli/Works/ChronoForge/scripts/tga_common.py#L189-L192) 仅哈希 `category` + `include_in_net`；修改 `flow_type` / `subcategory` / `confidence` / `is_subtotal` 不改变 hash → 违反 `model.yaml` 头部"任何变更 → 新 run"的约定。
 
 ### 6.4 LOW
@@ -536,7 +537,7 @@
 | 3 | ~~**C2 + A-1**~~ | ~~deribit 统一 envelope 解包；fixture 换真实响应；补 fetch→normalize 全链路断言~~ **已完成（2026-11-05）** | 契约 1 条 + 负向 3 条；deribit 集成测试 2 行 > 0 |
 | 4 | ~~**C3**~~ | ~~sec_edgar 按 companyfacts 真实 schema 重写；观测日取 `end`~~ **已完成（2026-11-05）** | 契约 1 条 + 负向 1 条；SEC 真实端到端 25,598 行 |
 | 5 | ~~**B-1**~~ | ~~删除 fdam 死代码段~~ **已完成（2026-11-05）** | `py_compile` 通过；`ruff check scripts` F821/F706 = 0、E702 = 1（既有）；全量 1782 passed |
-| 6 | **G-1 + C-3** | `reports/` 入 .gitignore；38 个 M 与 30 个 ?? 成套提交 | 干净克隆可 `pytest` 通过 |
+| 6 | ~~**G-1 + C-3**~~ | ~~`reports/` 入 .gitignore；38 个 M 与 30 个 ?? 成套提交~~ **已完成（2026-11-05）** | 提交 `5590163`（101 文件 / +27,774 / −454）；提交前全量 1782 passed、ruff/mypy/lint-imports 通过；提交后 `git status --porcelain` 干净 |
 
 #### P1（正确性缺口，紧随其后）
 
@@ -578,15 +579,17 @@ uv run pytest -q
 
 ### 9.1 结论
 
-ChronoForge 的基础工程质量（分层、类型、测试独立性、幂等回退、TGA 的 PIT 与情景口径改造）达到较高水准，本轮审计未发现架构性返工需求。**但当前不可进入发布或对外使用阶段**：6 项 CRITICAL 已全部修复，**现存 CRITICAL 为 0**；判定仍为 NOT READY，原因是 G6（版本库/成套提交）、G7（文档一致性）未通过，G3/G5 部分未通过。此前的"静默放大器"C1、两个连接器契约缺陷 C2/C3/A-1、TGA-1 组件坍缩以及 B-1 语法错误已于 2026-11-05 修复：C2/C3/A-1 以真实响应（SEC companyfacts 实测 25,598 行）与契约/负向测试锁住；TGA-1 以"仅事件去重 + 去重前后月度守恒"锁住，端到端实跑 5,439 行组件无丢失。历史上 yahoo fixture 假形状造成过同类事故，说明测试契约层（真实响应 → fetch → normalize）是必须补上的制度性缺口，而非一次性修复；本次仅覆盖 deribit/sec_edgar，其余连接器仍在 A-3 范围内。
+ChronoForge 的基础工程质量（分层、类型、测试独立性、幂等回退、TGA 的 PIT 与情景口径改造）达到较高水准，本轮审计未发现架构性返工需求。**但当前不可进入发布或对外使用阶段**：6 项 CRITICAL 已全部修复，**现存 CRITICAL 为 0**；G-1/C-3（版本库/生成物忽略）已于 2026-11-05 以提交 `5590163` 关闭，G6 转为 ✅；判定仍为 NOT READY，原因是 G7（文档一致性）未通过、G3/G5 部分未通过。此前的"静默放大器"C1、两个连接器契约缺陷 C2/C3/A-1、TGA-1 组件坍缩以及 B-1 语法错误已于 2026-11-05 修复：C2/C3/A-1 以真实响应（SEC companyfacts 实测 25,598 行）与契约/负向测试锁住；TGA-1 以"仅事件去重 + 去重前后月度守恒"锁住，端到端实跑 5,439 行组件无丢失。历史上 yahoo fixture 假形状造成过同类事故，说明测试契约层（真实响应 → fetch → normalize）是必须补上的制度性缺口，而非一次性修复；本次仅覆盖 deribit/sec_edgar，其余连接器仍在 A-3 范围内。
 
-TGA 方面值得肯定：11 条硬性约束均已有落实证据，日报已彻底转为情景口径且能力边界如实声明；TGA-1 修复同时揭示并修正了"同子类流入/流出基线被合并"的第二层缺陷，旧 0.3.0 历史 run 与回测结论已标注为不可信、需重跑。
+TGA 方面值得肯定：11 条硬性约束均已有落实证据，日报已彻底转为情景口径且能力边界如实声明；TGA-1 修复同时揭示并修正了"同子类流入/流出基线被合并"的第二层缺陷。
+
+**0.4.0 重跑结果（2026-11-05）**：当日预测 `3349f9d395b9dd56-r2`（**5,439 组件行** / 177 预测行，base T+7/T+14/T+30/T+60/T+90 = 846.80 / 667.06 / 828.77 / 1,000.80 / 633.24 B）；短回测 `de0ff140cf2560b7`（2026-09-01→10-29，stride 1，15.8s，SUCCESS）；长回测 `fe7a9c621dc3dc4b`（2023-11-01→2026-10-29，stride 5，51.7s，SUCCESS）。同日同 cutoff（origin 2026-11-04 / cutoff 2026-11-02）新旧对比：T+7 −48.17B（−5.3%）、T+14 −108.37B（−13.6%）、T+30 −240.83B（−22.9%）、T+60 −457.58B（−49.2%）、T+90 −710.46B（−56.7%），方向与 +584,402.85 USD Million 高估修正一致。0.4.0 回测显示全档显著劣于 Naive（T+7 p_Bonf=0.0138，T+14/30/60/90 p_Bonf=0.0000），日报 §九 已恢复 0.4.0 证据并声明"不得宣称有效"；0.3.0 历史 run 仍保留在库，报告按 `MODEL_VERSION=0.4.0` 自动排除。
 
 ### 9.2 后续动作清单
 
-1. P0 的 6 项 CRITICAL 已全部关闭；下一步执行 **G-1 的成套提交**并把 `reports/` 纳入忽略，随后处理 P1（H 级）与文档一致性 D-1/D-2/D-3；
+1. P0 的 6 项 CRITICAL 已全部关闭；G-1 成套提交与 `reports/` 忽略已完成（提交 `5590163`，G6 ✅）；下一步处理 P1（H 级）与文档一致性 D-1/D-2/D-3，以关闭 G7/G3/G5；
 2. 建立"连接器契约测试"门禁：每个连接器必须有一条 `raw 响应样本 → fetch → normalize → 行数断言` 的用例，纳入 CI（deribit/sec_edgar 已具备，其余见 A-3）；
-3. 对既有数据做一次完整性回溯（treasury_fiscal、TGA forecast 产物，以及历史 run 中曾记成功的 deribit/sec_edgar checkpoint），量化历史缺口；**TGA 需以 0.4.0 重跑 4 个 forecast 窗口（2026-11-02/10-29、11-03/10-30、11-04/10-30、11-04/11-02）及 3 组 backtest 窗口（2026-09-01→10-29、2023-11-01→10-29、2023-11-01→11-02）**；
+3. 对既有数据做一次完整性回溯（treasury_fiscal、TGA forecast 产物，以及历史 run 中曾记成功的 deribit/sec_edgar checkpoint），量化历史缺口；**TGA 0.4.0 已重跑当日预测与 2 个回测窗口（`de0ff140cf2560b7`、`fe7a9c621dc3dc4b`）；审计原列的其余 forecast 窗口（2026-11-02/10-29、11-03/10-30、11-04/10-30）与 backtest 窗口（2023-11-01→11-02）尚未重跑**；
 4. 重新运行本报告 §2 的基线命令与 §4.1 约束矩阵，逐项勾销后复评 READY/NOT READY；
 5. 文档侧统一"单一口径来源"：TGA 以实现方案为准，概念文档只保留定位声明，避免双源漂移。
 
