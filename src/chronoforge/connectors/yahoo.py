@@ -20,6 +20,7 @@ import math
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
@@ -55,9 +56,33 @@ def _epoch_seconds(dt: datetime) -> int:
     return to_epoch_seconds(dt)
 
 
-# Yahoo Finance 保守限流配置（无官方限流文档）
-_DEFAULT_RATE = 30.0  # requests per minute
+# Yahoo Finance 保守限流配置（无官方限流文档，公开行为约 2000 req/h/IP）
+_DEFAULT_RATE = 30.0  # requests per minute（契约值）
+_DEFAULT_RATE_PER_SECOND = _DEFAULT_RATE / 60.0  # 0.5 req/s
 _DEFAULT_BURST = 5
+_DEFAULT_RETRY_AFTER = 60  # 429 且无 Retry-After 时的保守等待
+
+
+def _parse_retry_after(headers: Any) -> int:
+    """解析 Retry-After（秒数或 HTTP-date），非法/缺失回退 60s。
+
+    Yahoo 实测 429 未携带 Retry-After/X-RateLimit-* 头；此处兼容代理或
+    边缘节点补齐的两种标准格式，避免 int() 直接抛 ValueError 掩盖 429。
+    """
+    raw = headers.get("retry-after") if headers else None
+    if not raw:
+        return _DEFAULT_RETRY_AFTER
+    try:
+        return max(0, int(float(raw)))
+    except ValueError:
+        try:
+            target = parsedate_to_datetime(raw)
+        except (TypeError, ValueError):
+            return _DEFAULT_RETRY_AFTER
+        if target.tzinfo is None:
+            target = target.replace(tzinfo=UTC)
+        delta = int((target - datetime.now(UTC)).total_seconds())
+        return max(0, delta)
 
 
 @dataclass(frozen=True)
@@ -85,7 +110,7 @@ class YahooConnector(DataConnector):
         self._settings = settings or _YahooSettings()
         self._client = self._init_client(self._settings)
         self._rate_limiter = RateLimiter(
-            rate=self._settings.http_timeout_s * _DEFAULT_RATE / 60.0,
+            rate=_DEFAULT_RATE_PER_SECOND,
             burst=_DEFAULT_BURST,
         )
         self._crumb: str | None = None
@@ -139,13 +164,15 @@ class YahooConnector(DataConnector):
 
         # 429 → RateLimitError（D04 §3，getcrumb 端点按 IP 限流）
         if resp.status_code == 429:
+            retry_after = _parse_retry_after(resp.headers)
+            self._rate_limiter.on_rate_limited(retry_after)
             raise RateLimitError(
                 "yahoo: rate limited on /v1/test/getcrumb",
                 context={
                     "source": "yahoo",
                     "endpoint": "/v1/test/getcrumb",
                 },
-                retry_after=60,
+                retry_after=retry_after,
             )
 
         crumb = resp.text.strip() if resp.status_code == 200 else ""
@@ -289,7 +316,8 @@ class YahooConnector(DataConnector):
 
         # 错误映射（D04 §3）
         if status_code == 429:
-            retry_after = int(response.headers.get("retry-after", 60))
+            retry_after = _parse_retry_after(response.headers)
+            self._rate_limiter.on_rate_limited(retry_after)
             raise RateLimitError(
                 f"yahoo: rate limited on /v8/finance/chart/{symbol}",
                 context={
