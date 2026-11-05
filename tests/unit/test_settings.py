@@ -25,6 +25,7 @@ _KNOWN_ENV_VARS = [
     "CHRONOFORGE_RETRY_MAX",
     "CHRONOFORGE_QUALITY_BLOCK",
     "CHRONOFORGE_NORMALIZE_ERROR_THRESHOLD",
+    "CHRONOFORGE_NORMALIZE_DROP_THRESHOLD",
     "CHRONOFORGE_OHLCV_CHUNK_BARS",
     "CHRONOFORGE_RATE_OVERRIDES",
 ]
@@ -116,6 +117,7 @@ class TestDefaults:
         assert settings.retry_max == 5
         assert settings.quality_block_on == ["Q-SCHEMA-001", "Q-PROV-001"]
         assert settings.normalize_error_threshold == 0.10
+        assert settings.normalize_drop_threshold == 0.50
 
 
 class TestFieldParsing:
@@ -141,10 +143,12 @@ class TestFieldParsing:
         monkeypatch.setenv("CHRONOFORGE_HTTP_TIMEOUT", "12.5")
         monkeypatch.setenv("CHRONOFORGE_RETRY_MAX", "3")
         monkeypatch.setenv("CHRONOFORGE_NORMALIZE_ERROR_THRESHOLD", "0.2")
+        monkeypatch.setenv("CHRONOFORGE_NORMALIZE_DROP_THRESHOLD", "0.75")
         settings = Settings.load()
         assert settings.http_timeout_s == 12.5
         assert settings.retry_max == 3
         assert settings.normalize_error_threshold == 0.2
+        assert settings.normalize_drop_threshold == 0.75
 
     def test_fred_key_secretstr_no_plaintext_repr(
         self, monkeypatch: pytest.MonkeyPatch
