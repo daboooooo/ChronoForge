@@ -8,8 +8,8 @@
 |---|---|---|
 | Unit | models（schema 校验、时间语义、instrument 解析）、normalize 映射、quality 规则 | pytest，纯函数级，deterministic |
 | Integration | connector × 录制 fixture：fetch→raw→normalize→canonical 全链 | pytest + fixtures（录制的真实 API 响应） |
-| Data Quality | 已入库数据：gap/duplicate/OHLC 关系/时间序列连续性 | pytest 对 DuckDB/Parquet 运行断言 |
-| End-to-End | 小规模真实源冒烟（1 个 symbol、数天数据） | pytest 标记 `@smoke`，手动/低频触发，CI 默认跳过 |
+| Data Quality | 门禁拦截（normalize 错误率、block_on）+ 已入库 Parquet 的 gap/duplicate/OHLC 关系 | pytest（`quality` marker）；真实 store + 录制 fixture |
+| End-to-End | 全链路 fixture 回放（真实 connector + MockTransport）；真实源冒烟（1 symbol、数天数据） | 默认 CI 运行；真实源冒烟标记 `@smoke`，手动/低频触发，CI 默认跳过 |
 | Architecture | 模块依赖方向与边界规则 | import-linter（见下） |
 
 ## 2. Architecture Tests（约束 §40）
@@ -61,4 +61,4 @@ layers =
 
 ## 5. CI 检查
 
-`ruff check` + `ruff format --check` + `mypy`（core 模块）+ `pytest`（unit/integration/quality/architecture）+ `lint-imports`。
+`ruff check` + `ruff format --check` + `mypy`（core 模块）+ `pytest`（unit/integration/e2e/quality/architecture）+ `lint-imports`。

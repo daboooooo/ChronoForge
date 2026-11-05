@@ -8,8 +8,8 @@
 |---|---|---|
 | unit/ | models / quality.rules / ratelimit / redact / settings | 默认 |
 | integration/ | connectors(fixture) / pipeline stages / storage | 默认 |
-| quality/ | 入库数据质量 SQL 检查 | `quality` |
-| e2e/ | 真实源冒烟 | `smoke`（CI 跳过） |
+| quality/ | 质量门禁拦截（错误率 / block_on）+ 已入库 Parquet 断言 | `quality` |
+| e2e/ | 全链路 fixture 回放（真实 connector → fetch→normalize→publish）；真实源冒烟另标 `smoke` | 默认（smoke 由 CI 跳过） |
 | architecture/ | import-linter + 视图/registry/事件名词表一致性 | 默认 |
 
 **测试真实性要求（最终审计 §36）**：Recovery 用例（TC-P-009/TC-S-004/TC-S-007）禁止仅 mock 异常返回——必须构造真实文件系统/SQLite 中间状态（temp 目录残留、run_log 缺行、损坏 db），重启被测对象后断言恢复；crash 模拟点 = 原子协议的每个边界（rename 前/后、checkpoint 写前/后）。
