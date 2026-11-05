@@ -576,7 +576,7 @@
 |---|---|
 | M2 / M4 / M5 / M7 / M8 / M9 / M10 | 逐条修复（对账死代码、429 冷却、5xx 分类、FRED 修订回补、错误包装、交易日历、SEC 分页与 URL） |
 | A-4 / A-5 / A-6 / A-7 | 补测试并标注 TC-ID |
-| **新发现（2026-11-05，已修复）** | deribit chart fetch 未读取 `result.continuation`：当 `end` 缺失且接口持续返回非空 ticks 时存在无限分页/重复采集风险。已改为 continuation 驱动（null 终止）+ `end` 边界双重收敛；重复 token 或页数 > 1000 抛 `ProviderError`（[deribit.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/deribit.py#L296-L372)），并补 5 条分页契约测试 |
+| **新发现（2026-11-05，已修复）** | deribit chart fetch 未读取 `result.continuation`：当 `end` 缺失且接口持续返回非空 ticks 时存在无限分页/重复采集风险。已改为 continuation 驱动（null 终止）+ `end` 边界双重收敛；重复 token 或页数 > 1000 抛 `ProviderError`（[deribit.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/deribit.py#L301-L370)），并补 5 条分页契约测试 |
 | ~~C-2~~ / C-4 | **C-2 已完成（2026-11-05）**：删除 7 个死键 + 注释 + 回归测试；C-4 仍需 config_hash 覆盖 unmatched 全字段 |
 | ~~D-1 ~ D-5、TGA-3~~ | **已完成（2026-11-05）**：README 源数/类型数/环境变量表、TGA 概念文档定位声明、DECISIONS 状态、dispatch-log 状态均已对齐代码；新增 `test_docs_consistency.py` 守卫 |
 | L1 ~ L6、C-6、D-6、D-7 | 日志口径统一、空转规则、错误类型、性能与迁移幂等、文件名修订（D-7 已完成；D-6 为历史留痕不处理） |
