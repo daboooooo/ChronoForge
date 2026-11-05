@@ -999,7 +999,7 @@ class TestKlinesStartRewind:
     def test_start_rewinds_by_one_bar(self) -> None:
         """Given start When interval=1d Then startTime = start - 86400000ms。"""
         start_ms = 1_790_294_400_000
-        start = datetime.fromtimestamp(start_ms / 1000).replace(tzinfo=None)
+        start = datetime.fromtimestamp(start_ms / 1000, tz=UTC).replace(tzinfo=None)
         _, client = self._fetch_once("1d", start)
         params = client.get.call_args[1]["params"]
         assert params["startTime"] == start_ms - 86_400_000
@@ -1007,7 +1007,7 @@ class TestKlinesStartRewind:
     def test_rewind_scales_with_interval(self) -> None:
         """Given 同一 start When 1h/4h Then 回退量随 interval 缩放。"""
         start_ms = 1_790_294_400_000
-        start = datetime.fromtimestamp(start_ms / 1000).replace(tzinfo=None)
+        start = datetime.fromtimestamp(start_ms / 1000, tz=UTC).replace(tzinfo=None)
         _, client_1h = self._fetch_once("1h", start)
         _, client_4h = self._fetch_once("4h", start)
         assert client_1h.get.call_args[1]["params"]["startTime"] == start_ms - 3_600_000
@@ -1027,7 +1027,7 @@ class TestKlinesStartRewind:
         """
         now_ms = int(time.time() * 1000)
         start_ms = now_ms - 90 * 86_400_000  # 90 天前
-        start = datetime.fromtimestamp(start_ms / 1000).replace(tzinfo=None)
+        start = datetime.fromtimestamp(start_ms / 1000, tz=UTC).replace(tzinfo=None)
         boundary = [
             start_ms - 86_400_000,  # openTime = 窗口起点前一根
             "1.0", "2.0", "0.5", "1.5", "10.0",
@@ -1342,8 +1342,10 @@ class TestCursorToMs:
         assert _cursor_to_ms("2024-09-24T00:00:00+00:00") == 1727136000000
 
     def test_iso_cursor_naive_roundtrip(self) -> None:
-        """naive ISO → ms（本地时区解释，与 .timestamp() 语义一致）。"""
+        """naive ISO → ms：按 UTC 解释，不随主机时区漂移（审计 H7）。"""
         from chronoforge.connectors.binance_futures import _cursor_to_ms
 
         dt = datetime(2026, 9, 1, 0, 0, 0)
-        assert _cursor_to_ms(dt.isoformat()) == int(dt.timestamp() * 1000)
+        assert _cursor_to_ms(dt.isoformat()) == int(
+            dt.replace(tzinfo=UTC).timestamp() * 1000
+        )

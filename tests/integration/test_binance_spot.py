@@ -679,18 +679,14 @@ class TestPagination:
             conn._rate_limiter = MagicMock()
 
         # Set end past page2_end so page 2 is included but loop stops after it.
-        # The connector calls int(request.end.timestamp() * 1000) on the naive end.
-        # On UTC+8 machines, naive datetime .timestamp() interprets as local time,
-        # so we need end_ts such that end_ts (local) > page2_end.
-        # page2_end = 1499040240000 ms = 1499040240 s UTC.
-        # On UTC+8: 1499040240 s UTC = 1499040240 + 28800 = 1499069040 s local.
-        # So end = datetime.fromtimestamp(1499040240 + 120).replace(tzinfo=None) works.
-        end_ts_local = 1499040240 + 120  # 2 min past page2_end in local seconds
+        # FetchRequest 的 end 为 UTC naive，连接器按 UTC 换算（审计 H7）。
+        # page2_end = 1499040240000 ms = 1499040240 s UTC。
+        end_ts = 1499040240 + 120  # 2 min past page2_end in UTC seconds
         req = FetchRequest(
             dataset_id="test",
             params={"symbol": "BTCUSDT", "interval": "1m"},
             start=None,
-            end=datetime.fromtimestamp(end_ts_local).replace(tzinfo=None),
+            end=datetime.fromtimestamp(end_ts, tz=UTC).replace(tzinfo=None),
             cursor=None,
         )
 
@@ -797,8 +793,8 @@ class TestAggTradesWindowPagination:
 
         params = mock_client.get.call_args_list[0][1]["params"]
         assert "fromId" not in params
-        assert params["startTime"] == int(start.timestamp() * 1000)
-        assert params["endTime"] == int(end.timestamp() * 1000)
+        assert params["startTime"] == int(start.replace(tzinfo=UTC).timestamp() * 1000)
+        assert params["endTime"] == int(end.replace(tzinfo=UTC).timestamp() * 1000)
         conn.close()
 
     def test_numeric_cursor_uses_from_id_only(self) -> None:
@@ -824,7 +820,7 @@ class TestAggTradesWindowPagination:
         """窗口首页 → 翻页 fromId-only → 末页 T >= endTime 停止。"""
         start = datetime(2026, 9, 1, 0, 0, 0)
         end = datetime(2026, 9, 1, 1, 0, 0)
-        end_ms = int(end.timestamp() * 1000)
+        end_ms = int(end.replace(tzinfo=UTC).timestamp() * 1000)
         page1 = [
             self._make_record(100, end_ms - 60_000),
             self._make_record(101, end_ms - 30_000),
@@ -904,7 +900,7 @@ class TestKlinesStartRewind:
     def test_start_rewinds_by_one_bar(self) -> None:
         """Given start When interval=1d Then startTime = start - 86400000ms。"""
         start_ms = (int(time.time() * 1000) // 86400000) * 86400000
-        start = datetime.fromtimestamp(start_ms / 1000).replace(tzinfo=None)
+        start = datetime.fromtimestamp(start_ms / 1000, tz=UTC).replace(tzinfo=None)
         _, client = self._fetch_once_with_start("1d", start)
         params = client.get.call_args[1]["params"]
         assert params["startTime"] == start_ms - 86_400_000
@@ -912,7 +908,7 @@ class TestKlinesStartRewind:
     def test_rewind_scales_with_interval(self) -> None:
         """Given 同一 start When 1h/4h Then 回退量随 interval 缩放。"""
         start_ms = 1_600_000_000_000
-        start = datetime.fromtimestamp(start_ms / 1000).replace(tzinfo=None)
+        start = datetime.fromtimestamp(start_ms / 1000, tz=UTC).replace(tzinfo=None)
         _, client_1h = self._fetch_once_with_start("1h", start)
         _, client_4h = self._fetch_once_with_start("4h", start)
         assert client_1h.get.call_args[1]["params"]["startTime"] == start_ms - 3_600_000
@@ -932,7 +928,7 @@ class TestKlinesStartRewind:
         """
         now_ms = int(time.time() * 1000)
         start_ms = now_ms - 90 * 86_400_000  # 90 天前
-        start = datetime.fromtimestamp(start_ms / 1000).replace(tzinfo=None)
+        start = datetime.fromtimestamp(start_ms / 1000, tz=UTC).replace(tzinfo=None)
         boundary = [
             start_ms - 86_400_000,  # openTime = 窗口起点前一根
             "1.0", "2.0", "0.5", "1.5", "10.0",

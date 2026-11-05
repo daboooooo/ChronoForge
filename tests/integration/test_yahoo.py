@@ -557,7 +557,7 @@ class TestCheckpoint:
         records = conn.normalize(raw)
 
         cursor = conn.checkpoint_from(records)
-        expected = str(int(datetime.utcfromtimestamp(timestamps[-1]).timestamp()))
+        expected = str(int(timestamps[-1]))
         assert cursor == expected
         conn.close()
 
