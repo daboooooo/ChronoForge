@@ -34,6 +34,7 @@ from chronoforge.connectors.base import (
     InstrumentRef,
     RawBatch,
 )
+from chronoforge.connectors.normalize_stats import note_skip
 from chronoforge.connectors.ratelimit import RateLimiter
 from chronoforge.exceptions import (
     ProviderError,
@@ -734,6 +735,7 @@ class CcxtBridgeConnector(DataConnector):
 
         for candle in payload:
             if not isinstance(candle, (list, tuple)):
+                note_skip("malformed_row")
                 continue
 
             # ccxt 统一格式为 6 元素: [ts, open, high, low, close, volume]
@@ -754,6 +756,7 @@ class CcxtBridgeConnector(DataConnector):
                 close_val = float(candle[5])
                 volume_val = float(candle[6])
             else:
+                note_skip("malformed_row")
                 continue
 
             # ms → us ×1000 for storage
@@ -771,15 +774,18 @@ class CcxtBridgeConnector(DataConnector):
                     symbol=symbol,
                     event_time=str(event_time),
                 )
+                note_skip("unclosed_bar")
                 continue
 
             # Validate price/volume are finite
             values = [open_val, high_val, low_val, close_val, volume_val]
             if not all(math.isfinite(v) for v in values):
+                note_skip("non_finite_value")
                 continue
 
             # Validate positive
             if any(v <= 0 for v in values):
+                note_skip("non_positive_value")
                 continue
 
             ex_upper = self.exchange_id.upper()
@@ -838,6 +844,7 @@ class CcxtBridgeConnector(DataConnector):
 
         for trade in payload:
             if not isinstance(trade, dict):
+                note_skip("malformed_row")
                 continue
 
             try:
@@ -851,6 +858,7 @@ class CcxtBridgeConnector(DataConnector):
                 elif side_str == "sell":
                     side = Side.SELL
                 else:
+                    note_skip("invalid_trade_side")
                     continue
 
                 trade_id = str(trade.get("id", f"{timestamp_ms}_{price}_{amount}"))
@@ -886,6 +894,7 @@ class CcxtBridgeConnector(DataConnector):
                 )
                 records.append(record)
             except (KeyError, ValueError, TypeError):
+                note_skip("malformed_row")
                 continue
 
         return records
@@ -911,6 +920,7 @@ class CcxtBridgeConnector(DataConnector):
             # ccxt ticker timestamp is ms
             timestamp_ms = int(payload.get("timestamp", 0))
             if timestamp_ms == 0:
+                note_skip("malformed_row")
                 return []
 
             event_time = datetime.fromtimestamp(
@@ -936,6 +946,7 @@ class CcxtBridgeConnector(DataConnector):
             )
             return [record]
         except (KeyError, ValueError, TypeError):
+            note_skip("malformed_row")
             return []
 
     @staticmethod

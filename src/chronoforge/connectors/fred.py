@@ -45,6 +45,7 @@ from chronoforge.connectors.errors import (
     RateLimitError,
     TransportError,
 )
+from chronoforge.connectors.normalize_stats import note_skip
 from chronoforge.connectors.ratelimit import RateLimiter
 from chronoforge.models.base import BaseRecord
 from chronoforge.models.enums import CanonicalType, QualityStatus
@@ -429,8 +430,12 @@ class FREDConnector(DataConnector):
         for obs in observations:
             date_key = str(obs.get("date", ""))
             if not date_key:
+                note_skip("malformed_row")
                 continue
             incumbent = latest_by_date.get(date_key)
+            if incumbent is not None:
+                # 同一 observation 日期的历史 vintage 行 → 收敛为最新一条
+                note_skip("duplicate_observation")
             if incumbent is None or str(obs.get("realtime_start", "")) > str(
                 incumbent.get("realtime_start", "")
             ):
@@ -455,6 +460,7 @@ class FREDConnector(DataConnector):
                     hour=0, minute=0, second=0
                 )
             except (ValueError, IndexError):
+                note_skip("malformed_row")
                 continue
 
             # release_time：T23:59:59Z 保守（防 look-ahead）
@@ -486,6 +492,7 @@ class FREDConnector(DataConnector):
                 try:
                     value = float(value_str)
                 except (ValueError, TypeError):
+                    note_skip("non_numeric_value")
                     continue
 
             record = NUMBER(

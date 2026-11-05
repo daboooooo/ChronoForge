@@ -40,6 +40,7 @@ from chronoforge.connectors.errors import (
     SchemaError,
     TransportError,
 )
+from chronoforge.connectors.normalize_stats import note_skip
 from chronoforge.connectors.ratelimit import RateLimiter
 from chronoforge.models.base import BaseRecord
 from chronoforge.models.derivatives import Interval
@@ -519,6 +520,7 @@ class YahooConnector(DataConnector):
                         event_time=str(event_time),
                     )
                     unclosed_bars += 1
+                    note_skip("unclosed_bar")
                     continue
 
                 open_list = quote.get("open", [])
@@ -548,13 +550,15 @@ class YahooConnector(DataConnector):
                     if i < len(volume_list) else 0.0
                 )
 
-                # 跳过全空记录
+                # 跳过全空记录（源侧缺失，非法定缺陷）
                 if any(v is None for v in [open_val, high_val, low_val, close_val]):
+                    note_skip("source_missing_value")
                     continue
 
                 # 验证数值有限性
                 values = [open_val, high_val, low_val, close_val, volume_val]
                 if not all(math.isfinite(v) for v in values):  # type: ignore[arg-type]
+                    note_skip("non_finite_value")
                     continue
 
                 market_id = f"YAHOO:{meta.get('symbol', symbol.upper())}:SPOT"
@@ -580,6 +584,7 @@ class YahooConnector(DataConnector):
                 records.append(record)
             except (ValueError, IndexError, TypeError):
                 # 时间戳转换失败或数组索引越界 → 跳过
+                note_skip("invalid_bar")
                 continue
 
         if unclosed_bars:

@@ -16,7 +16,8 @@
 | http_timeout_s | CHRONOFORGE_HTTP_TIMEOUT | float | 30 | |
 | retry_max | CHRONOFORGE_RETRY_MAX | int | 5 | |
 | quality_block_on | CHRONOFORGE_QUALITY_BLOCK | list[str] | [Q-SCHEMA-001,Q-PROV-001] | D06 §3 |
-| normalize_error_threshold | — | float | 0.10 | D05 |
+| normalize_error_threshold | CHRONOFORGE_NORMALIZE_ERROR_THRESHOLD | float | 0.10 | D05 |
+| normalize_drop_threshold | CHRONOFORGE_NORMALIZE_DROP_THRESHOLD | float | 0.50 | 审计 A-8（行级丢弃率；无 DB 迁移） |
 | rate_overrides_json | CHRONOFORGE_RATE_OVERRIDES | dict | {} | 测试注入 |
 
 - `.env.example`：上表全部 env 名 + 注释（无值）；`.env` 在 `.gitignore`

@@ -38,6 +38,7 @@ from chronoforge.connectors.errors import (
     RateLimitError,
     TransportError,
 )
+from chronoforge.connectors.normalize_stats import note_skip
 from chronoforge.connectors.ratelimit import RateLimiter
 from chronoforge.models.base import BaseRecord
 from chronoforge.models.enums import CanonicalType, QualityStatus
@@ -364,6 +365,7 @@ class SECEdgarConnector(DataConnector):
 
         for i, accession_number in enumerate(accession_numbers):
             if not accession_number:
+                note_skip("malformed_row")
                 continue
 
             form_type = forms[i] if i < len(forms) else ""
@@ -374,6 +376,7 @@ class SECEdgarConnector(DataConnector):
             # 解析 filing_date → date
             filing_date = self._parse_date(filing_date_str)
             if filing_date is None:
+                note_skip("malformed_row")
                 continue
 
             # 解析 report_period_end
@@ -535,6 +538,7 @@ class SECEdgarConnector(DataConnector):
                         records.append(fundamental)
 
         for reason, count in skipped.items():
+            note_skip(reason, count)
             logger.warning(
                 "connector.normalize_skip",
                 source="sec_edgar",

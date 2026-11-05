@@ -51,6 +51,7 @@ from chronoforge.connectors.errors import (
     SchemaError,
     TransportError,
 )
+from chronoforge.connectors.normalize_stats import note_skip
 from chronoforge.connectors.ratelimit import RateLimiter
 from chronoforge.models.base import BaseRecord
 from chronoforge.models.enums import CanonicalType, QualityStatus
@@ -446,9 +447,11 @@ class SoSoValueConnector(DataConnector):
 
         for row in rows:
             if not isinstance(row, dict):
+                note_skip("malformed_row")
                 continue
             date_str = row.get("date", "")
             if not date_str:
+                note_skip("malformed_row")
                 continue
 
             # 解析 observation 日期 → T00:00:00（对齐 fred 审计 F-09）
@@ -459,19 +462,23 @@ class SoSoValueConnector(DataConnector):
                     day=int(date_str[8:10]),
                 )
             except (ValueError, IndexError):
+                note_skip("malformed_row")
                 continue
 
             # T+1 结算：最新一行 flow 字段为 null → skip（非数据缺口）
             raw_value = row.get(metric)
             if raw_value is None:
+                note_skip("pending_settlement")
                 continue
 
             # value 强转（源侧可能回字符串，含千分位逗号）
             try:
                 value = float(str(raw_value).replace(",", ""))
             except (ValueError, TypeError):
+                note_skip("non_numeric_value")
                 continue
             if not math.isfinite(value):
+                note_skip("non_finite_value")
                 continue
 
             release_time = observation_time + timedelta(days=1)

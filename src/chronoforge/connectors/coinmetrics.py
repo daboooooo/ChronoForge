@@ -59,6 +59,7 @@ from chronoforge.connectors.errors import (
     SchemaError,
     TransportError,
 )
+from chronoforge.connectors.normalize_stats import note_skip
 from chronoforge.connectors.ratelimit import RateLimiter
 from chronoforge.models.base import BaseRecord
 from chronoforge.models.enums import CanonicalType, QualityStatus
@@ -461,6 +462,8 @@ class CoinMetricsConnector(DataConnector):
             d = _row_date(row)
             if d is not None:
                 indexed.append((d, row))
+            else:
+                note_skip("malformed_row")
         indexed.sort(key=lambda item: item[0])
 
         records: list[BaseRecord] = []
@@ -469,15 +472,17 @@ class CoinMetricsConnector(DataConnector):
 
         for obs_date, row in indexed:
             if obs_date in seen_dates:
+                note_skip("duplicate_observation")
                 continue
 
             # 当天行未冻结 → 等次日重采
             if obs_date >= today:
+                note_skip("unfrozen_today")
                 continue
 
             raw_value = row.get(metric)
             if raw_value is None or raw_value == "":
-                skipped["missing_metric_value"] = skipped.get("missing_metric_value", 0) + 1
+                skipped["source_missing_value"] = skipped.get("source_missing_value", 0) + 1
                 continue
             try:
                 value = float(str(raw_value))
@@ -512,6 +517,8 @@ class CoinMetricsConnector(DataConnector):
             )
 
         if skipped:
+            for reason, count in skipped.items():
+                note_skip(reason, count)
             logger.warning(
                 "connector.normalize_summary",
                 source="coinmetrics",

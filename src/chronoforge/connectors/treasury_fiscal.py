@@ -51,6 +51,7 @@ from chronoforge.connectors.errors import (
     SchemaError,
     TransportError,
 )
+from chronoforge.connectors.normalize_stats import note_skip
 from chronoforge.connectors.ratelimit import RateLimiter
 from chronoforge.models.base import BaseRecord
 from chronoforge.models.enums import CanonicalType
@@ -600,14 +601,17 @@ class TreasuryFiscalConnector(DataConnector):
         skipped = 0
         for row in rows:
             if not isinstance(row, dict):
+                note_skip("malformed_row")
                 continue
             record_date = _date(row.get("record_date"))
             account_type = _text(row.get("account_type"))
             if record_date is None or account_type is None:
                 skipped += 1
+                note_skip("malformed_row")
                 continue
             if not _is_tga_account(account_type):
                 skipped += 1
+                note_skip("non_target_account")
                 continue
             src_line = int(_float(row.get("src_line_nbr")) or 0)
             base = self._base_fields(
@@ -623,6 +627,7 @@ class TreasuryFiscalConnector(DataConnector):
                     amount = _float(row.get("open_today_bal"))
                 if amount is None:
                     skipped += 1
+                    note_skip("source_missing_value")
                     continue
                 to_emit = [(balance_type, amount)]
             elif account_type.strip() in _TGA_SINGLE_ROW_ACCOUNTS:
@@ -631,6 +636,7 @@ class TreasuryFiscalConnector(DataConnector):
                 closing = _float(row.get("close_today_bal"))
                 if opening is None and closing is None:
                     skipped += 1
+                    note_skip("source_missing_value")
                     continue
                 to_emit = []
                 if opening is not None:
@@ -639,6 +645,7 @@ class TreasuryFiscalConnector(DataConnector):
                     to_emit.append(("CLOSING", closing))
             else:
                 skipped += 1
+                note_skip("unrecognized_account_type")
                 continue
 
             for emitted_type, emitted_amount in to_emit:
@@ -664,19 +671,23 @@ class TreasuryFiscalConnector(DataConnector):
         skipped = 0
         for row in rows:
             if not isinstance(row, dict):
+                note_skip("malformed_row")
                 continue
             record_date = _date(row.get("record_date"))
             if record_date is None:
                 skipped += 1
+                note_skip("malformed_row")
                 continue
             account_type = _text(row.get("account_type")) or (
                 "Treasury General Account (TGA)" if source_table in ("IV", "V") else None
             )
             if account_type is None:
                 skipped += 1
+                note_skip("malformed_row")
                 continue
             if source_table == "II" and not _is_tga_account(account_type):
                 skipped += 1
+                note_skip("non_target_account")
                 continue
             src_line = int(_float(row.get("src_line_nbr")) or 0)
             if source_table == "II":
@@ -686,6 +697,7 @@ class TreasuryFiscalConnector(DataConnector):
                 amount = _float(row.get("transaction_today_amt"))
                 if amount is None:
                     skipped += 1
+                    note_skip("source_missing_value")
                     continue
                 direction = "INFLOW" if transaction_type == "Deposits" else (
                     "OUTFLOW" if transaction_type == "Withdrawals" else "UNKNOWN"
@@ -707,6 +719,7 @@ class TreasuryFiscalConnector(DataConnector):
                 is_duplicate = True
             if amount is None:
                 skipped += 1
+                note_skip("source_missing_value")
                 continue
 
             classification: dict[str, Any]
@@ -768,10 +781,12 @@ class TreasuryFiscalConnector(DataConnector):
         )
         for row in rows:
             if not isinstance(row, dict):
+                note_skip("malformed_row")
                 continue
             record_date = _date(row.get("record_date"))
             if record_date is None:
                 skipped += 1
+                note_skip("malformed_row")
                 continue
             table_code = _normalize_table_code(
                 _text(row.get("table_nbr")), default=source_table
@@ -790,6 +805,7 @@ class TreasuryFiscalConnector(DataConnector):
             )
             if amount is None:
                 skipped += 1
+                note_skip("source_missing_value")
                 continue
             src_line = int(_float(row.get("src_line_nbr")) or 0)
             # GAS / FFB 属政府内部债务；Savings Securities 是非市场化但真实现金，
@@ -838,6 +854,7 @@ class TreasuryFiscalConnector(DataConnector):
         skipped = 0
         for row in rows:
             if not isinstance(row, dict):
+                note_skip("malformed_row")
                 continue
             cusip = _text(row.get("cusip"))
             security_type = _text(row.get("security_type")) or "Unknown"
@@ -848,6 +865,7 @@ class TreasuryFiscalConnector(DataConnector):
             maturity_date = _date(row.get("maturity_date"))
             if auction_date is None or issue_date is None or announcement_date is None:
                 skipped += 1
+                note_skip("malformed_row")
                 continue
             offering = _float(row.get("offering_amt"))
             accepted = _float(row.get("total_accepted"))

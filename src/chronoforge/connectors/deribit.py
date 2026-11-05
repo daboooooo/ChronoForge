@@ -38,6 +38,7 @@ from chronoforge.connectors.errors import (
     TransportError,
     map_http_status,
 )
+from chronoforge.connectors.normalize_stats import note_skip
 from chronoforge.connectors.ratelimit import RateLimiter
 from chronoforge.models.base import BaseRecord
 from chronoforge.models.derivatives import (
@@ -410,11 +411,13 @@ class DeribitConnector(DataConnector):
         for item in payload.get("result", []):
             instrument_name = item.get("instrument_name", "")
             if not instrument_name:
+                note_skip("malformed_row")
                 continue
 
             try:
                 parsed = parse_deribit(instrument_name)
             except ProviderError:
+                note_skip("invalid_instrument")
                 continue
 
             kind = item.get("kind", "")
@@ -473,6 +476,7 @@ class DeribitConnector(DataConnector):
                 )
                 records.append(record)
             except Exception:
+                note_skip("invalid_instrument")
                 continue
 
         return list[BaseRecord](records)
@@ -568,6 +572,8 @@ class DeribitConnector(DataConnector):
                 skipped[reason] += 1
                 continue
 
+        for reason, count in skipped.items():
+            note_skip(reason, count)
         if skipped:
             logger.warning(
                 "connector.normalize_summary",
@@ -713,6 +719,8 @@ class DeribitConnector(DataConnector):
                 )
                 skipped[reason] += 1
 
+        for reason, count in skipped.items():
+            note_skip(reason, count)
         if skipped:
             # 未收盘 bar 是增量采集常态 → debug；其他跳过原因仍为 warning
             log = (

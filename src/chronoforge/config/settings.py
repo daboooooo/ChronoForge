@@ -86,6 +86,12 @@ class Settings(BaseModel):
         default=0.10,
         description="标准化错误阈值",
     )
+    normalize_drop_threshold: float = Field(
+        default=0.5,
+        ge=0,
+        le=1,
+        description="行级丢弃率阈值（审计 A-8）",
+    )
     query_max_rows: int = Field(
         default=DEFAULT_QUERY_MAX_ROWS,
         ge=1,
@@ -382,6 +388,7 @@ def _read_env_fields(cls_model: type[BaseModel]) -> dict[str, Any]:
         "circuit_cooldown_s": "CHRONOFORGE_CIRCUIT_COOLDOWN_S",
         "quality_block_on": "CHRONOFORGE_QUALITY_BLOCK",
         "normalize_error_threshold": "CHRONOFORGE_NORMALIZE_ERROR_THRESHOLD",
+        "normalize_drop_threshold": "CHRONOFORGE_NORMALIZE_DROP_THRESHOLD",
         "query_max_rows": "CHRONOFORGE_QUERY_MAX_ROWS",
         "ohlcv_chunk_bars": "CHRONOFORGE_OHLCV_CHUNK_BARS",
         "version": "CHRONOFORGE_VERSION",

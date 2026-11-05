@@ -54,6 +54,7 @@ from chronoforge.connectors.errors import (
     SchemaError,
     TransportError,
 )
+from chronoforge.connectors.normalize_stats import note_skip
 from chronoforge.connectors.ratelimit import RateLimiter
 from chronoforge.models.base import BaseRecord
 from chronoforge.models.enums import CanonicalType, QualityStatus
@@ -418,6 +419,7 @@ class CoinMarketCapConnector(DataConnector):
                 continue
             # 当天行仍在盘中滚动 → 等次日重采冻结值
             if obs_date >= today:
+                note_skip("unfrozen_today")
                 continue
 
             value = self._extract_value(row, metric)
@@ -430,14 +432,14 @@ class CoinMarketCapConnector(DataConnector):
                 if value <= 0.0:
                     # 源端缺失以 0 占位（实测 2019-12-20 / 2020-02-02 /
                     # 2020-05-18~20 出现该形态），真实市占率不会为 0 → 视为缺失
-                    skipped["non_positive_value"] = (
-                        skipped.get("non_positive_value", 0) + 1
-                    )
+                    note_skip("source_missing_value")
                     continue
                 if value > 100.0:
                     skipped["value_out_of_range"] = skipped.get("value_out_of_range", 0) + 1
                     continue
 
+            if obs_date in by_date:
+                note_skip("duplicate_observation")
             by_date[obs_date] = value
 
         records: list[BaseRecord] = []
@@ -465,6 +467,8 @@ class CoinMarketCapConnector(DataConnector):
             )
 
         if skipped:
+            for reason, count in skipped.items():
+                note_skip(reason, count)
             logger.warning(
                 "connector.normalize_summary",
                 source="coinmarketcap",

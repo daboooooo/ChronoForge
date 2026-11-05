@@ -43,6 +43,7 @@ from chronoforge.connectors.errors import (
     SchemaError,
     TransportError,
 )
+from chronoforge.connectors.normalize_stats import note_skip
 from chronoforge.connectors.ratelimit import RateLimiter
 from chronoforge.models.base import BaseRecord
 from chronoforge.models.enums import CanonicalType, QualityStatus
@@ -303,6 +304,8 @@ class AlternativeConnector(DataConnector):
             ts = _row_ts_seconds(row)
             if ts is not None:
                 indexed.append((ts, row))
+            else:
+                note_skip("malformed_row")
         indexed.sort(key=lambda item: item[0])
 
         records: list[BaseRecord] = []
@@ -312,10 +315,12 @@ class AlternativeConnector(DataConnector):
         for ts, row in indexed:
             obs_date = datetime.fromtimestamp(ts, UTC).date()
             if obs_date in seen_dates:
+                note_skip("duplicate_observation")
                 continue
 
             # 当天未冻结行（滚动值，带 time_until_update）→ 等次日重采
             if row.get("time_until_update"):
+                note_skip("unfrozen_today")
                 continue
 
             try:
@@ -351,6 +356,8 @@ class AlternativeConnector(DataConnector):
             )
 
         if skipped:
+            for reason, count in skipped.items():
+                note_skip(reason, count)
             logger.warning(
                 "connector.normalize_summary",
                 source="alternative",

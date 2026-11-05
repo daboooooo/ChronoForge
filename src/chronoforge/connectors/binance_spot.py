@@ -35,6 +35,7 @@ from chronoforge.connectors.errors import (
     TransportError,
     map_http_status,
 )
+from chronoforge.connectors.normalize_stats import note_skip
 from chronoforge.connectors.ratelimit import RateLimiter
 from chronoforge.models.base import BaseRecord
 from chronoforge.models.derivatives import Interval
@@ -437,6 +438,7 @@ class BinanceSpotConnector(DataConnector):
                     reason="malformed_row",
                     index=row_idx,
                 )
+                note_skip("malformed_row")
                 continue
 
             open_time_ms = int(row[0])
@@ -456,6 +458,7 @@ class BinanceSpotConnector(DataConnector):
                     reason="unfinished_kline",
                     index=row_idx,
                 )
+                note_skip("unfinished_kline")
                 continue
 
             try:
@@ -471,6 +474,7 @@ class BinanceSpotConnector(DataConnector):
                     reason="non_numeric_value",
                     index=row_idx,
                 )
+                note_skip("non_numeric_value")
                 continue
 
             # Validate price/volume are finite
@@ -482,6 +486,7 @@ class BinanceSpotConnector(DataConnector):
                     reason="non_finite_value",
                     index=row_idx,
                 )
+                note_skip("non_finite_value")
                 continue
 
             # market_id = BINANCE:{symbol}:{SPOT}
@@ -567,6 +572,7 @@ class BinanceSpotConnector(DataConnector):
                 )
                 records.append(record)
             except (KeyError, ValueError, TypeError):
+                note_skip("invalid_trade")
                 continue
 
         return records
@@ -605,6 +611,7 @@ class BinanceSpotConnector(DataConnector):
             )
             return [record]
         except (KeyError, ValueError, TypeError):
+            note_skip("invalid_ticker")
             return []
 
     def _extract_market_id(self, raw_meta: dict[str, Any]) -> str:

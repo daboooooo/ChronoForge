@@ -48,6 +48,11 @@ from chronoforge.connectors.errors import (
     StorageError,
     TransportError,
 )
+from chronoforge.connectors.normalize_stats import (
+    LEGIT_SKIP_REASONS,
+    begin_normalize,
+    end_normalize,
+)
 from chronoforge.connectors.retry import retry
 from chronoforge.models.enums import CanonicalType
 from chronoforge.pipeline.cursor import advance_chunks
@@ -426,19 +431,22 @@ class ValidateStage:
 
 
 def _payload_units(payload: object) -> int:
-    """估算单个 raw 批次的待处理记录数（失败调用无法取得真实条数时的下界）。
+    """可识别行数组的 raw 批次行数；未知形状返回 0（不做兜底推断）。
 
     payload 形状由连接器决定：多数源为 list；部分为分页/JSON-RPC 包装 dict。
-    识别常见行数组键取其长度，未知形状按 1 个单元计，保证分母不为 0。
+    空列表返回 0（真无数据，不参与行级丢弃率）；未知形状返回 0，此时
+    行级丢弃检测完全依赖连接器的 note_skip 结构化上报，避免误报。
+
+    失败调用无法取得真实条数时，调用方以 max(本函数返回值, 1) 作为下界。
     """
     if isinstance(payload, (list, tuple)):
-        return max(len(payload), 1)
+        return len(payload)
     if isinstance(payload, dict):
         for key in ("rows", "data", "result", "observations", "values"):
             value = payload.get(key)
-            if isinstance(value, (list, tuple)) and value:
+            if isinstance(value, (list, tuple)):
                 return len(value)
-    return 1
+    return 0
 
 
 class NormalizeStage:
@@ -452,6 +460,10 @@ class NormalizeStage:
       settings.normalize_error_threshold → QualityError
     - 失败调用无法回传记录数，按 payload 单元数（下界）计入分子/分母，
       避免全失败时分母退化为 0 而短路阈值判定（审计 C1）
+    - 行级丢弃率 = 非白名单跳过行/(返回行+跳过行) >=
+      settings.normalize_drop_threshold → QualityError（审计 A-8）；
+      跳过原因由连接器经 normalize_stats.note_skip 结构化上报，
+      LEGIT_SKIP_REASONS 白名单内的合法丢弃不计数
     """
 
     name = "normalize"
@@ -463,17 +475,53 @@ class NormalizeStage:
         failed_units = 0
         # provenance 注入/序列化的记录级失败（已计入 input_count，避免与批次失败重复计数）
         record_errors = 0
-        for _chunk, batch, raw_ref in ctx._raw_refs:
+        # 行级丢弃率（A-8）：按 chunk 聚合，白名单外跳过计入无效丢弃
+        drop_attempted = 0
+        drop_invalid = 0
+        current_chunk: object | None = None
+
+        def _enforce_drop_gate() -> None:
+            nonlocal drop_attempted, drop_invalid
+            if (
+                drop_attempted > 0
+                and drop_invalid / drop_attempted
+                >= ctx.settings.normalize_drop_threshold
+            ):
+                raise QualityError(
+                    f"normalize drop rate {drop_invalid}/{drop_attempted} reaches "
+                    f"threshold {ctx.settings.normalize_drop_threshold}",
+                    context={"stage": self.name, "dataset_id": ctx.dataset_id},
+                )
+            drop_attempted = 0
+            drop_invalid = 0
+
+        for chunk, batch, raw_ref in ctx._raw_refs:
+            if chunk is not current_chunk:
+                _enforce_drop_gate()
+                current_chunk = chunk
+            token = begin_normalize()
             try:
                 records = ctx.connector.normalize(batch)
             except Exception as exc:  # 记录级失败不中断（D05 §1）
+                end_normalize(token)
                 result.error_count += 1
-                failed_units += _payload_units(batch.payload)
+                failed_units += max(_payload_units(batch.payload), 1)
                 result.errors.append(
                     f"normalize failed for {raw_ref.raw_record_id}: "
                     f"{type(exc).__name__}: {exc}"
                 )
                 continue
+            skips = end_normalize(token)
+            reported_skips = sum(skips.values())
+            untracked = max(
+                0, _payload_units(batch.payload) - len(records) - reported_skips
+            )
+            drop_attempted += len(records) + reported_skips + untracked
+            drop_invalid += untracked + sum(
+                count
+                for reason, count in skips.items()
+                if reason not in LEGIT_SKIP_REASONS
+            )
             for rec in records:
                 result.input_count += 1
                 try:
@@ -493,6 +541,8 @@ class NormalizeStage:
                 schema_version = dump.get("schema_version")
                 if isinstance(schema_version, str) and schema_version:
                     ctx._schema_version = schema_version
+
+        _enforce_drop_gate()
 
         # 分母 = 成功返回的记录数 + 失败调用的下界记录数（不可为 0）
         attempted = result.input_count + failed_units

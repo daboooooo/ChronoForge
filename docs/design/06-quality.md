@@ -50,7 +50,16 @@ quality:
   block_on: [Q-SCHEMA-001, Q-PROV-001]   # ERROR 级默认阻断 run（FAILED）
   flag_only: [...]                        # 其余仅写 quality_flags
   normalize_error_threshold: 0.10         # NormalizeStage 失败率上限（D05 §1）
+  normalize_drop_threshold: 0.50          # 行级丢弃率上限（审计 A-8）
 ```
+
+- 行级丢弃率（审计 A-8）：连接器逐行跳过（`note_skip`）不计入异常计数，而按
+  `非白名单跳过行 / (返回行 + 跳过行 + 未上报行)` 计算；达到阈值 → `QualityError`，
+  run FAILED 且 checkpoint 不推进。合法跳过白名单（`LEGIT_SKIP_REASONS`：
+  未收盘 K 线 / 未冻结当日 / 待结算 / 源显式缺失 / 非目标账户 / 同观测键收敛）
+  不计入分子，白名单由 `tests/quality/test_normalize_drop_gate.py` 锁定。
+- 与 C1 的口径边界：批次抛异常 → `failed_units`（错误率门禁）；正常返回但逐行
+  跳过 → kept/skipped 比率（本门禁）；两套口径不重复计数。
 
 - 阻断 = QualityStage 抛 `QualityError` → run FAILED；已落盘 canonical **不回滚**（provenance 可追溯，重放修复）
 - SUSPECT/INVALID 写入记录的 quality_status/quality_reason（Q-RANGE-003 → SUSPECT；Q-SCHEMA-001 → INVALID 且该记录不写 canonical，仅 flag）

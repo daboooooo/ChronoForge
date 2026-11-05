@@ -585,6 +585,7 @@ cp .env.example .env
 | `CHRONOFORGE_CIRCUIT_COOLDOWN_S` | `1800` | Circuit-breaker cooldown before a half-open probe run |
 | `CHRONOFORGE_QUALITY_BLOCK` | `Q-SCHEMA-001,Q-PROV-001` | Quality rules that block ingestion |
 | `CHRONOFORGE_NORMALIZE_ERROR_THRESHOLD` | `0.10` | Normalize error-rate threshold |
+| `CHRONOFORGE_NORMALIZE_DROP_THRESHOLD` | `0.5` | Row-level drop-rate threshold (non-whitelisted skipped rows / attempted rows; audit A-8) |
 | `CHRONOFORGE_QUERY_MAX_ROWS` | `200000` | Default query row limit (hard cap on `query()`) |
 | `CHRONOFORGE_OHLCV_CHUNK_BARS` | `200` | Target bars per OHLCV chunk for long intervals |
 | `CHRONOFORGE_VERSION` | `0.1.0` | Version embedded in logs / SEC User-Agent |

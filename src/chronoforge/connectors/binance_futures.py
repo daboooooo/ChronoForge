@@ -36,6 +36,7 @@ from chronoforge.connectors.errors import (
     TransportError,
     map_http_status,
 )
+from chronoforge.connectors.normalize_stats import note_skip
 from chronoforge.connectors.ratelimit import RateLimiter
 from chronoforge.models.base import BaseRecord
 from chronoforge.models.derivatives import Interval
@@ -464,6 +465,7 @@ class BinanceFuturesConnector(DataConnector):
 
         for row in payload:
             if not isinstance(row, (list, tuple)) or len(row) < 7:
+                note_skip("malformed_row")
                 continue
 
             open_time_ms = int(row[0])
@@ -476,6 +478,7 @@ class BinanceFuturesConnector(DataConnector):
 
             # Discard unfinished kline: closeTime in future
             if close_time_ms > _dt_to_ms(now):
+                note_skip("unfinished_kline")
                 continue
 
             try:
@@ -485,10 +488,12 @@ class BinanceFuturesConnector(DataConnector):
                 close_val = float(row[4])
                 volume_val = float(row[5])
             except (ValueError, TypeError):
+                note_skip("non_numeric_value")
                 continue
 
             values = [open_val, high_val, low_val, close_val, volume_val]
             if not all(math.isfinite(v) for v in values):
+                note_skip("non_finite_value")
                 continue
 
             record = OHLCV(
@@ -580,6 +585,7 @@ class BinanceFuturesConnector(DataConnector):
                 )
                 records.append(record)
             except (KeyError, ValueError, TypeError):
+                note_skip("invalid_funding")
                 continue
 
         return records
@@ -644,6 +650,7 @@ class BinanceFuturesConnector(DataConnector):
             )
             return [record]
         except (KeyError, ValueError, TypeError):
+            note_skip("invalid_open_interest")
             return []
 
     def validate(
