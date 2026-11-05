@@ -14,6 +14,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
+import time
 import uuid
 from collections import defaultdict
 from collections.abc import Sequence
@@ -554,6 +556,159 @@ def detect_drift(
     return findings
 
 
+# ── H6: rename-swap 崩溃恢复 ─────────────────────────────────────────
+
+# 提交标记：写入 `.tmp-*` 后 fsync，证明该临时目录是完整快照。
+# 未带标记的 `.tmp-*` 是写盘中断的半成品，恢复时不得前滚。
+_COMMIT_MARKER = "._commit"
+_ORPHAN_PREFIXES = (".old-", ".tmp-")
+
+
+def _fsync_dir(path: Path) -> None:
+    """fsync 目录（尽力而为：非必须，失败忽略）。"""
+    try:
+        fd = os.open(str(path), os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+
+
+def _mtime(path: Path) -> float:
+    """目录 mtime（stat 失败视为最旧）。"""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _orphan_age_ok(path: Path, min_age_seconds: float) -> bool:
+    """孤儿目录是否超过最小年龄（min_age_seconds<=0 恒 True）。"""
+    if min_age_seconds <= 0:
+        return True
+    try:
+        age = time.time() - path.stat().st_mtime
+    except OSError:
+        return True  # stat 失败视为足够老（沿用历史行为）
+    return age > min_age_seconds
+
+
+def _orphan_target_name(name: str) -> str | None:
+    """从 `.old-{target}-{uuid}` / `.tmp-{target}-{uuid}` 解析目标分区名。
+
+    旧版孤儿目录名为 `.old-{uuid}` / `.tmp-{uuid}`（不含目标名），无法与
+    分区配对，返回 None（沿用历史行为：按年龄直接清理）。
+    """
+    for prefix in _ORPHAN_PREFIXES:
+        if not name.startswith(prefix):
+            continue
+        rest = name[len(prefix):]
+        target, sep, suffix = rest.rpartition("-")
+        if sep and suffix and target.startswith("month="):
+            return target
+        return None
+    return None
+
+
+def recover_partition_orphans(
+    year_dir: Path,
+    *,
+    target_name: str | None = None,
+    min_age_seconds: float = 0.0,
+) -> list[str]:
+    """恢复/清理 year 层 `.old-*` / `.tmp-*` 孤儿目录（审计 H6）。
+
+    崩溃窗口：`target → .old-*` 成功、`.tmp-* → target` 未完成时，
+    目标分区缺失，两份完整数据都残留在 year 层。此时若直接删除孤儿，
+    该月历史即永久丢失；若下次 upsert 视 `has_old_data=False` 直接写新
+    分区，同样会丢失历史。因此启动/写入前必须先自愈：
+
+    - **target 缺失**：优先前滚已提交的 `.tmp-*`（merge-rewrite 快照本身
+      已含旧+新数据，前滚不丢数据），否则回滚 `.old-*`；两者都没有时只
+      删除写盘中断的半成品（无已提交数据可丢）。
+    - **target 存在**：删除年龄超限的残留备份/临时目录。
+
+    前滚路径不使用年龄护栏：target 缺失只可能由崩溃或并发写入造成，
+    恢复已提交数据不会覆盖有效文件；删除路径保留年龄护栏，避免误删
+    在途 run 的新鲜分片（R2-03①）。
+
+    Args:
+        year_dir: `year=YYYY` 目录。
+        target_name: 仅处理该目标分区（如 `month=09`）；None = 整个 year 层。
+        min_age_seconds: 删除残留时的最小年龄（秒），0 = 立即。
+
+    Returns:
+        被恢复或清理的孤儿目录路径列表。
+    """
+    handled: list[str] = []
+    if not year_dir.is_dir():
+        return handled
+
+    legacy: list[Path] = []
+    paired: dict[str, list[Path]] = defaultdict(list)
+    for sub in year_dir.iterdir():
+        try:
+            if not sub.is_dir():
+                continue
+        except OSError:
+            continue
+        if not sub.name.startswith(_ORPHAN_PREFIXES):
+            continue
+        parsed = _orphan_target_name(sub.name)
+        if parsed is None:
+            if target_name is None and _orphan_age_ok(sub, min_age_seconds):
+                legacy.append(sub)
+            continue
+        if target_name is not None and parsed != target_name:
+            continue
+        paired[parsed].append(sub)
+
+    for sub in legacy:
+        shutil.rmtree(sub, ignore_errors=True)
+        handled.append(str(sub))
+
+    for name, subs in paired.items():
+        target = year_dir / name
+        if target.exists():
+            for sub in subs:
+                if not _orphan_age_ok(sub, min_age_seconds):
+                    continue
+                shutil.rmtree(sub, ignore_errors=True)
+                handled.append(str(sub))
+            continue
+
+        committed = [
+            s for s in subs
+            if s.name.startswith(".tmp-") and (s / _COMMIT_MARKER).is_file()
+        ]
+        backups = [s for s in subs if s.name.startswith(".old-")]
+        chosen: Path | None = None
+        if committed:
+            chosen = max(committed, key=_mtime)
+        elif backups:
+            chosen = max(backups, key=_mtime)
+        if chosen is None:
+            # target 缺失但无任何完整快照：只剩写盘半成品，删除
+            for sub in subs:
+                shutil.rmtree(sub, ignore_errors=True)
+                handled.append(str(sub))
+            continue
+
+        chosen.rename(target)
+        _fsync_dir(year_dir)
+        (target / _COMMIT_MARKER).unlink(missing_ok=True)
+        for sub in subs:
+            if sub == chosen:
+                continue
+            shutil.rmtree(sub, ignore_errors=True)
+            handled.append(str(sub))
+        handled.append(str(chosen))
+
+    return handled
+
+
 # ── CanonicalStore 实现 ──────────────────────────────────────────────
 
 
@@ -580,19 +735,41 @@ class CanonicalStoreImpl:
 
     # ── 原子写辅助 ────────────────────────────────────────────────────
 
+    @staticmethod
+    def _mark_committed(tmp_dir: Path) -> None:
+        """在临时目录写提交标记并 fsync（H6：崩溃恢复的完整性凭证）。"""
+        marker = tmp_dir / _COMMIT_MARKER
+        marker.write_text("ok", encoding="utf-8")
+        try:
+            fd = os.open(str(marker), os.O_RDONLY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+        except OSError:
+            pass
+        _fsync_dir(tmp_dir)
+
     def _atomic_rename(self, tmp_dir: Path, target: Path) -> None:
-        """原子写 rename-swap（D03 §3，审计 C-3）。
+        """原子写 rename-swap（D03 §3，审计 C-3 / H6）。
 
-        1. target 存在时先 rename 为同级 .old-* 备份（原子操作）
-        2. rename tmp_dir → target（原子操作）
-        3. 成功后删除 .old-* 备份；第二步失败则回滚 .old-* → target
+        1. 在 tmp_dir 内写提交标记并 fsync（证明快照完整）
+        2. target 存在时 rename 为同级 `.old-{target}-{uuid}` 备份（原子操作）
+        3. rename tmp_dir → target（原子操作）
+        4. 成功后删除标记与备份；第二步失败则回滚备份 → target
 
-        任意崩溃窗口内 target 要么是完整旧数据（.old-*）要么是完整新数据，
-        不存在"分区已删、新数据未就位"的中间态（No partial commit）。
+        任意**异常**路径下 target 要么是完整旧数据（.old-*）要么是完整
+        新数据（No partial commit）。若进程在两次 rename 之间被强杀
+        （无异常处理机会），target 会短暂缺失、`.old-*`/`.tmp-*` 残留；
+        下次写入前由 `recover_partition_orphans` 前滚已提交的 `.tmp-*`
+        或回滚 `.old-*`，已提交数据不丢失。
         """
+        self._mark_committed(tmp_dir)
         old_dir: Path | None = None
         if target.exists():
-            old_dir = target.parent / f".old-{uuid.uuid4().hex[:8]}"
+            old_dir = target.parent / (
+                f".old-{target.name}-{uuid.uuid4().hex[:8]}"
+            )
             target.rename(old_dir)
         try:
             tmp_dir.rename(target)
@@ -600,19 +777,14 @@ class CanonicalStoreImpl:
             # 第二步失败：回滚旧分区，保证 target 始终指向完整数据
             if old_dir is not None and not target.exists():
                 old_dir.rename(target)
+                _fsync_dir(target.parent)
             raise
+        # 成功：清理提交标记与备份
+        (target / _COMMIT_MARKER).unlink(missing_ok=True)
         if old_dir is not None:
-            import shutil
             shutil.rmtree(old_dir, ignore_errors=True)
         # fsync 父目录，确保 rename 的目录条目持久化到磁盘
-        try:
-            fd = os.open(str(target.parent), os.O_RDONLY)
-            try:
-                os.fsync(fd)
-            finally:
-                os.close(fd)
-        except OSError:
-            pass  # 非必须，忽略失败
+        _fsync_dir(target.parent)
 
     # ── 路径构造 ────────────────────────────────────────────────────
 
@@ -796,6 +968,12 @@ class CanonicalStoreImpl:
         entity_id: str,
     ) -> _PartitionResult:
         """处理单个分区：merge-rewrite 或原子写。"""
+        # 审计 H6：先自愈本分区的 rename-swap 崩溃残留（target 缺失时
+        # 前滚已提交快照/回滚备份），避免 has_old_data=False 误判为空分区
+        # 而仅写入新批次、丢掉该月历史。写入路径持数据集锁，故不设年龄护栏。
+        recover_partition_orphans(part_path.parent, target_name=part_path.name)
+        (part_path / _COMMIT_MARKER).unlink(missing_ok=True)
+
         existing_files = self._partition_files(part_path)
         has_old_data = len(existing_files) > 0
 
@@ -857,7 +1035,9 @@ class CanonicalStoreImpl:
             return self._empty_stats()
 
         # 原子写：temp 目录（与 part_path 同级）→ rename
-        tmp_dir = part_path.parent / f".tmp-{uuid.uuid4().hex[:8]}"
+        tmp_dir = part_path.parent / (
+            f".tmp-{part_path.name}-{uuid.uuid4().hex[:8]}"
+        )
         try:
             tmp_dir.mkdir(parents=True, exist_ok=True)
             if not part_path.parent.exists():
@@ -880,7 +1060,6 @@ class CanonicalStoreImpl:
         except Exception:
             # 清理孤儿 temp 目录
             if tmp_dir.exists():
-                import shutil
                 shutil.rmtree(tmp_dir, ignore_errors=True)
             raise
 
@@ -968,7 +1147,9 @@ class CanonicalStoreImpl:
             merged = merged.drop_columns(["_revision_seq"])
 
         # 原子写：temp 目录 → rename（part_path 已是 month 级目录）
-        tmp_dir = part_path.parent / f".tmp-{uuid.uuid4().hex[:8]}"
+        tmp_dir = part_path.parent / (
+            f".tmp-{part_path.name}-{uuid.uuid4().hex[:8]}"
+        )
         try:
             tmp_dir.mkdir(parents=True, exist_ok=True)
             if not part_path.parent.exists():
@@ -991,7 +1172,6 @@ class CanonicalStoreImpl:
         except Exception:
             # 清理
             if tmp_dir.exists():
-                import shutil
                 shutil.rmtree(tmp_dir, ignore_errors=True)
             raise
 

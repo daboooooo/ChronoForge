@@ -9,15 +9,14 @@
 from __future__ import annotations
 
 import json
-import shutil
 import sqlite3
-import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from chronoforge.exceptions import StorageError
 from chronoforge.logging import get_logger
+from chronoforge.storage.canonical import recover_partition_orphans
 
 if TYPE_CHECKING:
     from chronoforge.storage.base import CanonicalStore
@@ -33,7 +32,7 @@ logger = get_logger()
 
 
 def cleanup_orphans(data_dir: str, *, min_age_seconds: float = 0.0) -> list[str]:
-    """清理 canonical 层 temp/p.old 孤儿目录（D03 §5.5 原子性协议）。
+    """恢复/清理 canonical 层 temp/old 孤儿目录（D03 §5.5 原子性协议）。
 
     启动时调用。幂等：多次调用不报错，不删除正常的 part-*.parquet 文件。
 
@@ -41,16 +40,21 @@ def cleanup_orphans(data_dir: str, *, min_age_seconds: float = 0.0) -> list[str]
     year 层（canonical.py 中 part_path.parent / target.parent），
     即 month=* 分区目录的同级，因此扫描 year 目录的直接子目录。
 
+    审计 H6：孤儿不再"只删不合并"。target 缺失（两次 rename 之间崩溃）
+    时优先前滚已提交的 .tmp-*、否则回滚 .old-*，已提交数据不丢失；
+    详见 `canonical.recover_partition_orphans`。
+
     R2-03①（审计 2026-09-22）年龄护栏：min_age_seconds > 0 时仅清理
     mtime 距今超过该值的目录——并发 run 在途的新鲜 .tmp-* 不删，防止
     startup_repair 与在途 merge-rewrite 重叠时误伤（rename-swap 失败）。
+    前滚（target 缺失）不受该护栏限制：恢复已提交数据不会覆盖有效文件。
 
     Args:
         data_dir: 数据存储根目录。
         min_age_seconds: 孤儿目录最小年龄（秒），0 = 立即清理（旧行为）。
 
     Returns:
-        被清理的目录路径列表。
+        被恢复或清理的目录路径列表。
     """
     orphan_dirs: list[str] = []
     canonical_dir = Path(data_dir) / "canonical"
@@ -66,20 +70,13 @@ def cleanup_orphans(data_dir: str, *, min_age_seconds: float = 0.0) -> list[str]
             for year_dir in entity_dir.iterdir():
                 if not year_dir.is_dir():
                     continue
-                # 清理 year 层的 .tmp-*（未完成的重命名）和 .old-*（rename-swap 备份）
-                for subdir in year_dir.iterdir():
-                    if not subdir.is_dir():
-                        continue
-                    if subdir.name.startswith(".tmp-") or subdir.name.startswith(".old-"):
-                        if min_age_seconds > 0:
-                            try:
-                                age = time.time() - subdir.stat().st_mtime
-                            except OSError:
-                                age = float("inf")  # stat 失败视为足够老
-                            if age <= min_age_seconds:
-                                continue  # 新鲜目录：可能是在途 run 的临时分片
-                        orphan_dirs.append(str(subdir))
-                        shutil.rmtree(subdir, ignore_errors=True)
+                # 审计 H6：不再"只删不合并"——先尝试把崩溃窗口残留的
+                # .old-*/.tmp-* 还原到目标分区，无法还原的才按年龄清理。
+                orphan_dirs.extend(
+                    recover_partition_orphans(
+                        year_dir, min_age_seconds=min_age_seconds
+                    )
+                )
 
     return orphan_dirs
 
