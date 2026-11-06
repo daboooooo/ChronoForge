@@ -2,17 +2,22 @@
 
 通过 FRED REST API 获取宏观经济指标：
 - `/series/observations` — 系列观测值（NUMBER 类型）
+- `/series` — 系列元数据（units / seasonal_adjustment，一次获取并缓存）
 - `/release/dates` — 发布日历（备用，当前快照语义直接用观测 vintage）
 - 保守限流：120 req/min（FRED 官方限制）
 
-快照语义（revision_supported=0，2026-09-26 修订）：
-- observations 固定以 realtime_start=1776-07-04 请求全 vintage 历史；
-  默认 realtime 窗口（=采集日）会把每条观测的 realtime_start 钳制成
-  采集日，导致 revision_time 随跑批漂移、自然键永不撞键 → 全量复制
-- normalize 对同一 observation 日期仅保留 vintage（realtime_start）
-  最新的一行（= 当前值），revision_time 取该真实 vintage 日：
-  跨重跑稳定，重跑即 upsert；真实修订发生时才产生新版本行
-- FRED 真实修订稀少，历史旧版本由 number_asof 视图（rn=1）屏蔽
+快照语义（revision_supported=0，审计 M7 修订）：
+- 增量采集以 realtime_start=今天-`fred_revision_window_days`（默认 60 天）
+  请求修订回补窗口，不再每次重拉全 vintage 历史；显式历史回补
+  （start 为空或早于窗口）仍用 realtime_start=1776-07-04 取真实 vintage
+- FRED 会把早于窗口起点的 vintage 钳制到窗口起点（实测 UNRATE）；
+  normalize 对这类钳制行改用保守观察日次日（vintage_date 留空），
+  避免 revision_time 随采集日漂移、自然键每天撞新键 → 全量复制
+- normalize 对同一 observation 日期仅保留 vintage 最新的一行（= 当前值），
+  revision_time 取真实 vintage 日；真实修订发生时才产生新版本行
+- units / seasonal_adjustment 取自 `/series` 元数据（不从 observation
+  行推断，也不用输出单位码如 LIN1）；历史旧版本由 number_asof 视图
+  （rn=1）屏蔽
 
 时间语义（审计 F-09）：
 - observation `date` 日期型 → T00:00:00Z
@@ -26,7 +31,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
 import httpx
@@ -74,6 +79,7 @@ class _FREDSettings:
 
     api_key: str
     http_timeout_s: float = 30.0
+    revision_window_days: int = 60
 
 
 class FREDConnector(DataConnector):
@@ -93,6 +99,7 @@ class FREDConnector(DataConnector):
         if isinstance(settings, Settings):
             self._api_key = settings.fred_api_key.get_secret_value()
             self._http_timeout_s = settings.http_timeout_s
+            self._revision_window_days = settings.fred_revision_window_days
         else:
             # _FREDSettings backward compat
             key = settings.api_key
@@ -101,7 +108,10 @@ class FREDConnector(DataConnector):
                 key.get_secret_value() if isinstance(key, SecretStr) else key
             )
             self._http_timeout_s = settings.http_timeout_s
+            self._revision_window_days = settings.revision_window_days
 
+        # 系列元数据（units/seasonal_adjustment）单次获取后缓存（审计 M7）
+        self._series_meta_cache: dict[str, dict[str, str]] = {}
         self._client = self._init_client()
         self._rate_limiter = RateLimiter(
             rate=_DEFAULT_RATE / 60.0,
@@ -173,12 +183,36 @@ class FREDConnector(DataConnector):
             request.end.strftime("%Y-%m-%d") if request.end else None
         )
 
-        yield self._fetch_observations(
+        # 审计 M7：修订回补限制在可配置 realtime 窗口（默认 60 天），
+        # 不做每次全历史重拉。显式历史回补（无 start 或 start 早于窗口）
+        # 仍取全 vintage 真值——否则历史观测拿不到真实 release_time。
+        window_start: str | None = None
+        realtime_start = _REALTIME_START_FLOOR
+        if self._revision_window_days > 0:
+            bounded_start = (
+                datetime.now(UTC).date()
+                - timedelta(days=self._revision_window_days)
+            ).isoformat()
+            if request.start is None or request.start.date() < date.fromisoformat(
+                bounded_start
+            ):
+                # 历史回补：保留真实 vintage（一次显式回补，不是每次重拉）
+                window_start = None
+            else:
+                window_start = bounded_start
+                realtime_start = bounded_start
+
+        metadata = self._fetch_series_metadata(series_id)
+        batch = self._fetch_observations(
             series_id,
             obs_start,
             obs_end,
-            realtime_start=_REALTIME_START_FLOOR,
+            realtime_start=realtime_start,
+            revision_window_start=window_start,
         )
+        batch.raw_meta["units"] = metadata["units"]
+        batch.raw_meta["seasonal_adjustment"] = metadata["seasonal_adjustment"]
+        yield batch
 
     def _fetch_observations(
         self,
@@ -186,6 +220,7 @@ class FREDConnector(DataConnector):
         obs_start: str | None = None,
         obs_end: str | None = None,
         realtime_start: str | None = None,
+        revision_window_start: str | None = None,
     ) -> RawBatch:
         """请求 FRED observations 端点（D04 §4.6）。
 
@@ -201,9 +236,12 @@ class FREDConnector(DataConnector):
             series_id: FRED 系列 ID（如 CPIAUCSL, UNRATE）。
             obs_start: 观测起始日期（YYYY-MM-DD）。
             obs_end: 观测结束日期（YYYY-MM-DD）。
-            realtime_start: vintage 窗口下界（YYYY-MM-DD）。生产路径固定
-                传 _REALTIME_START_FLOOR 以取回每条观测的真实 vintage；
+            realtime_start: vintage 窗口下界（YYYY-MM-DD）。生产增量路径传
+                「今天 - 修订窗口」以限制回补范围；显式历史回补传
+                _REALTIME_START_FLOOR 取回每条观测的真实 vintage；
                 None 时用 FRED 默认（=采集日，仅健康检查等轻量场景）。
+            revision_window_start: 本次使用的有界 realtime 窗口起点
+                （YYYY-MM-DD）；None = 全历史 vintage 模式。
 
         Returns:
             RawBatch 合并后的原始响应。
@@ -271,8 +309,59 @@ class FREDConnector(DataConnector):
                 "http_status": 200,
                 "series_id": series_id,
                 "realtime_windows": len(windows),
+                "revision_window_start": revision_window_start or "",
             },
         )
+
+    def _fetch_series_metadata(self, series_id: str) -> dict[str, str]:
+        """取 FRED 系列元数据（units/seasonal_adjustment）并缓存（审计 M7）。
+
+        不从 observation 行推断：FRED observations 的 `units` 是输出单位码
+        （如 LIN1），不代表系列口径；`seasonal_adjustment` 也不总是回显。
+        改为调用 `/series` 元数据端点一次，后续 fetch 复用缓存。
+
+        Raises:
+            ProviderError: 响应缺少 `seriess` 数组（契约不符，不做猜测兜底）。
+        """
+        cached = self._series_meta_cache.get(series_id)
+        if cached is not None:
+            return cached
+
+        data = self._get_json(
+            "/series",
+            {
+                "series_id": series_id,
+                "api_key": self._api_key,
+                "file_type": "json",
+            },
+            series_id,
+        )
+        seriess = data.get("seriess")
+        if not isinstance(seriess, list) or not seriess:
+            raise ProviderError(
+                f"fred: /series metadata missing seriess for {series_id}",
+                context={
+                    "source": "fred",
+                    "endpoint": "/series",
+                    "series_id": series_id,
+                },
+            )
+        row = seriess[0]
+        if not isinstance(row, dict):
+            raise ProviderError(
+                f"fred: /series metadata malformed for {series_id}",
+                context={
+                    "source": "fred",
+                    "endpoint": "/series",
+                    "series_id": series_id,
+                },
+            )
+        metadata = {
+            "units": str(row.get("units") or ""),
+            "seasonal_adjustment": str(row.get("seasonal_adjustment") or ""),
+        }
+        self._series_meta_cache[series_id] = metadata
+        return metadata
 
     def _fetch_vintage_dates(
         self, series_id: str, realtime_start: str
@@ -419,8 +508,17 @@ class FREDConnector(DataConnector):
 
         # FRED observations 响应不回显 series_id → 从 raw_meta 回退
         series_id = payload.get("series_id") or raw.raw_meta.get("series_id", "")
-        units = payload.get("units", "")
-        seasonal_adjustment = payload.get("seasonal_adjustment", "")
+        # 审计 M7：units/seasonal_adjustment 以 /series 元数据为准（fetch 注入
+        # raw_meta）；payload 仅作旧 fixture/直喂响应的兼容回退，不做推断。
+        units = str(raw.raw_meta.get("units") or payload.get("units") or "")
+        seasonal_adjustment = str(
+            raw.raw_meta.get("seasonal_adjustment")
+            or payload.get("seasonal_adjustment")
+            or ""
+        )
+        revision_window_start = str(
+            raw.raw_meta.get("revision_window_start") or ""
+        )
 
         # 快照折叠（revision_supported=0）：全 vintage 窗口下同一 observation
         # 日期会返回多行（每次修订一行），仅保留 realtime_start 最新的当前值。
@@ -448,7 +546,16 @@ class FREDConnector(DataConnector):
             obs = latest_by_date[date_str]
 
             value_str = obs.get("value", "")
-            realtime_date = obs.get("realtime_start", "")
+            realtime_date = str(obs.get("realtime_start", ""))
+            if (
+                revision_window_start
+                and realtime_date == revision_window_start
+            ):
+                # 有界 realtime 窗口下，FRED 把窗口起点之前仍有效的 vintage
+                # 钳制到窗口起点（实测 UNRATE）。直接用作 vintage 会让
+                # revision_time 随采集日漂移、自然键每天撞新键 → 全量复制。
+                # 真实 vintage 不可知 → 走保守观察日次日（vintage_date 留空）。
+                realtime_date = ""
 
             # 解析 observation 日期 → T00:00:00Z（审计 F-09）
             try:

@@ -308,7 +308,7 @@ DATA-SOURCE-005 yahoo:
   tests_extra: [TC-C-012 split 四元组, TC-Q-007 周末 EXPECTED_GAP, 秒→us 精度]
   acceptance_extra: [Given 周末缺失网格 When quality Then INFO(EXPECTED_GAP) 非 WARNING]
 DATA-SOURCE-006 fred:
-  spec: D04 §4.6（observations 全窗口 diff；vintage 多版本追加；发布日历 release_time）
+  spec: D04 §4.6（observations 修订窗口 diff（默认 60 天，可配置）；/series 元数据 units/seasonal_adjustment 缓存；vintage 多版本追加；发布日历 release_time）
   tests_extra: [TC-M-007 双 vintage 并存, release 无日历→次日+附注, T23:59:59Z 保守规则]
   acceptance_extra: [Given 同 observation 修订 Then (nk,revision_time) 追加不覆盖]
 DATA-SOURCE-007 sec_edgar:

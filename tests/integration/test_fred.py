@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -37,6 +37,7 @@ from chronoforge.models.macro import NUMBER
 
 # Fixture paths
 _FIXTURES = Path(__file__).parent.parent / "fixtures" / "fred" / "observations"
+_SERIES_FIXTURES = Path(__file__).parent.parent / "fixtures" / "fred" / "series"
 _RELEASE_FIXTURES = (
     Path(__file__).parent.parent / "fixtures" / "fred" / "release_dates"
 )
@@ -48,6 +49,13 @@ _RELEASE_FIXTURES = (
 def _load_fixture(name: str) -> Any:
     """Load a JSON fixture file."""
     path = _FIXTURES / name
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _load_series_fixture(name: str) -> Any:
+    """Load a /series metadata fixture file."""
+    path = _SERIES_FIXTURES / name
     with open(path, encoding="utf-8") as f:
         return json.load(f)
 
@@ -128,6 +136,11 @@ def _create_mock_connector(
     conn._client = mock_client
     conn._rate_limiter = mock_rate_limiter
     conn._api_key = "test_key"
+    conn._revision_window_days = 60
+    # 默认预置元数据缓存，避免既有 fetch 用例额外命中 /series；
+    # 元数据相关用例会清空缓存并显式调度该端点。
+    _meta = {"units": "Percent", "seasonal_adjustment": "Seasonally Adjusted"}
+    conn._series_meta_cache = {"UNRATE": dict(_meta), "DGS10": dict(_meta)}
 
     return conn, mock_client
 
@@ -656,6 +669,209 @@ class TestEmptyResult:
 
 
 # ── 错误路径 ────────────────────────────────────────────────────────
+
+
+class TestSeriesMetadata:
+    """M7：units/seasonal_adjustment 来自 /series 元数据端点（缓存一次）。"""
+
+    def _conn_with_dispatcher(
+        self,
+        obs_data: dict[str, Any],
+        series_data: dict[str, Any],
+        captures: list[tuple[str, dict[str, Any]]],
+    ) -> FREDConnector:
+        def _dispatcher(endpoint: str, params: dict[str, Any] | None = None):
+            params = params or {}
+            captures.append((endpoint, params))
+            if endpoint == "/series":
+                return _mock_response_from_dict(series_data)
+            if endpoint == "/series/vintagedates":
+                return _mock_response_from_dict(
+                    {"count": 0, "vintage_dates": []}
+                )
+            return _mock_response_from_dict(obs_data)
+
+        mock_client = MagicMock()
+        mock_client.get.side_effect = _dispatcher
+        conn, _ = _create_mock_connector({})
+        conn._client = mock_client
+        conn._series_meta_cache = {}
+        return conn
+
+    def test_fetch_attaches_metadata_and_caches(self) -> None:
+        """Given 真实 /series 样本 When fetch 两次 Then units/SA 注入且只取一次。"""
+        obs_data = _load_fixture("happy.json")
+        series_data = _load_series_fixture("UNRATE.json")
+        captures: list[tuple[str, dict[str, Any]]] = []
+        conn = self._conn_with_dispatcher(obs_data, series_data, captures)
+
+        request = FetchRequest(
+            dataset_id="fred:UNRATE",
+            params={"series_id": "UNRATE"},
+            start=datetime(2023, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+            end=datetime(2023, 3, 31, tzinfo=UTC).replace(tzinfo=None),
+            cursor=None,
+        )
+        batch = list(conn.fetch(request))[0]
+        assert batch.raw_meta["units"] == "Percent"
+        assert batch.raw_meta["seasonal_adjustment"] == "Seasonally Adjusted"
+
+        records = conn.normalize(batch)
+        assert all(r.units == "Percent" for r in records)
+        assert all(r.seasonal_adjustment == "Seasonally Adjusted" for r in records)
+
+        # 第二次 fetch 复用缓存，不再请求 /series
+        list(conn.fetch(request))
+        assert [e for e, _ in captures].count("/series") == 1
+        conn.close()
+
+    def test_series_metadata_contract_error(self) -> None:
+        """Given /series 响应缺 seriess When fetch Then ProviderError（不猜测）。"""
+        obs_data = _load_fixture("happy.json")
+        captures: list[tuple[str, dict[str, Any]]] = []
+        conn = self._conn_with_dispatcher(obs_data, {}, captures)
+
+        request = FetchRequest(
+            dataset_id="fred:UNRATE",
+            params={"series_id": "UNRATE"},
+            start=datetime(2023, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+            end=datetime(2023, 3, 31, tzinfo=UTC).replace(tzinfo=None),
+            cursor=None,
+        )
+        with pytest.raises(ProviderError, match="missing seriess"):
+            list(conn.fetch(request))
+        conn.close()
+
+    def test_normalize_prefers_metadata_over_payload(self) -> None:
+        """normalize 以 raw_meta 元数据为准，payload 仅兼容回退。"""
+        obs_data = _load_fixture("happy.json")
+        conn, _ = _create_mock_connector(obs_data)
+        raw = RawBatch(
+            endpoint="/series/observations",
+            payload=obs_data,
+            raw_meta={
+                "series_id": "UNRATE",
+                "units": "Percent",
+                "seasonal_adjustment": "Seasonally Adjusted",
+            },
+        )
+        records = conn.normalize(raw)
+        assert records[0].units == "Percent"
+        assert records[0].seasonal_adjustment == "Seasonally Adjusted"
+        conn.close()
+
+
+class TestRevisionWindow:
+    """M7：修订回补限定在可配置窗口，默认 60 天。"""
+
+    def test_bounded_window_for_recent_start(self) -> None:
+        """Given start 在窗口内 When fetch Then realtime_start=今天-60 天。"""
+        obs_data = _load_fixture("happy.json")
+        series_data = _load_series_fixture("UNRATE.json")
+        captures: list[tuple[str, dict[str, Any]]] = []
+
+        def _dispatcher(endpoint: str, params: dict[str, Any] | None = None):
+            params = params or {}
+            captures.append((endpoint, params))
+            if endpoint == "/series":
+                return _mock_response_from_dict(series_data)
+            if endpoint == "/series/vintagedates":
+                return _mock_response_from_dict(
+                    {"count": 0, "vintage_dates": []}
+                )
+            return _mock_response_from_dict(obs_data)
+
+        mock_client = MagicMock()
+        mock_client.get.side_effect = _dispatcher
+        conn, _ = _create_mock_connector({})
+        conn._client = mock_client
+        conn._series_meta_cache = {}
+
+        today = datetime.now(UTC).date()
+        request = FetchRequest(
+            dataset_id="fred:UNRATE",
+            params={"series_id": "UNRATE"},
+            start=datetime.combine(today - timedelta(days=7), datetime.min.time()),
+            end=datetime.combine(today, datetime.min.time()),
+            cursor=None,
+        )
+        batch = list(conn.fetch(request))[0]
+
+        expected = (today - timedelta(days=60)).isoformat()
+        obs_calls = [p for e, p in captures if e == "/series/observations"]
+        assert obs_calls[-1]["realtime_start"] == expected
+        assert batch.raw_meta["revision_window_start"] == expected
+        conn.close()
+
+    def test_backfill_keeps_realtime_floor(self) -> None:
+        """显式历史回补（start 早于窗口）仍取全 vintage 真值。"""
+        from chronoforge.connectors.fred import _REALTIME_START_FLOOR
+
+        obs_data = _load_fixture("happy.json")
+        series_data = _load_series_fixture("UNRATE.json")
+        captures: list[tuple[str, dict[str, Any]]] = []
+
+        def _dispatcher(endpoint: str, params: dict[str, Any] | None = None):
+            params = params or {}
+            captures.append((endpoint, params))
+            if endpoint == "/series":
+                return _mock_response_from_dict(series_data)
+            if endpoint == "/series/vintagedates":
+                return _mock_response_from_dict(
+                    {"count": 0, "vintage_dates": []}
+                )
+            return _mock_response_from_dict(obs_data)
+
+        mock_client = MagicMock()
+        mock_client.get.side_effect = _dispatcher
+        conn, _ = _create_mock_connector({})
+        conn._client = mock_client
+        conn._series_meta_cache = {}
+
+        request = FetchRequest(
+            dataset_id="fred:UNRATE",
+            params={"series_id": "UNRATE"},
+            start=datetime(2020, 1, 1),
+            end=datetime(2020, 3, 31),
+            cursor=None,
+        )
+        batch = list(conn.fetch(request))[0]
+        obs_calls = [p for e, p in captures if e == "/series/observations"]
+        assert obs_calls[-1]["realtime_start"] == _REALTIME_START_FLOOR
+        assert batch.raw_meta["revision_window_start"] == ""
+        conn.close()
+
+    def test_clamped_window_vintage_uses_stable_fallback(self) -> None:
+        """Given 窗口起点被钳制的行 When normalize Then 使用观察日次日（稳定键）。"""
+        conn, _ = _create_mock_connector({})
+        payload = {
+            "series_id": "UNRATE",
+            "observations": [
+                {
+                    "date": "2023-01-01",
+                    "value": "3.4",
+                    "realtime_start": "2026-09-07",
+                }
+            ],
+        }
+        raw = RawBatch(
+            endpoint="/series/observations",
+            payload=payload,
+            raw_meta={
+                "series_id": "UNRATE",
+                "units": "Percent",
+                "seasonal_adjustment": "Seasonally Adjusted",
+                "revision_window_start": "2026-09-07",
+            },
+        )
+        records = conn.normalize(raw)
+        assert len(records) == 1
+        assert records[0].vintage_date == ""
+        assert records[0].natural_key()[2] == datetime(2023, 1, 2)
+        # 同日重跑 → 自然键稳定（不会因窗口起点漂移而复制）
+        again = conn.normalize(raw)
+        assert records[0].natural_key() == again[0].natural_key()
+        conn.close()
 
 
 class TestErrorPaths:

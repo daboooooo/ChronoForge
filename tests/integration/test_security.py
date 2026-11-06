@@ -189,6 +189,7 @@ class TestSettings:
         monkeypatch.setenv("CHRONOFORGE_META_DIR", "/tmp/test_meta")
         monkeypatch.setenv("CHRONOFORGE_LOG_LEVEL", "DEBUG")
         monkeypatch.setenv("FRED_API_KEY", "test_fred_key")
+        monkeypatch.setenv("FRED_REVISION_WINDOW_DAYS", "30")
         monkeypatch.setenv("CHRONOFORGE_SEC_CONTACT", "test@example.com")
         monkeypatch.setenv("CHRONOFORGE_HTTP_TIMEOUT", "60")
         monkeypatch.setenv("CHRONOFORGE_RETRY_MAX", "10")
@@ -199,6 +200,7 @@ class TestSettings:
         assert settings.meta_dir == Path("/tmp/test_meta")
         assert settings.log_level == "DEBUG"
         assert settings.fred_api_key == "test_fred_key"
+        assert settings.fred_revision_window_days == 30
         assert settings.sec_contact_email == "test@example.com"
         assert settings.http_timeout_s == 60.0
         assert settings.retry_max == 10

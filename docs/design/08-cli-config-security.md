@@ -11,6 +11,7 @@
 | meta_dir | CHRONOFORGE_META_DIR | Path | ./meta | SQLite 所在 |
 | log_level | CHRONOFORGE_LOG_LEVEL | str | INFO | |
 | fred_api_key | FRED_API_KEY | SecretStr | — | 缺失且启用 FRED → ConfigError 启动失败 |
+| fred_revision_window_days | FRED_REVISION_WINDOW_DAYS | int | 60 | 审计 M7：修订回补 realtime 窗口（天）；0 = 全 vintage 历史 |
 | sec_contact_email | CHRONOFORGE_SEC_CONTACT | EmailStr | — | SEC User-Agent 必填（D04 §4.7） |
 | sec_user_agent | —（派生） | str | ChronoForge/{ver} research ({email}) | |
 | http_timeout_s | CHRONOFORGE_HTTP_TIMEOUT | float | 30 | |

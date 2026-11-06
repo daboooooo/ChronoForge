@@ -115,10 +115,11 @@ HTTP 映射：401/403→AuthError；429→RateLimitError；400/404/422→Provide
 
 | 项 | 规格 |
 |---|---|
-| endpoints | `/fred/series/observations`（params: series_id, observation_start/end, file_type=json）；系列清单静态注册（CPIAUCSL/UNRATE/DGS10/…按需求清单） |
-| 修订 | `revision_supported=true`：每次全窗口拉取 → 与库内 (nk, revision_time) 对比，新增 revision 追加；release_time 取 FRED 发布日历（`/fred/release/dates`），无则=观察日次日并在 quality 附注 |
+| endpoints | `/fred/series/observations`（params: series_id, observation_start/end, file_type=json）；`/fred/series`（系列元数据 units/seasonal_adjustment，一次获取并缓存）；系列清单静态注册（CPIAUCSL/UNRATE/DGS10/…按需求清单） |
+| 修订（审计 M7） | `revision_supported=true`：增量以 realtime_start=今天-`FRED_REVISION_WINDOW_DAYS`（默认 60 天）限定修订回补窗口，不每次重拉全 vintage 历史；显式历史回补（start 为空或早于窗口）仍取 `1776-07-04` 全 vintage 真值 → 与库内 (nk, revision_time) 对比，新增 revision 追加；release_time 取 FRED 发布日历（`/fred/release/dates`），无则=观察日次日并在 quality 附注 |
+| 元数据 | units/seasonal_adjustment 取自 `/series`（不从 observation 行推断，也不用输出单位码 LIN1） |
 | key | `FRED_API_KEY` env（D08） |
-| 时间语义（审计 F-09） | observation `date` 日期型 → `T00:00:00Z`；release 日期无时刻 → 保守取 `T23:59:59Z`（防 look-ahead，宁可晚可见）；vintage=realtime_date |
+| 时间语义（审计 F-09/M7） | observation `date` 日期型 → `T00:00:00Z`；release 日期无时刻 → 保守取 `T23:59:59Z`（防 look-ahead，宁可晚可见）；vintage=realtime_date；有界窗口下 FRED 会把窗口起点前的 vintage 钳制到窗口起点（实测），该行改用观察日次日且 `vintage_date=""`，保证自然键跨重跑稳定 |
 | continuity_model | RELEASE_SCHEDULE（无网格 gap 概念，仅 Q-GAP-002 节奏对比） |
 
 ### 4.7 sec_edgar（PUBLIC，fair-access）

@@ -591,6 +591,7 @@ cp .env.example .env
 | `CHRONOFORGE_VERSION` | `0.1.0` | Version embedded in logs / SEC User-Agent |
 | `CHRONOFORGE_RATE_OVERRIDES` | `{}` | JSON rate-limiter overrides (test injection) |
 | `FRED_API_KEY` | *(empty)* | FRED API key (required for `fred` source) |
+| `FRED_REVISION_WINDOW_DAYS` | `60` | FRED revision backfill realtime window in days (audit M7; `0` = full vintage history) |
 | `SOSOVALUE_API_KEY` | *(empty)* | SoSoValue API key (required for `sosovalue` source) |
 | `COINMETRICS_API_KEY` | *(empty)* | Coin Metrics API key (optional — community tier is keyless; needed for paid-only metrics) |
 | `CHRONOFORGE_SEC_CONTACT` | *(required)* | SEC EDGAR contact email (missing → `ConfigError`) |

@@ -66,6 +66,14 @@ class Settings(BaseModel):
         default=30.0,
         description="HTTP 超时（秒）",
     )
+    fred_revision_window_days: int = Field(
+        default=60,
+        ge=0,
+        description=(
+            "FRED 修订回补 realtime 窗口（天，审计 M7）：默认 60 天，"
+            "只回补窗口内修订；0 = 全 vintage 历史（旧行为，不推荐）"
+        ),
+    )
     retry_max: int = Field(
         default=5,
         description="重试上限（指数退避）",
@@ -382,6 +390,7 @@ def _read_env_fields(cls_model: type[BaseModel]) -> dict[str, Any]:
         "log_format": "CHRONOFORGE_LOG_FORMAT",
         "log_file": "CHRONOFORGE_LOG_FILE",
         "fred_api_key": "FRED_API_KEY",
+        "fred_revision_window_days": "FRED_REVISION_WINDOW_DAYS",
         "sec_contact_email": "CHRONOFORGE_SEC_CONTACT",
         "http_timeout_s": "CHRONOFORGE_HTTP_TIMEOUT",
         "retry_max": "CHRONOFORGE_RETRY_MAX",
