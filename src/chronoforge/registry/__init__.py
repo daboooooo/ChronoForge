@@ -4,6 +4,7 @@ service：bootstrap_defaults（source_registry 引导）+ dataset_registry 写�
 """
 
 from chronoforge.registry.service import (
+    DEFAULT_DISABLED_DATASETS,
     DEFAULT_SOURCES,
     SourceSpec,
     add_dataset,
@@ -15,6 +16,7 @@ from chronoforge.registry.service import (
 )
 
 __all__ = [
+    "DEFAULT_DISABLED_DATASETS",
     "DEFAULT_SOURCES",
     "SourceSpec",
     "add_dataset",

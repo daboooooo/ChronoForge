@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 __all__ = [
+    "DEFAULT_DISABLED_DATASETS",
     "DEFAULT_SOURCES",
     "SourceSpec",
     "add_dataset",
@@ -24,7 +25,18 @@ __all__ = [
     "get_dataset",
     "list_datasets",
     "list_sources",
+    "set_dataset_enabled",
 ]
+
+
+# 默认停用的 dataset（源侧已下架/失效）：注册时即 enabled=0，运行时仍可用
+# `chronoforge dataset set-enabled` 覆盖；换机器/重建库后保持停用。
+DEFAULT_DISABLED_DATASETS: frozenset[str] = frozenset(
+    {
+        # OKX 已下架 XTESTA/USDT（2026-08），fetchOHLCV 每轮失败
+        "CCXT:XTESTAUSDT:OHLCV:1d",
+    }
+)
 
 
 class RegistryStoreLike(Protocol):
@@ -163,7 +175,7 @@ INSERT INTO dataset_registry(
   dataset_id, source_id, canonical_type, entity_id, params_json, frequency,
   continuity_model, status, available_from, available_to,
   revision_supported, enabled, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, 'UNKNOWN', ?, ?, ?, 1,
+VALUES (?, ?, ?, ?, ?, ?, ?, 'UNKNOWN', ?, ?, ?, ?,
   datetime('now'))
 ON CONFLICT(dataset_id) DO UPDATE SET
   source_id = excluded.source_id,
@@ -174,8 +186,7 @@ ON CONFLICT(dataset_id) DO UPDATE SET
   continuity_model = excluded.continuity_model,
   available_from = excluded.available_from,
   available_to = excluded.available_to,
-  revision_supported = excluded.revision_supported,
-  enabled = 1
+  revision_supported = excluded.revision_supported
 """
 
 
@@ -195,6 +206,10 @@ def add_dataset(
 ) -> None:
     """登记/更新数据集（dataset_registry 写侧，D08 §2 `dataset add`）。
 
+    新注册行默认 enabled=1；DEFAULT_DISABLED_DATASETS 中的数据集默认 enabled=0。
+    已存在行执行 upsert 时保留运行时 enabled 状态（配置只提供默认值，
+    `dataset set-enabled` 的运行时修改不会被重新注册覆盖）。
+
     Raises:
         sqlite3.IntegrityError: source_id 外键缺失或 continuity_model 非法。
     """
@@ -211,6 +226,7 @@ def add_dataset(
             available_from,
             available_to,
             int(revision_supported),
+            int(dataset_id not in DEFAULT_DISABLED_DATASETS),
         ),
     )
     store.connection.commit()
