@@ -27,7 +27,7 @@ from chronoforge.cli.main import app
 from chronoforge.config.settings import Settings
 from chronoforge.connectors.errors import ChronoForgeError, ConfigError
 from chronoforge.models.enums import CanonicalType
-from chronoforge.registry import add_dataset, bootstrap_defaults
+from chronoforge.registry import add_dataset, bootstrap_defaults, set_dataset_enabled
 from chronoforge.research.query import QueryResult
 from chronoforge.research.snapshot import ReproduceResult, SnapshotRecord
 from chronoforge.storage.meta import MetaStore, RunRow
@@ -492,6 +492,64 @@ class TestDatasetSetEnabled:
         )
         assert result.exit_code == 1
         assert "not found" in result.output
+
+
+class TestDisabledDatasetDefaults:
+    """DEFAULT_DISABLED_DATASETS：重建库/重新注册后仍默认停用。"""
+
+    DISABLED_ID = "CCXT:XTESTAUSDT:OHLCV:1d"
+    NORMAL_ID = "CCXT:BTCUSDT:OHLCV:1d"
+
+    @staticmethod
+    def _register(meta: MetaStore, dataset_id: str) -> None:
+        bootstrap_defaults(meta)
+        add_dataset(
+            meta,
+            dataset_id=dataset_id,
+            source_id="ccxt",
+            canonical_type="OHLCV",
+            entity_id="XTESTAUSDT" if "XTESTA" in dataset_id else "BTCUSDT",
+            params={"symbol": "XTESTA/USDT" if "XTESTA" in dataset_id else "BTC/USDT",
+                    "exchange": "okx", "interval": "1d"},
+            frequency="1d",
+            continuity_model="TRADING_CALENDAR",
+        )
+
+    @staticmethod
+    def _enabled(meta: MetaStore, dataset_id: str) -> int:
+        row = meta.connection.execute(
+            "SELECT enabled FROM dataset_registry WHERE dataset_id = ?",
+            (dataset_id,),
+        ).fetchone()
+        assert row is not None
+        return int(row[0])
+
+    def test_fresh_registration_keeps_disabled_dataset_disabled(
+        self, meta: MetaStore
+    ) -> None:
+        """新建库注册后 XTESTA 仍为 enabled=0。"""
+        self._register(meta, self.DISABLED_ID)
+        assert self._enabled(meta, self.DISABLED_ID) == 0
+
+    def test_fresh_registration_defaults_other_datasets_enabled(
+        self, meta: MetaStore
+    ) -> None:
+        """其余数据集默认 enabled=1，不受停用清单影响。"""
+        self._register(meta, self.NORMAL_ID)
+        assert self._enabled(meta, self.NORMAL_ID) == 1
+
+    def test_reregister_preserves_runtime_enabled_state(
+        self, meta: MetaStore
+    ) -> None:
+        """配置只给默认值：重新注册不覆盖运行时 set-enabled 的结果。"""
+        self._register(meta, self.DISABLED_ID)
+        set_dataset_enabled(meta, self.DISABLED_ID, enabled=True)
+        self._register(meta, self.DISABLED_ID)
+        assert self._enabled(meta, self.DISABLED_ID) == 1
+
+        set_dataset_enabled(meta, self.DISABLED_ID, enabled=False)
+        self._register(meta, self.DISABLED_ID)
+        assert self._enabled(meta, self.DISABLED_ID) == 0
 
 
 def _wiring_list_datasets_json() -> list[dict[str, Any]]:

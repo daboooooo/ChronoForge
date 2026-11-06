@@ -271,6 +271,98 @@ class TestNormalizeHappy:
         conn.close()
 
 
+# ── 日线交易日归一 ──────────────────────────────────────────────────────
+
+
+def _chart_payload(
+    symbol: str, timestamps: list[int], closes: list[float]
+) -> dict[str, Any]:
+    """构造最小 chart 响应（OHLC 相同、volume 固定）。"""
+    quote = {
+        "open": closes,
+        "high": [c + 1 for c in closes],
+        "low": [c - 1 for c in closes],
+        "close": closes,
+        "volume": [100.0] * len(closes),
+    }
+    return {
+        "chart": {
+            "result": [
+                {
+                    "meta": {"symbol": symbol},
+                    "timestamp": timestamps,
+                    "indicators": {"quote": [quote]},
+                }
+            ],
+            "error": None,
+        }
+    }
+
+
+class TestDailyTradingDayNormalization:
+    """日线归一到交易日 00:00（同一交易日只产出一行）。"""
+
+    def test_same_trading_day_collapses_to_one_row(self) -> None:
+        """盘中快照（13:30）与收盘快照（20:00）归一后只保留最后一行。"""
+        ts_open = int(datetime(2024, 6, 3, 13, 30, tzinfo=UTC).timestamp())
+        ts_close = int(datetime(2024, 6, 3, 20, 0, tzinfo=UTC).timestamp())
+        payload = _chart_payload("AAPL", [ts_open, ts_close], [100.0, 102.0])
+
+        conn, _, _ = _create_mock_connector(payload)
+        raw = RawBatch(
+            endpoint="/v8/finance/chart",
+            payload=payload,
+            raw_meta={"symbol": "AAPL", "interval": "1d"},
+        )
+        records = conn.normalize(raw)
+
+        assert len(records) == 1
+        assert records[0].event_time == datetime(2024, 6, 3)
+        assert records[0].source_timestamp == datetime(2024, 6, 3, 20, 0)
+        assert records[0].close == 102.0
+        conn.close()
+
+    def test_different_trading_days_keep_both_rows(self) -> None:
+        """不同交易日不受折叠影响，各归一为当日 00:00。"""
+        ts_1 = int(datetime(2024, 1, 2, 14, 30, tzinfo=UTC).timestamp())
+        ts_2 = int(datetime(2024, 1, 3, 14, 30, tzinfo=UTC).timestamp())
+        payload = _chart_payload("AAPL", [ts_1, ts_2], [100.0, 101.0])
+
+        conn, _, _ = _create_mock_connector(payload)
+        raw = RawBatch(
+            endpoint="/v8/finance/chart",
+            payload=payload,
+            raw_meta={"symbol": "AAPL", "interval": "1d"},
+        )
+        records = conn.normalize(raw)
+
+        assert len(records) == 2
+        assert records[0].event_time == datetime(2024, 1, 2)
+        assert records[1].event_time == datetime(2024, 1, 3)
+        assert records[0].source_timestamp == datetime(2024, 1, 2, 14, 30)
+        conn.close()
+
+    def test_intraday_interval_not_normalized(self) -> None:
+        """非日线 interval 保留原始时间戳。"""
+        ts_1 = int(datetime(2024, 6, 3, 13, 30, tzinfo=UTC).timestamp())
+        ts_2 = int(datetime(2024, 6, 3, 14, 30, tzinfo=UTC).timestamp())
+        payload = _chart_payload("AAPL", [ts_1, ts_2], [100.0, 101.0])
+
+        conn, _, _ = _create_mock_connector(payload)
+        raw = RawBatch(
+            endpoint="/v8/finance/chart",
+            payload=payload,
+            raw_meta={"symbol": "AAPL", "interval": "1h"},
+        )
+        records = conn.normalize(raw)
+
+        assert [r.event_time for r in records] == [
+            datetime(2024, 6, 3, 13, 30),
+            datetime(2024, 6, 3, 14, 30),
+        ]
+        conn.close()
+
+
 # ── TC-C-012: split → adjustment 四元组 ───────────────────────────────
 
 
