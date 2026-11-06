@@ -32,6 +32,70 @@ from chronoforge.quality.continuity import (
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
+# 2021–2025 NYSE 实际全日休市日（按年份显式配置；管理员日历公告）
+NYSE_HOLIDAYS_2021 = [
+    date(2021, 1, 1),
+    date(2021, 1, 18),   # MLK
+    date(2021, 2, 15),   # Presidents' Day
+    date(2021, 4, 2),    # Good Friday
+    date(2021, 5, 31),   # Memorial Day
+    date(2021, 7, 5),    # Independence Day observed
+    date(2021, 9, 6),    # Labor Day
+    date(2021, 11, 25),  # Thanksgiving
+    date(2021, 12, 24),  # Christmas observed
+]
+
+NYSE_HOLIDAYS_2022 = [
+    date(2022, 1, 17),   # MLK
+    date(2022, 2, 21),   # Presidents' Day
+    date(2022, 4, 15),   # Good Friday
+    date(2022, 5, 30),   # Memorial Day
+    date(2022, 6, 20),   # Juneteenth observed
+    date(2022, 7, 4),    # Independence Day
+    date(2022, 9, 5),    # Labor Day
+    date(2022, 11, 24),  # Thanksgiving
+    date(2022, 12, 26),  # Christmas observed
+]
+
+NYSE_HOLIDAYS_2023 = [
+    date(2023, 1, 2),    # New Year's observed
+    date(2023, 1, 16),   # MLK
+    date(2023, 2, 20),   # Presidents' Day
+    date(2023, 4, 7),    # Good Friday
+    date(2023, 5, 29),   # Memorial Day
+    date(2023, 6, 19),   # Juneteenth
+    date(2023, 7, 4),    # Independence Day
+    date(2023, 9, 4),    # Labor Day
+    date(2023, 11, 23),  # Thanksgiving
+    date(2023, 12, 25),  # Christmas
+]
+
+NYSE_HOLIDAYS_2024 = [
+    date(2024, 1, 1),
+    date(2024, 1, 15),   # MLK
+    date(2024, 2, 19),   # Presidents' Day
+    date(2024, 3, 29),   # Good Friday
+    date(2024, 5, 27),   # Memorial Day
+    date(2024, 6, 19),   # Juneteenth
+    date(2024, 7, 4),    # Independence Day
+    date(2024, 9, 2),    # Labor Day
+    date(2024, 11, 28),  # Thanksgiving
+    date(2024, 12, 25),  # Christmas
+]
+
+NYSE_HOLIDAYS_2025 = [
+    date(2025, 1, 1),
+    date(2025, 1, 20),   # MLK
+    date(2025, 2, 17),   # Presidents' Day
+    date(2025, 4, 18),   # Good Friday
+    date(2025, 5, 26),   # Memorial Day
+    date(2025, 6, 19),   # Juneteenth
+    date(2025, 7, 4),    # Independence Day
+    date(2025, 9, 1),    # Labor Day
+    date(2025, 11, 27),  # Thanksgiving
+    date(2025, 12, 25),  # Christmas
+]
+
 # 2026/2027 NYSE 实际全日休市日（按年份显式配置，M9）
 NYSE_HOLIDAYS_2026 = [
     date(2026, 1, 1),
@@ -60,6 +124,16 @@ NYSE_HOLIDAYS_2027 = [
 ]
 
 NYSE_EARLY_CLOSINGS = [
+    date(2021, 11, 26),
+    date(2022, 11, 25),
+    date(2023, 7, 3),
+    date(2023, 11, 24),
+    date(2024, 7, 3),
+    date(2024, 11, 29),
+    date(2024, 12, 24),
+    date(2025, 7, 3),
+    date(2025, 11, 28),
+    date(2025, 12, 24),
     date(2026, 11, 27),
     date(2026, 12, 24),
     date(2027, 11, 26),
@@ -81,6 +155,31 @@ class TestIsTradingDay:
     def test_weekday_trading_day(self):
         """普通工作日 → True。"""
         assert is_trading_day(date(2026, 9, 14)) is True
+
+    @pytest.mark.parametrize("d", NYSE_HOLIDAYS_2021)
+    def test_us_holidays_2021_non_trading(self, d: date):
+        """2021 实际假日 → 非交易日（与库内日线数据起点对齐）。"""
+        assert is_trading_day(d) is False, f"Expected holiday {d} to be non-trading"
+
+    @pytest.mark.parametrize("d", NYSE_HOLIDAYS_2022)
+    def test_us_holidays_2022_non_trading(self, d: date):
+        """2022 实际假日 → 非交易日（含 Juneteenth observed 6/20）。"""
+        assert is_trading_day(d) is False, f"Expected holiday {d} to be non-trading"
+
+    @pytest.mark.parametrize("d", NYSE_HOLIDAYS_2023)
+    def test_us_holidays_2023_non_trading(self, d: date):
+        """2023 实际假日 → 非交易日。"""
+        assert is_trading_day(d) is False, f"Expected holiday {d} to be non-trading"
+
+    @pytest.mark.parametrize("d", NYSE_HOLIDAYS_2024)
+    def test_us_holidays_2024_non_trading(self, d: date):
+        """2024 实际假日 → 非交易日。"""
+        assert is_trading_day(d) is False, f"Expected holiday {d} to be non-trading"
+
+    @pytest.mark.parametrize("d", NYSE_HOLIDAYS_2025)
+    def test_us_holidays_2025_non_trading(self, d: date):
+        """2025 实际假日 → 非交易日。"""
+        assert is_trading_day(d) is False, f"Expected holiday {d} to be non-trading"
 
     @pytest.mark.parametrize("d", NYSE_HOLIDAYS_2026)
     def test_us_holidays_2026_non_trading(self, d: date):
@@ -113,11 +212,20 @@ class TestIsTradingDay:
         assert thanksgiving.weekday() == 3
         assert is_trading_day(thanksgiving) is False
 
-    @pytest.mark.parametrize("d", [date(2028, 1, 3), date(2025, 12, 31)])
+    @pytest.mark.parametrize(
+        "d", [date(2020, 12, 31), date(2028, 1, 3), date(2029, 1, 1)]
+    )
     def test_unknown_year_raises(self, d: date):
         """超出已配置年份 → 显式 ConfigError（不做规则推算兜底）。"""
-        with pytest.raises(ConfigError, match="2026, 2027"):
+        with pytest.raises(
+            ConfigError, match="2021, 2022, 2023, 2024, 2025, 2026, 2027"
+        ):
             is_trading_day(d)
+
+    @pytest.mark.parametrize("year", range(2021, 2028))
+    def test_configured_years_do_not_raise(self, year: int):
+        """2021–2027 已配置年份不再抛 ConfigError（与库内日线起点对齐）。"""
+        assert isinstance(is_trading_day(date(year, 12, 1)), bool)
 
     def test_early_closings_table(self):
         """HOLIDAY 与早闭表分离：早闭日不全是假日（M9 修复 7/3、7/5、12/24 误标）。"""

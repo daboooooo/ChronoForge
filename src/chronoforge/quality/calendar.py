@@ -6,8 +6,9 @@
 - EARLY_CLOSINGS 提前闭市日参考集合（早闭日仍是交易日）
 
 扩展方式：在 `_NYSE_HOLIDAYS` 中显式新增年份条目（浮动假日与 observed
-规则落到具体日期）。查询未配置年份时显式抛 `ConfigError`（可诊断），
-不隐式兜底。P1 若引入正式交易日历库，替换 is_trading_day 实现，接口不变。
+规则落到具体日期）。当前覆盖 2021–2027（与库内日线数据起点对齐）。
+查询未配置年份时显式抛 `ConfigError`（可诊断），不隐式兜底。P1 若引入
+正式交易日历库，替换 is_trading_day 实现，接口不变。
 """
 
 from __future__ import annotations
@@ -18,11 +19,70 @@ from datetime import date
 
 from chronoforge.exceptions import ConfigError
 
-# ── 配置化假日表（NYSE 官方日历，覆盖 2026–2027） ──────────────────
+# ── 配置化假日表（NYSE 官方日历，覆盖 2021–2027） ──────────────────
 # 按年份显式列出具体日期；浮动假日（MLK/总统日/感恩节等）与周末 observed
-# 规则已在编写时落到日期，运行时不做推算。
+# 规则已在编写时落到日期，运行时不做推算。2021–2025 依据 NYSE Group 官方
+# 假日与提前闭市公告（2020-12-28 / 2021-12-27 / 2022-12-21）。
 
 _NYSE_HOLIDAYS: dict[int, frozenset[date]] = {
+    2021: frozenset({
+        date(2021, 1, 1),    # New Year's Day
+        date(2021, 1, 18),   # MLK Day
+        date(2021, 2, 15),   # Presidents' Day
+        date(2021, 4, 2),    # Good Friday
+        date(2021, 5, 31),   # Memorial Day
+        date(2021, 7, 5),    # Independence Day observed（7/4 周日）
+        date(2021, 9, 6),    # Labor Day
+        date(2021, 11, 25),  # Thanksgiving
+        date(2021, 12, 24),  # Christmas observed（12/25 周六）
+    }),
+    2022: frozenset({
+        date(2022, 1, 17),   # MLK Day
+        date(2022, 2, 21),   # Presidents' Day
+        date(2022, 4, 15),   # Good Friday
+        date(2022, 5, 30),   # Memorial Day
+        date(2022, 6, 20),   # Juneteenth observed（6/19 周日）
+        date(2022, 7, 4),    # Independence Day
+        date(2022, 9, 5),    # Labor Day
+        date(2022, 11, 24),  # Thanksgiving
+        date(2022, 12, 26),  # Christmas observed（12/25 周日）
+    }),
+    2023: frozenset({
+        date(2023, 1, 2),    # New Year's observed（1/1 周日）
+        date(2023, 1, 16),   # MLK Day
+        date(2023, 2, 20),   # Presidents' Day
+        date(2023, 4, 7),    # Good Friday
+        date(2023, 5, 29),   # Memorial Day
+        date(2023, 6, 19),   # Juneteenth
+        date(2023, 7, 4),    # Independence Day
+        date(2023, 9, 4),    # Labor Day
+        date(2023, 11, 23),  # Thanksgiving
+        date(2023, 12, 25),  # Christmas
+    }),
+    2024: frozenset({
+        date(2024, 1, 1),    # New Year's Day
+        date(2024, 1, 15),   # MLK Day
+        date(2024, 2, 19),   # Presidents' Day
+        date(2024, 3, 29),   # Good Friday
+        date(2024, 5, 27),   # Memorial Day
+        date(2024, 6, 19),   # Juneteenth
+        date(2024, 7, 4),    # Independence Day
+        date(2024, 9, 2),    # Labor Day
+        date(2024, 11, 28),  # Thanksgiving
+        date(2024, 12, 25),  # Christmas
+    }),
+    2025: frozenset({
+        date(2025, 1, 1),    # New Year's Day
+        date(2025, 1, 20),   # MLK Day
+        date(2025, 2, 17),   # Presidents' Day
+        date(2025, 4, 18),   # Good Friday
+        date(2025, 5, 26),   # Memorial Day
+        date(2025, 6, 19),   # Juneteenth
+        date(2025, 7, 4),    # Independence Day
+        date(2025, 9, 1),    # Labor Day
+        date(2025, 11, 27),  # Thanksgiving
+        date(2025, 12, 25),  # Christmas
+    }),
     2026: frozenset({
         date(2026, 1, 1),    # New Year's Day
         date(2026, 1, 19),   # MLK Day（1 月第 3 个周一）
@@ -53,6 +113,16 @@ _NYSE_HOLIDAYS: dict[int, frozenset[date]] = {
 # 早闭日仍是交易日，不影响 is_trading_day；仅供需要半日交易语义的调用方参考。
 
 EARLY_CLOSINGS: frozenset[date] = frozenset({
+    date(2021, 11, 26),  # Thanksgiving 次日
+    date(2022, 11, 25),  # Thanksgiving 次日
+    date(2023, 7, 3),    # Independence Day 前一日
+    date(2023, 11, 24),  # Thanksgiving 次日
+    date(2024, 7, 3),    # Independence Day 前一日
+    date(2024, 11, 29),  # Thanksgiving 次日
+    date(2024, 12, 24),  # Christmas Eve
+    date(2025, 7, 3),    # Independence Day 前一日
+    date(2025, 11, 28),  # Thanksgiving 次日
+    date(2025, 12, 24),  # Christmas Eve
     date(2026, 11, 27),  # Thanksgiving 次日
     date(2026, 12, 24),  # Christmas Eve
     date(2027, 11, 26),  # Thanksgiving 次日

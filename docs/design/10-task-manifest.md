@@ -349,7 +349,7 @@ acceptance:
 task_id: VALIDATION-002
 title: continuity_model 驱动的 gap 判定 + P0 简化日历
 design_refs: [D06 §2 Q-GAP-001（修复后）, D03 §1 continuity_model 列]
-responsibility: 四种 continuity_model 的 gap 语义 + 配置化美股假日表（按年份显式 2026–2027，未配置年份显式失败）+ EXPECTED_GAP 标记
+responsibility: 四种 continuity_model 的 gap 语义 + 配置化美股假日表（按年份显式 2021–2027，未配置年份显式失败）+ EXPECTED_GAP 标记
 scope: [src/chronoforge/quality/continuity.py, src/chronoforge/quality/calendar.py, tests/unit/test_continuity.py]
 non_goals: [正式交易日历库引入（P1 评估）, dataset 状态推导（STORAGE-001）]
 inputs: [{name: dataset.continuity_model, from: STORAGE-001}]
