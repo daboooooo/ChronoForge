@@ -220,3 +220,41 @@ class TestInstrumentRef:
         assert "entity_id" in ref
         assert "instrument_id" in ref
         assert "market_id" in ref
+
+
+class TestConnectorCloseProtocol:
+    """所有连接器必须实现 close()（backfill finally 直接调用）。"""
+
+    def test_all_connectors_implement_close(self) -> None:
+        """回归：TreasuryRefundingConnector 缺 close() 曾导致 backfill rc=1。"""
+        from chronoforge.connectors.alternative import AlternativeConnector
+        from chronoforge.connectors.binance_futures import BinanceFuturesConnector
+        from chronoforge.connectors.binance_spot import BinanceSpotConnector
+        from chronoforge.connectors.ccxt_bridge import CcxtBridgeConnector
+        from chronoforge.connectors.coinmarketcap import CoinMarketCapConnector
+        from chronoforge.connectors.coinmetrics import CoinMetricsConnector
+        from chronoforge.connectors.deribit import DeribitConnector
+        from chronoforge.connectors.fred import FREDConnector
+        from chronoforge.connectors.sec_edgar import SECEdgarConnector
+        from chronoforge.connectors.sosovalue import SoSoValueConnector
+        from chronoforge.connectors.treasury_fiscal import TreasuryFiscalConnector
+        from chronoforge.connectors.treasury_refunding import TreasuryRefundingConnector
+        from chronoforge.connectors.yahoo import YahooConnector
+
+        classes = [
+            AlternativeConnector,
+            BinanceFuturesConnector,
+            BinanceSpotConnector,
+            CcxtBridgeConnector,
+            CoinMarketCapConnector,
+            CoinMetricsConnector,
+            DeribitConnector,
+            FREDConnector,
+            SECEdgarConnector,
+            SoSoValueConnector,
+            TreasuryFiscalConnector,
+            TreasuryRefundingConnector,
+            YahooConnector,
+        ]
+        missing = [c.__name__ for c in classes if not callable(getattr(c, "close", None))]
+        assert missing == []

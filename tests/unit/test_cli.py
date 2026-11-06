@@ -441,6 +441,59 @@ class TestDatasetAdd:
         assert result.exit_code == 2
 
 
+class TestDatasetSetEnabled:
+    """dataset set-enabled：enabled 列停用/启用（决策 D-6）。"""
+
+    def test_disable_excludes_dataset_from_enabled_list(
+        self, cli_env: dict[str, Path], meta: MetaStore, registered: str
+    ) -> None:
+        """停用后 list_datasets(enabled_only=True) 不再包含该 dataset。"""
+        result = runner.invoke(
+            app,
+            ["dataset", "set-enabled", "--dataset-id", registered, "--disabled"],
+        )
+        assert result.exit_code == 0, result.output
+
+        from chronoforge.registry import list_datasets
+
+        assert [r["dataset_id"] for r in list_datasets(meta, enabled_only=True)] == []
+        row = next(
+            r for r in list_datasets(meta) if r["dataset_id"] == registered
+        )
+        assert row["enabled"] == 0
+
+    def test_enable_restores_dataset(
+        self, cli_env: dict[str, Path], meta: MetaStore, registered: str
+    ) -> None:
+        """停用后可重新启用（幂等、可逆）。"""
+        runner.invoke(
+            app,
+            ["dataset", "set-enabled", "--dataset-id", registered, "--disabled"],
+        )
+        result = runner.invoke(
+            app,
+            ["dataset", "set-enabled", "--dataset-id", registered, "--enabled"],
+        )
+        assert result.exit_code == 0, result.output
+
+        from chronoforge.registry import list_datasets
+
+        assert [
+            r["dataset_id"] for r in list_datasets(meta, enabled_only=True)
+        ] == [registered]
+
+    def test_unknown_dataset_fails(
+        self, cli_env: dict[str, Path], meta: MetaStore
+    ) -> None:
+        """失败组：注册表无该 dataset → 退出码 1，不静默成功。"""
+        result = runner.invoke(
+            app,
+            ["dataset", "set-enabled", "--dataset-id", "ghost", "--disabled"],
+        )
+        assert result.exit_code == 1
+        assert "not found" in result.output
+
+
 def _wiring_list_datasets_json() -> list[dict[str, Any]]:
     """经组合根读取 dataset_registry（复用 registry.service）。"""
     from chronoforge.registry import list_datasets

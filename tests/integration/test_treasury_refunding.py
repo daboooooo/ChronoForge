@@ -152,6 +152,18 @@ def test_fetch_transport_exception_wrapped() -> None:
     client.close()
 
 
+def test_close_releases_http_client() -> None:
+    """收尾路径 connector.close() 必须存在且幂等（backfill finally 直接调用）。
+
+    回归：TreasuryRefundingConnector 缺 close() 时，scripts/backfill_datasets.py
+    的 finally 抛 AttributeError，hourly_update 以 rc=1 结束并跳过图表。
+    """
+    connector = _connector()
+    connector.close()
+    assert connector._client.is_closed
+    connector.close()  # 幂等：重复关闭不抛错
+
+
 def test_normalize_missing_title_date_raises_schema_error() -> None:
     """新闻稿缺标题/发布日期 → SchemaError。"""
     connector = _connector()
