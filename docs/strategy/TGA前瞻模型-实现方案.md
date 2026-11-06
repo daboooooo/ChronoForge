@@ -59,7 +59,7 @@
 
 **使用边界（引用 §7 样本外证据）**
 
-- 主模型 vs Naive（0.4.0 重跑，backtest run `fe7a9c621dc3dc4b`，2023-11-01→2026-10-29 / stride 5）：T+7 平均损失差 +16.0B（DM 3.39，Bonferroni p=0.0138，**显著更差**）；T+14 +54.2B（p_Bonf=0.0000）、T+30 +153.7B（0.0000）、T+60 +265.0B（0.0000）、T+90 +372.9B（0.0000）——**全档显著更差**。T+7 对 seasonal_naive 为 +17.3B（p_Bonf=0.178，不显著）。
+- 主模型 vs Naive（0.4.0 重跑，backtest run `ad190f7cc4217f79`（config_hash_v2 `v2:708d391e20e4bb81`；原 `fe7a9c621dc3dc4b` 为删除死键前的配置），2023-11-01→2026-10-29 / stride 5）：T+7 平均损失差 +16.0B（DM 3.39，Bonferroni p=0.0138，**显著更差**）；T+14 +54.2B（p_Bonf=0.0000）、T+30 +153.7B（0.0000）、T+60 +265.0B（0.0000）、T+90 +372.9B（0.0000）——**全档显著更差**。T+7 对 seasonal_naive 为 +17.3B（p_Bonf=0.178，不显著）。
 - 默认 MAE（USD B，0.4.0）：T+7 81.5 / T+14 138.0 / T+30 260.3 / T+60 383.4 / T+90 499.0；Naive 为 65.5 / 83.8 / 106.6 / 118.4 / 126.1，Seasonal Naive 为 64.2 / 83.9 / 127.9 / 179.7 / 214.2。各档全面高于 Naive。
 - 结论：模型当前只用于情景与事件解释；0.4.0 起 T+7 也在 Bonferroni 校正后显著劣于 Naive，所有档位都不构成可用预测。
 - 机器可读产物带 `output_type=scenario` / `usage=scenario_anchor` / `confidence=exploratory` / `drivers`；下游必须检查 `output_type`，不得按点位预测消费（§8.2）。
@@ -123,7 +123,7 @@
 | Phase 2 历史重建 | 完成（2026-11-02） | `config/tga/taxonomy.yaml` + `scripts/tga_common.py` / `tga_store.py` / `tga_reconstruct.py`；Derived 四数据集（balance 5,294 日 / cashflow 498,942 / recon 5,294 / debt 118,224）+ `meta/tga.duckdb` 四视图；`tga_anomaly` 工作流；Model 0 报告 `reports/tga/`，验收 7/8 PASS |
 | `treasury_refunding` | 未开始 | Phase 4 |
 | `config/tga/calendar|scenarios|model`、`scripts/tga_forecast|backtest|report|daily|export_liquidity` | 部分完成（Phase 3） | `calendar.yaml`/`model.yaml`、`tga_forecast.py`、`tga_report.py` 已落地；`scenarios.yaml`、`tga_backtest/report 完整版/daily/export_liquidity` 未开始（Phase 4/5/6） |
-| Phase 3 基准预测 | 完成（2026-11-02） | 五组件预测引擎 + 聚合守恒 + ForecastStore + 日报 MVP；实跑 run `c1498dc3fdf05c76-r2`（0.3.0 旧逻辑，受 TGA-1 去重坍缩影响，数值不可比）；0.4.0 已修复 TGA-1 并重跑（当日 origin 2026-11-05：T+7 846.80B / T+14 667.06B / T+30 828.77B / T+60 1,000.80B / T+90 633.24B，run `3349f9d395b9dd56-r2`）；详见 §12 Phase 3 |
+| Phase 3 基准预测 | 完成（2026-11-02） | 五组件预测引擎 + 聚合守恒 + ForecastStore + 日报 MVP；实跑 run `c1498dc3fdf05c76-r2`（0.3.0 旧逻辑，受 TGA-1 去重坍缩影响，数值不可比）；0.4.0 已修复 TGA-1 并重跑（最新 origin 2026-11-06 / cutoff 2026-11-02：T+7 846.80B / T+14 667.06B / T+30 839.26B / T+60 996.49B / T+90 730.97B，run `0148b1d017abf160`，config_hash_v2 `v2:708d391e20e4bb81`；原 2026-11-05 run `3349f9d395b9dd56-r2` 保留可追溯）；详见 §12 Phase 3 |
 | 测试 | 通过 | 1782 passed（含 TGA taxonomy/重建/预测/报告单测 39 项）；ruff（src/tests）/mypy/lint-imports 全绿，见 §11.6 |
 
 ---
