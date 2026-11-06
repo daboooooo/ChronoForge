@@ -153,7 +153,7 @@ class SECEdgarConnector(DataConnector):
         data_type = request.params.get("data_type", "all")
 
         if data_type in ("", "all", "filing"):
-            yield self._fetch_submissions(cik)
+            yield from self._fetch_submissions(cik)
         elif data_type == "fundamental":
             yield self._fetch_companyfacts(cik)
         else:
@@ -162,35 +162,61 @@ class SECEdgarConnector(DataConnector):
                 context={"source": "sec_edgar", "data_type": data_type},
             )
 
-    def _fetch_submissions(self, cik: str) -> RawBatch:
-        """获取 FILING 索引（D04 §4.7）。
+    def _fetch_submissions(self, cik: str) -> Iterator[RawBatch]:
+        """获取 FILING 索引及其分页文件（D04 §4.7，审计 M10）。
+
+        submissions 主文件只内联最近约 1000 条（`filings.recent`），更早的
+        filing 分片存放于 `filings.files[].name`（如
+        `CIK0000320193-submissions-001.json`，2026-11-06 实测 HTTP 200，
+        形状为扁平并行数组）。逐页抓取并各自产出 RawBatch，避免旧 filing
+        永久缺失；单页失败按 HTTP 错误语义抛出，不静默截断。
 
         Args:
             cik: CIK 号码。
 
-        Returns:
-            RawBatch 原始响应。
+        Yields:
+            主文件与每个分页文件各一个 RawBatch。
         """
+        main_path = f"/CIK{cik}.json"
+        main_batch = self._fetch_submission_file(cik, main_path)
+        yield main_batch
+
+        payload = main_batch.payload
+        if not isinstance(payload, dict):
+            return
+        files = payload.get("filings", {}).get("files", [])
+        if not isinstance(files, list):
+            return
+        for entry in files:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("name") or "").strip()
+            if not name:
+                continue
+            yield self._fetch_submission_file(cik, f"/{name}")
+
+    def _fetch_submission_file(self, cik: str, path: str) -> RawBatch:
+        """抓取单个 submissions JSON 文件（主文件或分页文件）。"""
         self._rate_limiter.acquire(1)
 
         try:
-            response = self._client.get(f"/CIK{cik}.json")
+            response = self._client.get(path)
         except httpx.TransportError as e:
             raise TransportError(
                 f"sec_edgar: submissions request failed: {e}",
                 context={
                     "source": "sec_edgar",
-                    "endpoint": f"/CIK{cik}.json",
+                    "endpoint": path,
                     "cik": cik,
                 },
             ) from e
 
-        self._handle_response(response, cik, "/CIK{cik}.json")
+        self._handle_response(response, cik, path)
         data = response.json()
         return RawBatch(
-            endpoint=f"/CIK{cik}.json",
+            endpoint=path,
             payload=data,
-            raw_meta={"http_status": response.status_code, "cik": cik},
+            raw_meta={"http_status": response.status_code, "cik": cik, "page": path},
         )
 
     def _fetch_companyfacts(self, cik: str) -> RawBatch:
@@ -334,17 +360,22 @@ class SECEdgarConnector(DataConnector):
     def _normalize_filings(self, payload: dict[str, Any], cik: str) -> list[BaseRecord]:
         """将 submissions 响应转为 FILING 记录（D04 §4.7）。
 
-        SEC EDGAR submissions API 返回并行数组格式：
-        filings.recent = { accessionNumber: [...], filingDate: [...], ... }
+        SEC EDGAR submissions API 返回并行数组格式。主文件包在
+        `filings.recent` 下；`filings.files` 分页文件（审计 M10）则是
+        扁平并行数组，没有 filings 包装。
 
         Args:
-            payload: submissions API 响应。
+            payload: submissions API 响应（主文件或分页文件）。
             cik: CIK 号码。
 
         Returns:
             FILING 记录列表。
         """
-        recent = payload.get("filings", {}).get("recent", {})
+        filings = payload.get("filings")
+        if isinstance(filings, dict):
+            recent: Any = filings.get("recent", {})
+        else:
+            recent = payload
         if not isinstance(recent, dict):
             return []
 
@@ -360,6 +391,7 @@ class SECEdgarConnector(DataConnector):
             recent.get("acceptanceDateTime") or recent.get("acceptanceDate") or []
         )
         forms = recent.get("form", [])
+        primary_documents = recent.get("primaryDocument", [])
 
         records: list[FILING] = []
 
@@ -372,6 +404,11 @@ class SECEdgarConnector(DataConnector):
             filing_date_str = filing_dates[i] if i < len(filing_dates) else ""
             report_period = report_dates[i] if i < len(report_dates) else None
             accepted_dt_str = acceptance_dates[i] if i < len(acceptance_dates) else None
+            primary_document = (
+                primary_documents[i]
+                if i < len(primary_documents) and primary_documents[i]
+                else ""
+            )
 
             # 解析 filing_date → date
             filing_date = self._parse_date(filing_date_str)
@@ -408,7 +445,9 @@ class SECEdgarConnector(DataConnector):
                 filing_date=filing_date,
                 accepted_datetime=accepted_datetime or now,
                 report_period_end=report_period_date or filing_date,
-                primary_doc_url=self._extract_doc_url(accession_number),
+                primary_doc_url=self._extract_doc_url(
+                    cik, accession_number, str(primary_document)
+                ),
             )
             records.append(filing_rec)
 
@@ -584,23 +623,34 @@ class SECEdgarConnector(DataConnector):
             return None
 
     @staticmethod
-    def _extract_doc_url(accession_number: str) -> str:
-        """从 accession number 提取主文档 URL。
+    def _extract_doc_url(
+        cik: str, accession_number: str, primary_document: str
+    ) -> str:
+        """构造 SEC 主文档真实 URL（审计 M10）。
 
-        SEC EDGAR 文档 URL 格式：
-        https://www.sec.gov/Archives/edgar/data/{CIK padded}/{file number}/{accession number}
-
-        简化版：https://www.sec.gov/Archives/edgar/data/{CIK padded}/{accession_number}
+        2026-11-06 实测：`Archives/edgar/data/{accession}` 这种缺 CIK 与
+        文件名的形式返回 HTTP 404；真实路径必须为
+        `Archives/edgar/data/{cik 去零}/{accession 去连字符}/{primaryDocument}`
+        （实测 200）。无 primaryDocument 时退回收尾带 `/` 的 filing 目录，
+        该目录实测 200，避免产出 404 URL。
 
         Args:
-            accession_number: 接入号。
+            cik: CIK 号码（可零填充）。
+            accession_number: 接入号（含连字符）。
+            primary_document: submissions `primaryDocument` 字段。
 
         Returns:
-            文档 URL。
+            SEC Archives 文档 URL。
         """
-        # 去除连字符用于路径构造
+        cik_unpadded = str(int(cik)) if cik.isdigit() else cik
         acc_no_dash = accession_number.replace("-", "")
-        return f"https://www.sec.gov/Archives/edgar/data/{acc_no_dash}"
+        base = (
+            "https://www.sec.gov/Archives/edgar/data/"
+            f"{cik_unpadded}/{acc_no_dash}"
+        )
+        if primary_document:
+            return f"{base}/{primary_document}"
+        return f"{base}/"
 
     def normalize(self, raw: RawBatch) -> list[BaseRecord]:
         """将 SEC EDGAR 原始响应转为 canonical 记录（D04 §4.7）。
@@ -675,6 +725,11 @@ class SECEdgarConnector(DataConnector):
                     acc_numbers = recent.get("accessionNumber", [])
                     if acc_numbers and len(acc_numbers) > 0:
                         return str(acc_numbers[-1])
+
+                # 分页文件格式：扁平并行数组（审计 M10）
+                page_accessions = payload.get("accessionNumber")
+                if isinstance(page_accessions, list) and page_accessions:
+                    return str(page_accessions[-1])
 
                 # companyfacts 格式：facts[taxon][concept]["units"][unit] = [...]
                 facts = payload.get("facts", {})

@@ -244,6 +244,46 @@ class TestNormalizeFilings:
 
             conn.close()
 
+    def test_normalize_paginated_submissions_page(self) -> None:
+        """Given 真实 submissions-001 分页文件 When normalize Then 旧 filing 不再缺失。"""
+        page_data = _load_fixture("CIK0000320193-submissions-001.json")
+        assert "filings" not in page_data  # 真实分页文件是扁平并行数组
+
+        conn, _ = _create_mock_connector(page_data)
+        raw = RawBatch(
+            endpoint="/CIK0000320193-submissions-001.json",
+            payload=page_data,
+            raw_meta={"cik": "0000320193"},
+        )
+        records = conn.normalize(raw)
+
+        assert len(records) == 3
+        assert [r.accession_number for r in records] == page_data["accessionNumber"]
+        assert records[0].source_timestamp == datetime(2015, 10, 2, 22, 35, 37)
+        conn.close()
+
+    def test_primary_doc_url_uses_cik_and_primary_document(self) -> None:
+        """Given 真实 submissions 样本 When normalize Then URL 是 SEC 真实路径。"""
+        sub_data = _load_fixture("CIK0000320193.json")
+        conn, _ = _create_mock_connector(sub_data)
+        raw = RawBatch(
+            endpoint="/CIK0000320193.json",
+            payload=sub_data,
+            raw_meta={"cik": "0000320193"},
+        )
+        records = conn.normalize(raw)
+
+        # 2026-11-06 实测 200 的真实路径（见 fixtures/sec_edgar/SOURCE.md）
+        assert records[0].primary_doc_url == (
+            "https://www.sec.gov/Archives/edgar/data/320193/"
+            "000114036126042149/xslF345X06/form4.xml"
+        )
+        assert records[2].primary_doc_url == (
+            "https://www.sec.gov/Archives/edgar/data/320193/"
+            "000032019326000026/aapl-20260926.htm"
+        )
+        conn.close()
+
     def test_normalize_filings_provenance_fields(self) -> None:
         """FILING 记录包含所有 provenance 字段。"""
         sub_data = _load_fixture("happy.json")
@@ -853,6 +893,32 @@ class TestFetch:
         assert len(batches) == 1
         assert batches[0].endpoint == "/CIK0000325023.json"
         assert batches[0].payload == sub_data
+        conn.close()
+
+    def test_fetch_submissions_includes_paginated_files(self) -> None:
+        """Given filings.files When fetch Then 逐个抓取分页文件并产出多个 Batch。"""
+        main_data = _load_fixture("CIK0000320193.json")
+        page_data = _load_fixture("CIK0000320193-submissions-001.json")
+        conn, mock_client = _create_mock_connector([
+            _mock_response(json_data=main_data),
+            _mock_response(json_data=page_data),
+        ])
+
+        request = FetchRequest(
+            dataset_id="sec:320193",
+            params={"cik": "320193", "data_type": "filing"},
+            start=None,
+            end=None,
+            cursor=None,
+        )
+        batches = list(conn.fetch(request))
+
+        assert len(batches) == 2
+        assert batches[0].endpoint == "/CIK0000320193.json"
+        assert batches[1].endpoint == "/CIK0000320193-submissions-001.json"
+        assert batches[1].payload == page_data
+        assert batches[1].raw_meta["cik"] == "0000320193"
+        assert mock_client.get.call_count == 2
         conn.close()
 
     def test_fetch_companyfacts(self) -> None:

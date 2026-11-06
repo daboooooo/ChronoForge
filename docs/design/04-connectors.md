@@ -129,6 +129,8 @@ HTTP 映射：401/403→AuthError；429→RateLimitError；400/404/422→Provide
 | headers | `User-Agent: ChronoForge/{version} research (contact@example.com)` **必填**（官方 fair-access 要求，联系邮箱由 Settings 注入） |
 | 限流 | ≤10 req/s；串行 + 令牌桶双保险 |
 | endpoints | `submissions/CIK{cik}.json`(FILING 索引)、`companyfacts/CIK{cik}.json`(FUNDAMENTAL)、full-text search 按需 |
+| 分页（审计 M10） | 主文件内联最近约 1000 条；更早 filing 按 `filings.files[].name`（如 `CIK{padded}-submissions-001.json`）逐页抓取，每页一个 RawBatch；分页文件为扁平并行数组，`normalize` 同时接受主文件与分页形状 |
+| primary_doc_url | `https://www.sec.gov/Archives/edgar/data/{cik 去零}/{accession 去连字符}/{primaryDocument}`（2026-11-06 实测 200）；缺 `primaryDocument` 时退回收尾 `/` 的 filing 目录（实测 200） |
 | cursor | submissions `filing-recent.json` 增量；companyfacts 全量 JSON 按 accession 缓存，response ETag/Last-Modified 有则条件请求 |
 | 时间语义（审计 F-09） | `acceptanceDateTime` 带 EDT/EST 后缀 → 先转 UTC 再去 tzinfo；`filingDate` 日期型 → 保守 `T23:59:59Z` |
 | continuity_model | EVENT_BASED（无 gap 概念） |
