@@ -315,6 +315,13 @@ class TreasuryRefundingConnector:
             return str(pub.isoformat())
         return None
 
+    def close(self) -> None:
+        """关闭 HTTP 客户端（与其余连接器一致，供 backfill finally 释放资源）。"""
+        try:
+            self._client.close()
+        except Exception:  # noqa: BLE001
+            pass
+
 
 def _strip_tags(html: str) -> str:
     text = re.sub(r"<[^>]+>", " ", html)
