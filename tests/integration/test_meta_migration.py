@@ -123,6 +123,19 @@ class TestDDLIntegrity:
             tables = _get_tables(conn)
             assert tables == EXPECTED_TABLES
 
+    def test_tga_runs_have_config_hash_v2(self, tmp_stores) -> None:
+        """C-4：forecast_runs / backtest_runs 新增 config_hash_v2 列，旧列保留。"""
+        meta_dir = str(tmp_stores.meta_dir)
+        with MetaStore(meta_dir) as store:
+            store.migrate()
+            conn = store.connection
+
+            for table in ("forecast_runs", "backtest_runs"):
+                cursor = conn.execute(f"PRAGMA table_info({table})")
+                columns = {row[1] for row in cursor.fetchall()}
+                assert "config_hash" in columns
+                assert "config_hash_v2" in columns
+
     def test_source_registry_columns(self, tmp_stores) -> None:
         """source_registry 字段校验"""
         meta_dir = str(tmp_stores.meta_dir)

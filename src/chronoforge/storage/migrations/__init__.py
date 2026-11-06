@@ -171,6 +171,13 @@ CREATE TABLE IF NOT EXISTS tga_anomaly(
 );
 """
 
+# 0006 migration SQL — 审计 C-4：TGA run 元数据新增 v2 配置哈希列。
+# 版本化源文件见 0006_config_hash_v2.py（与 0001/0003/0005 同模式，两处同步维护）。
+MIGRATION_0006_SQL = """
+ALTER TABLE forecast_runs ADD COLUMN config_hash_v2 TEXT;
+ALTER TABLE backtest_runs ADD COLUMN config_hash_v2 TEXT;
+"""
+
 # Migration registry — new migrations add entries here
 _all_migrations: list[dict[str, str]] = [
     {
@@ -200,5 +207,10 @@ _all_migrations: list[dict[str, str]] = [
         "version": "0005",
         "sql": MIGRATION_0005_SQL,
         "description": "Add forecast_runs/backtest_runs/tga_anomaly (TGA)",
+    },
+    {
+        "version": "0006",
+        "sql": MIGRATION_0006_SQL,
+        "description": "Add config_hash_v2 to forecast_runs/backtest_runs (C-4)",
     },
 ]

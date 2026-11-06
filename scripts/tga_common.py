@@ -201,6 +201,61 @@ def config_hash(
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
+def config_hash_v2(
+    taxonomy: Taxonomy,
+    calendar: dict | None = None,
+    model: dict | None = None,
+    scenarios: dict | None = None,
+) -> str:
+    """v2 配置哈希（审计 C-4）：覆盖 taxonomy 全字段，返回值带版本前缀。
+
+    与 `config_hash`（旧字段，保持原样以兼容历史 run）的区别：
+    - 规则纳入 `confidence`（旧版遗漏）；
+    - `unmatched` 纳入全部字段（旧版仅 category/include_in_net，导致修改
+      flow_type/subcategory/confidence/is_subtotal 不触发新 run）。
+
+    Returns:
+        `"v2:<sha256[:16]>"`，前缀使新旧哈希在同一存储中可区分。
+    """
+    payload: dict = {
+        "taxonomy_version": taxonomy.version,
+        "rules": [
+            {
+                "pattern": r.pattern,
+                "match_type": r.match_type,
+                "category": r.category,
+                "flow_type": r.flow_type,
+                "subcategory": r.subcategory,
+                "include_in_net": r.include_in_net,
+                "is_subtotal": r.is_subtotal,
+                "confidence": r.confidence,
+                "transaction_type": r.transaction_type,
+            }
+            for r in taxonomy.rules
+        ],
+        "unmatched": {
+            "pattern": taxonomy.unmatched.pattern,
+            "match_type": taxonomy.unmatched.match_type,
+            "category": taxonomy.unmatched.category,
+            "flow_type": taxonomy.unmatched.flow_type,
+            "subcategory": taxonomy.unmatched.subcategory,
+            "include_in_net": taxonomy.unmatched.include_in_net,
+            "is_subtotal": taxonomy.unmatched.is_subtotal,
+            "confidence": taxonomy.unmatched.confidence,
+            "transaction_type": taxonomy.unmatched.transaction_type,
+        },
+    }
+    if calendar is not None:
+        payload["calendar"] = calendar
+    if model is not None:
+        payload["model"] = model
+    if scenarios is not None:
+        payload["scenarios"] = scenarios
+    canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+    return f"v2:{digest}"
+
+
 # ── 联邦工作日日历 ─────────────────────────────────────────────────────
 
 

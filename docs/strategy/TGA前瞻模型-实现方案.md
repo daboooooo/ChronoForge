@@ -695,6 +695,7 @@ CREATE TABLE forecast_runs (
   data_cutoff_date TEXT NOT NULL,
   model_version TEXT NOT NULL,
   config_hash TEXT NOT NULL,
+  config_hash_v2 TEXT,
   scenarios_json TEXT NOT NULL,
   horizons_json TEXT NOT NULL,
   snapshot_id TEXT,
@@ -713,6 +714,7 @@ CREATE TABLE backtest_runs (
   stride INTEGER NOT NULL,
   model_versions_json TEXT NOT NULL,
   config_hash TEXT NOT NULL,
+  config_hash_v2 TEXT,
   status TEXT NOT NULL CHECK(status IN ('RUNNING','SUCCESS','FAILED')),
   output_hash TEXT,
   error_summary TEXT
@@ -734,8 +736,9 @@ CREATE TABLE tga_anomaly (
 );
 ```
 
-- 表结构由 `src/chronoforge/storage/migrations/0005_forecast_metadata.py` 创建；读写逻辑由 `scripts/tga_store.py` 实现，遵循现有 `MetaStore` 约定，不在脚本里另建 schema。
+- 表结构由 `src/chronoforge/storage/migrations/0005_forecast_metadata.py` 创建；`config_hash_v2` 由 `0006_config_hash_v2.py` 追加（审计 C-4，旧列保留）；读写逻辑由 `scripts/tga_store.py` 实现，遵循现有 `MetaStore` 约定，不在脚本里另建 schema。
 - `snapshot_id` 关联现有 `research_snapshot`，锁定依赖数据集版本。
+- 幂等复用（审计 C-4）：`find_success_run` 在传入 `config_hash_v2` 时要求已存 v2 完全一致；历史 run 的 `config_hash_v2` 为 NULL → 不参与复用（显式重跑一次，而非静默复用已变更的 unmatched 配置）。身份键仍以旧 `config_hash` 计算前缀，历史 run_id 保持可读。
 - `forecast_runs` 的唯一性：同 `(origin_date, data_cutoff_date, model_version, config_hash, scenarios_json, horizons_json)` 允许重复运行，但报告取最新 `SUCCESS`；重复运行标 `is_repeat=1`。
 - `tga_anomaly` 与 `quality_flags` 一对一/一对多关联，保留原值，不删除。
 
@@ -1407,6 +1410,7 @@ uv run python scripts/tga_daily.py --due-only
 
 - 所有文件提交到 git，带版本号；运行时路径通过脚本参数或现有 `CHRONOFORGE_DATA_DIR` / `CHRONOFORGE_META_DIR` 覆盖，不新增 Settings 字段。
 - `config_hash = sha256(规范化 JSON of taxonomy+calendar+scenarios+model+code_version)`。
+- `config_hash_v2 = "v2:" + sha256(同一 payload，但 taxonomy 规则含 confidence、unmatched 含全字段)`（审计 C-4）；旧 `config_hash` 保持不变以兼容历史 run，新 run 同时记录两者。
 - 禁止在代码里散落税率、支付日、情景系数等业务常量。
 - Phase 1 Connector 内置 `builtin-v1` 分类规则仅作过渡；Phase 2 起 `taxonomy.yaml` 为唯一事实源，Connector 只保留字段映射与单位归一。
 

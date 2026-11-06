@@ -614,6 +614,21 @@ def test_forecast_store_roundtrip(tmp_path):
         )
         assert is_repeat2 and run_id2 != run_id
 
+        # C-4：v2 hash 参与复用判定；unmatched 变更（旧 hash 不变的场景）→ 不复用
+        run_id3, _ = store.create_run(
+            "2026-11-02", "2026-10-29", "tga-forecast-0.3.0", "abc",
+            ["base"], [7, 14, 30], config_hash_v2="v2:aaa",
+        )
+        store.finalize_run(run_id3, "SUCCESS", output_hash="y")
+        assert store.find_success_run(
+            "2026-11-02", "2026-10-29", "tga-forecast-0.3.0", "abc",
+            ["base"], [7, 14, 30], config_hash_v2="v2:aaa",
+        ) == run_id3
+        assert store.find_success_run(
+            "2026-11-02", "2026-10-29", "tga-forecast-0.3.0", "abc",
+            ["base"], [7, 14, 30], config_hash_v2="v2:bbb",
+        ) is None
+
         # 同 run 重写覆盖（幂等）
         assert store.write_outputs(run_id, date(2026, 11, 2), "base",
                                    comps, fcst) == (1, 1)

@@ -32,7 +32,7 @@ import sys
 from datetime import date, datetime, timedelta
 
 import polars as pl
-from tga_common import config_hash, load_taxonomy
+from tga_common import config_hash, config_hash_v2, load_taxonomy
 from tga_forecast import (
     AUCTION_LOOKBACK_YEARS,
     MODEL_VERSION,
@@ -550,6 +550,7 @@ def run_backtest(
         raise ValueError(f"未知情景：{scenario!r}")
     taxonomy = load_taxonomy()
     chash = config_hash(taxonomy, calendar_cfg, model, scenarios_cfg)
+    chash_v2 = config_hash_v2(taxonomy, calendar_cfg, model, scenarios_cfg)
 
     meta = open_meta(settings)
     try:
@@ -590,6 +591,7 @@ def run_backtest(
         print(
             f"[1/4] 回测区间 {start} → {end}，起点 {len(origins)} 个"
             f"（stride={stride}），horizons={horizons}，config_hash={chash}"
+            f"，config_hash_v2={chash_v2}"
         )
         if dry_run:
             return 0, {"origins": len(origins)}
@@ -598,6 +600,7 @@ def run_backtest(
         run_id, is_repeat = store.create_run(
             start.isoformat(), end.isoformat(), stride,
             list((model_label, *BASELINES)), chash,
+            config_hash_v2=chash_v2,
         )
         print(f"[2/4] backtest run={run_id}（重复运行={is_repeat}）")
 

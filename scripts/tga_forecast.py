@@ -43,6 +43,7 @@ from tga_common import (
     MODEL_PATH,
     SCENARIOS_PATH,
     config_hash,
+    config_hash_v2,
     is_business_day,
     load_taxonomy,
     load_yaml,
@@ -1448,6 +1449,7 @@ def run_forecast(
     horizons = horizons or [int(h) for h in model["horizons"]]
     taxonomy = load_taxonomy()
     chash = config_hash(taxonomy, calendar_cfg, model, scenarios_cfg)
+    chash_v2 = config_hash_v2(taxonomy, calendar_cfg, model, scenarios_cfg)
     origin = origin or date.today()
 
     meta = open_meta(settings)
@@ -1456,7 +1458,8 @@ def run_forecast(
             settings, meta, origin, horizons, model, calendar_cfg, data_cutoff
         )
         print(f"[1/5] 加载输入（origin={origin} through={ctx.through} "
-              f"config_hash={chash} scenarios={scenarios}）")
+              f"config_hash={chash} config_hash_v2={chash_v2} "
+              f"scenarios={scenarios}）")
 
         if dry_run:
             print(f"[dry-run] last_tga={ctx.last_tga:.0f}M "
@@ -1474,7 +1477,7 @@ def run_forecast(
         # 幂等（§10.3）：同一 identity 已有 SUCCESS → 复用，除非 --force
         existing = store.find_success_run(
             origin.isoformat(), ctx.through.isoformat(), MODEL_VERSION, chash,
-            scenarios, horizons,
+            scenarios, horizons, config_hash_v2=chash_v2,
         )
         if existing and not force:
             print(f"已存在同配置 SUCCESS run：{existing}（--force 可重跑）")
@@ -1485,7 +1488,7 @@ def run_forecast(
 
         run_id, _ = store.create_run(
             origin.isoformat(), ctx.through.isoformat(), MODEL_VERSION, chash,
-            scenarios, horizons,
+            scenarios, horizons, config_hash_v2=chash_v2,
         )
         try:
             print("[3/5] 情景聚合与累计 TGA")

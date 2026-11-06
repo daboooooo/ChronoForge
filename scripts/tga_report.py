@@ -414,7 +414,13 @@ def _backtest_section(
     metrics = eval_metrics(eval_rows)
     lines = [
         f"- 回测区间：{run['start_date']} → {run['end_date']}"
-        f"（stride={run['stride']}，config_hash=`{run['config_hash']}`）。",
+        f"（stride={run['stride']}，config_hash=`{run['config_hash']}`"
+        + (
+            f"，config_hash_v2=`{run['config_hash_v2']}`"
+            if run.get("config_hash_v2")
+            else ""
+        )
+        + "）。",
         "",
         "| 周期 | 主模型 MAE(B) | Naive | Historical Mean | Seasonal Naive "
         "| Event-driven | 主模型 方向/覆盖 |",
@@ -577,6 +583,11 @@ def render_report(
         f"| 预测生成时间 | {generated} |",
         f"| 模型版本 | {run['model_version']} |",
         f"| config_hash | `{run['config_hash']}` |",
+        *(
+            [f"| config_hash_v2 | `{run['config_hash_v2']}` |"]
+            if run.get("config_hash_v2")
+            else []
+        ),
         f"| 预测起点 TGA | {_b(last_tga)} B "
         f"（{run['data_cutoff_date']} 收盘） |",
         f"| 情景 | {'、'.join(_SCENARIO_LABELS.get(s, s) for s in scenario)} |",

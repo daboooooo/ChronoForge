@@ -175,18 +175,33 @@ class ForecastStore:
         config_hash: str,
         scenarios: list[str],
         horizons: list[int],
+        config_hash_v2: str | None = None,
     ) -> str | None:
-        """同 identity 的最新 SUCCESS run（§10.3 幂等复用；无 → None）。"""
+        """同 identity 的最新 SUCCESS run（§10.3 幂等复用；无 → None）。
+
+        传入 config_hash_v2（审计 C-4）时，仅复用 v2 哈希一致的 run；
+        历史 run 无 v2 值（NULL）时不参与复用，避免 unmatched 字段已变更
+        但旧哈希相同而静默复用。
+        """
         base = self._identity_base(
             origin_date, data_cutoff_date, model_version, config_hash,
             scenarios, horizons,
         )
-        cur = self._meta.connection.execute(
-            "SELECT forecast_run_id FROM forecast_runs "
-            "WHERE (forecast_run_id = ? OR forecast_run_id LIKE ?) "
-            "AND status = 'SUCCESS' ORDER BY created_at DESC LIMIT 1",
-            (base, f"{base}-r%"),
-        )
+        if config_hash_v2 is None:
+            cur = self._meta.connection.execute(
+                "SELECT forecast_run_id FROM forecast_runs "
+                "WHERE (forecast_run_id = ? OR forecast_run_id LIKE ?) "
+                "AND status = 'SUCCESS' ORDER BY created_at DESC LIMIT 1",
+                (base, f"{base}-r%"),
+            )
+        else:
+            cur = self._meta.connection.execute(
+                "SELECT forecast_run_id FROM forecast_runs "
+                "WHERE (forecast_run_id = ? OR forecast_run_id LIKE ?) "
+                "AND status = 'SUCCESS' AND config_hash_v2 = ? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (base, f"{base}-r%", config_hash_v2),
+            )
         row = cur.fetchone()
         return str(row[0]) if row else None
 
@@ -199,11 +214,13 @@ class ForecastStore:
         scenarios: list[str],
         horizons: list[int],
         snapshot_id: str | None = None,
+        config_hash_v2: str | None = None,
     ) -> tuple[str, bool]:
         """登记 RUNNING run，返回 (run_id, is_repeat)。
 
         同一 (origin, cutoff, model_version, config_hash, scenarios, horizons)
         重复运行生成新 run_id（-rN 后缀）并标 is_repeat=1；报告取最新 SUCCESS。
+        config_hash_v2 单独存列（审计 C-4），旧 config_hash 原样保留。
         """
         base = self._identity_base(
             origin_date, data_cutoff_date, model_version, config_hash,
@@ -219,12 +236,12 @@ class ForecastStore:
         now = datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="seconds")
         self._meta.connection.execute(
             "INSERT INTO forecast_runs (forecast_run_id, created_at, origin_date, "
-            "data_cutoff_date, model_version, config_hash, scenarios_json, "
-            "horizons_json, snapshot_id, status, is_repeat) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'RUNNING', ?)",
+            "data_cutoff_date, model_version, config_hash, config_hash_v2, "
+            "scenarios_json, horizons_json, snapshot_id, status, is_repeat) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'RUNNING', ?)",
             (run_id, now, origin_date, data_cutoff_date, model_version, config_hash,
-             json.dumps(sorted(scenarios)), json.dumps(sorted(horizons)),
-             snapshot_id, 1 if prior > 0 else 0),
+             config_hash_v2, json.dumps(sorted(scenarios)),
+             json.dumps(sorted(horizons)), snapshot_id, 1 if prior > 0 else 0),
         )
         self._meta.connection.commit()
         return run_id, prior > 0
@@ -251,8 +268,8 @@ class ForecastStore:
         """取最新 SUCCESS run（报告入口；无 → None）。"""
         cur = self._meta.connection.execute(
             "SELECT forecast_run_id, created_at, origin_date, data_cutoff_date, "
-            "model_version, config_hash, scenarios_json, horizons_json, "
-            "snapshot_id, is_repeat, output_hash "
+            "model_version, config_hash, config_hash_v2, scenarios_json, "
+            "horizons_json, snapshot_id, is_repeat, output_hash "
             "FROM forecast_runs WHERE status = 'SUCCESS' "
             "ORDER BY created_at DESC LIMIT 1"
         )
@@ -263,8 +280,9 @@ class ForecastStore:
     def get_run(self, run_id: str) -> dict[str, object] | None:
         cur = self._meta.connection.execute(
             "SELECT forecast_run_id, created_at, origin_date, data_cutoff_date, "
-            "model_version, config_hash, scenarios_json, horizons_json, "
-            "snapshot_id, status, is_repeat, output_hash, error_summary "
+            "model_version, config_hash, config_hash_v2, scenarios_json, "
+            "horizons_json, snapshot_id, status, is_repeat, output_hash, "
+            "error_summary "
             "FROM forecast_runs WHERE forecast_run_id = ?",
             (run_id,),
         )
@@ -350,8 +368,12 @@ class BacktestStore:
         stride: int,
         model_versions: list[str],
         config_hash: str,
+        config_hash_v2: str | None = None,
     ) -> tuple[str, bool]:
-        """登记 RUNNING run，返回 (backtest_run_id, is_repeat)。"""
+        """登记 RUNNING run，返回 (backtest_run_id, is_repeat)。
+
+        config_hash_v2 单独存列（审计 C-4），旧 config_hash 原样保留。
+        """
         base = self._identity_base(
             start_date, end_date, stride, model_versions, config_hash
         )
@@ -365,10 +387,11 @@ class BacktestStore:
         now = datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="seconds")
         self._meta.connection.execute(
             "INSERT INTO backtest_runs (backtest_run_id, created_at, start_date, "
-            "end_date, stride, model_versions_json, config_hash, status) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 'RUNNING')",
+            "end_date, stride, model_versions_json, config_hash, "
+            "config_hash_v2, status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'RUNNING')",
             (run_id, now, start_date, end_date, stride,
-             json.dumps(sorted(model_versions)), config_hash),
+             json.dumps(sorted(model_versions)), config_hash, config_hash_v2),
         )
         self._meta.connection.commit()
         return run_id, prior > 0
@@ -395,7 +418,7 @@ class BacktestStore:
         """取最新 SUCCESS run（报告入口；无 → None）。"""
         cur = self._meta.connection.execute(
             "SELECT backtest_run_id, created_at, start_date, end_date, stride, "
-            "model_versions_json, config_hash, output_hash "
+            "model_versions_json, config_hash, config_hash_v2, output_hash "
             "FROM backtest_runs WHERE status = 'SUCCESS' "
             "ORDER BY created_at DESC LIMIT 1"
         )
@@ -406,7 +429,8 @@ class BacktestStore:
     def get_run(self, run_id: str) -> dict[str, object] | None:
         cur = self._meta.connection.execute(
             "SELECT backtest_run_id, created_at, start_date, end_date, stride, "
-            "model_versions_json, config_hash, status, output_hash, error_summary "
+            "model_versions_json, config_hash, config_hash_v2, status, "
+            "output_hash, error_summary "
             "FROM backtest_runs WHERE backtest_run_id = ?",
             (run_id,),
         )

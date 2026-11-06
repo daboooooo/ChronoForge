@@ -124,6 +124,38 @@ def test_config_hash_stable(taxonomy):
     assert len(h1) == 16
 
 
+def test_config_hash_v2_covers_all_unmatched_fields(taxonomy):
+    """C-4：v2 哈希覆盖 unmatched 全字段；旧 hash 保持兼容。"""
+    from copy import deepcopy
+
+    from tga_common import Taxonomy, config_hash_v2  # noqa: PLC0415
+
+    root = Path(__file__).resolve().parents[2]
+    raw = load_yaml(str(root / "config" / "tga" / "taxonomy.yaml"))
+    base_legacy = config_hash(taxonomy)
+    base_v2 = config_hash_v2(taxonomy)
+    assert base_v2.startswith("v2:")
+
+    mutations = {
+        "category": "OTHER_CAT",
+        "flow_type": "OTHER_FLOW",
+        "subcategory": "other_sub",
+        "include_in_net": not taxonomy.unmatched.include_in_net,
+        "is_subtotal": not taxonomy.unmatched.is_subtotal,
+        "confidence": 0.95,
+    }
+    for field, value in mutations.items():
+        data = deepcopy(raw)
+        data.setdefault("unmatched", {})[field] = value
+        variant = Taxonomy(data)
+        assert config_hash_v2(variant) != base_v2, f"v2 未覆盖 unmatched.{field}"
+        if field in ("flow_type", "subcategory", "confidence", "is_subtotal"):
+            # 旧 hash 的已知盲区保持原样（兼容历史 run）
+            assert config_hash(variant) == base_legacy, (
+                f"旧 config_hash 不应因 {field} 改变（会致历史 run 静默失配）"
+            )
+
+
 def test_federal_holidays_weekend():
     assert not is_business_day(date(2026, 7, 4))  # 周六
     assert not is_business_day(date(2026, 7, 3))  # 独立日前夕（联邦假日）
