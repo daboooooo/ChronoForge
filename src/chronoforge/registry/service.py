@@ -225,6 +225,26 @@ def get_dataset(store: RegistryStoreLike, dataset_id: str) -> dict[str, Any] | N
     )
 
 
+def set_dataset_enabled(
+    store: RegistryStoreLike, dataset_id: str, *, enabled: bool
+) -> bool:
+    """启用/停用 dataset（dataset_registry.enabled 列，决策 D-6）。
+
+    停用（enabled=0）后该 dataset 不再出现在 list_datasets(enabled_only=True)
+    的结果中，因此不进入 pipeline --all-due 与 backfill --due-only 的采集队列；
+    已落库的 raw/canonical 与 checkpoint 原样保留，不删历史数据。
+
+    Returns:
+        是否命中并更新了注册行（dataset 不存在返回 False）。
+    """
+    cur = store.connection.execute(
+        "UPDATE dataset_registry SET enabled = ? WHERE dataset_id = ?",
+        (int(enabled), dataset_id),
+    )
+    store.connection.commit()
+    return cur.rowcount > 0
+
+
 def list_sources(store: RegistryStoreLike) -> list[dict[str, Any]]:
     """source_registry 全量（enabled 含在内）。"""
     return _all_rows(store.connection.execute(

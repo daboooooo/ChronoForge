@@ -11,6 +11,7 @@ from chronoforge.registry.service import (
     get_dataset,
     list_datasets,
     list_sources,
+    set_dataset_enabled,
 )
 
 __all__ = [
@@ -21,4 +22,5 @@ __all__ = [
     "get_dataset",
     "list_datasets",
     "list_sources",
+    "set_dataset_enabled",
 ]

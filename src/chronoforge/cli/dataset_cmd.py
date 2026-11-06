@@ -1,7 +1,8 @@
-"""dataset 命令组（D08 §2）：add —— dataset_registry 写侧（经 registry.service）。"""
+"""dataset 命令组（D08 §2）：add / set-enabled —— dataset_registry 写侧（经 registry.service）。"""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 
@@ -11,7 +12,7 @@ from chronoforge import ui
 from chronoforge.cli import _wiring
 from chronoforge.config.settings import Settings
 from chronoforge.connectors.errors import ChronoForgeError
-from chronoforge.registry import add_dataset
+from chronoforge.registry import add_dataset, set_dataset_enabled
 
 dataset_app = typer.Typer(help="数据集登记（dataset_registry 写侧）")
 
@@ -61,6 +62,35 @@ def dataset_add(
             revision_supported=revision_supported,
         )
         ui.get_console().print(f"dataset {dataset_id} registered (source={source})")
+    except (ChronoForgeError, ValueError, sqlite3.Error) as exc:
+        ui.print_error(str(exc))
+        raise typer.Exit(code=1) from exc
+
+
+@dataset_app.command("set-enabled")
+def dataset_set_enabled(
+    dataset_id: str = typer.Option(..., "--dataset-id", help="Dataset ID（主键）"),
+    enabled: bool = typer.Option(
+        ..., "--enabled/--disabled",
+        help="true=启用（进入采集队列）；false=停用（不再采集，历史数据保留）",
+    ),
+) -> None:
+    """启用/停用 dataset（dataset_registry.enabled 列，决策 D-6）。
+
+    停用后不进入 pipeline --all-due / backfill --due-only 的采集队列；
+    raw/canonical/checkpoint 原样保留，不删历史数据。
+    """
+    try:
+        with contextlib.ExitStack() as stack:
+            settings = Settings.load()
+            meta = _wiring.open_meta(settings)
+            stack.callback(meta.close)
+            updated = set_dataset_enabled(meta, dataset_id, enabled=enabled)
+        if not updated:
+            ui.print_error(f"dataset not found in registry: {dataset_id}")
+            raise typer.Exit(code=1)
+        state = "enabled" if enabled else "disabled"
+        ui.get_console().print(f"dataset {dataset_id} {state}")
     except (ChronoForgeError, ValueError, sqlite3.Error) as exc:
         ui.print_error(str(exc))
         raise typer.Exit(code=1) from exc
