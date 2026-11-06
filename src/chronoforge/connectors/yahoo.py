@@ -19,9 +19,10 @@ from __future__ import annotations
 import math
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 import structlog
@@ -96,6 +97,26 @@ class _YahooSettings:
     # 短 UA：Yahoo getcrumb 对完整 Chrome UA 做机器人指纹拦截（429），
     # 简化 UA 实测可稳定通过（完整 UA + 同 IP 同时刻对比验证）
     user_agent: str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+
+
+_NY_TZ = ZoneInfo("America/New_York")
+
+
+def normalize_daily_event_time(ts_utc: datetime) -> datetime:
+    """日线 bar 的归一化时间戳：交易日归属的 00:00。
+
+    交易日按交易所本地日历日（America/New_York）判定，因此与 UTC 偏移、
+    夏令时切换无关；date-only 时间戳（00:00 UTC，常见于 fixture/部分源）
+    直接取 UTC 日历日，避免被 ET 时区回退一天。
+
+    归一后同一交易日的盘中/收盘快照落在同一 natural key 上，由 canonical
+    层 keep-last 收敛为一行（保留最后一次抓取）。
+    """
+    if ts_utc.time() == time(0, 0):
+        day = ts_utc.date()
+    else:
+        day = ts_utc.replace(tzinfo=UTC).astimezone(_NY_TZ).date()
+    return datetime(day.year, day.month, day.day)
 
 
 class YahooConnector(DataConnector):
@@ -523,6 +544,14 @@ class YahooConnector(DataConnector):
                     note_skip("unclosed_bar")
                     continue
 
+                # 日线归一到交易日 00:00（同一交易日的盘中/收盘快照收敛到
+                # 同一 natural key）；非日线保留源时间戳。
+                normalized_event_time = (
+                    normalize_daily_event_time(event_time)
+                    if interval_enum is Interval._1D
+                    else event_time
+                )
+
                 open_list = quote.get("open", [])
                 high_list = quote.get("high", [])
                 low_list = quote.get("low", [])
@@ -573,7 +602,7 @@ class YahooConnector(DataConnector):
                     quality_status=QualityStatus.VALID,
                     quality_reason=None,
                     market_id=market_id,
-                    event_time=event_time,
+                    event_time=normalized_event_time,
                     interval=interval_enum,
                     open=open_val,  # type: ignore[arg-type]
                     close=close_val,  # type: ignore[arg-type]
@@ -586,6 +615,13 @@ class YahooConnector(DataConnector):
                 # 时间戳转换失败或数组索引越界 → 跳过
                 note_skip("invalid_bar")
                 continue
+
+        # 同一交易日只产出一行：保留批内最后一条（与 canonical keep-last 一致）。
+        if interval_enum is Interval._1D and len(records) > 1:
+            by_day: dict[datetime, OHLCV] = {}
+            for record in records:
+                by_day[record.event_time] = record
+            records = list(by_day.values())
 
         if unclosed_bars:
             logger.debug(
