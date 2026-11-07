@@ -17,6 +17,7 @@ dependencies = [
     "ccxt>=4,<5",                 # D6 交易所抽象层
     "typer>=0.12,<1",             # D7 CLI
     "pandas>=2.2",                # 研究（约束 §35，锁版本于 lock file）
+    "matplotlib>=3.8",            # 研究绘图（scripts/ 下可视化脚本）
     "polars>=1.0",                # 批量
     "structlog>=24.1",            # 结构化日志（实施基线）
     "rich>=15,<16",               # 终端渲染（日志/表格/进度统一入口）
