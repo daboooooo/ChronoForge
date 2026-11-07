@@ -321,5 +321,135 @@
         "desc": "平均时薪(全部私营部门, 季调)",
         "role": "工资增长压力",
         "comment": "BLS机构调查发布。私营部门平均时薪，观察工资通胀压力。官方起始1964-01"
-    }
+    },
+
+    "H41_WSHOBL": {
+        "id": "WSHOBL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "SOMA持有美国国债:Bills(周三时点值)",
+        "role": "SOMA国债分项"
+    },
+    "H41_WSHONBNL": {
+        "id": "WSHONBNL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "SOMA持有美国国债:Notes&Bonds名义值(含FRN, 周三时点值)",
+        "role": "SOMA国债分项"
+    },
+    "H41_WSHONBIIL": {
+        "id": "WSHONBIIL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "SOMA持有美国国债:TIPS面值(周三时点值)",
+        "role": "SOMA国债分项"
+    },
+    "H41_WSHOICL": {
+        "id": "WSHOICL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "SOMA持有TIPS通胀补偿(周三时点值)",
+        "role": "SOMA国债分项"
+    },
+    "H41_WUPSHO": {
+        "id": "WUPSHO", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "证券持有未摊销溢价(周三时点值)",
+        "role": "资产端调整项"
+    },
+    "H41_WUDSHO": {
+        "id": "WUDSHO", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "证券持有未摊销折价(周三时点值, 负数)",
+        "role": "资产端调整项"
+    },
+    "H41_WGCAL": {
+        "id": "WGCAL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "黄金证书账户(周三时点值)",
+        "role": "资产端其他项"
+    },
+    "H41_WABPL": {
+        "id": "WABPL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "银行房产(周三时点值)",
+        "role": "资产端其他项"
+    },
+    "H41_WLCFLL": {
+        "id": "WLCFLL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "贷款总额(周三时点值)",
+        "role": "资产端信贷项"
+    },
+    "H41_WLCFLPCL": {
+        "id": "WLCFLPCL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "贴现窗口主信贷贷款(周三时点值)",
+        "role": "资产端信贷项"
+    },
+    "H41_SWPT": {
+        "id": "SWPT", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "央行流动性互换(周三时点值)",
+        "role": "资产端其他项"
+    },
+    "H41_WFCDA": {
+        "id": "WFCDA", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "外币计价资产(周三时点值)",
+        "role": "资产端其他项"
+    },
+
+    "H41_WLTLECL": {
+        "id": "WLTLECL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "负债总额(周三时点值)",
+        "role": "负债端总量"
+    },
+    "H41_WLFN": {
+        "id": "WLFN", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "美联储券净额(周三时点值)",
+        "role": "负债端流通货币"
+    },
+    "H41_WCICL": {
+        "id": "WCICL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "流通中货币(周三时点值)",
+        "role": "负债端流通货币"
+    },
+    "H41_WLRRAL": {
+        "id": "WLRRAL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "逆回购协议总额(周三时点值)",
+        "role": "负债端RRP"
+    },
+    "H41_WLRRAFOIAL": {
+        "id": "WLRRAFOIAL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "逆回购协议:外国官方与国际账户(周三时点值)",
+        "role": "负债端RRP分项"
+    },
+    "H41_WLRRAOL": {
+        "id": "WLRRAOL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "逆回购协议:其他(含ON RRP, 周三时点值)",
+        "role": "负债端RRP分项"
+    },
+    "H41_WLDLCL": {
+        "id": "WLDLCL", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "存款总额(周三时点值)",
+        "role": "负债端存款总量"
+    },
+    "H41_TERMT": {
+        "id": "TERMT", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "存款机构定期存款(周三时点值)",
+        "role": "负债端存款分项"
+    },
+    "H41_WLAD": {
+        "id": "WLAD", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "其他负债与应计股息(周三时点值, 可为负)",
+        "role": "负债端其他"
+    },
+    "H41_WLDACLC": {
+        "id": "WLDACLC", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "递延可用现金项目(周三时点值)",
+        "role": "负债端其他"
+    },
+    "H41_TCCF": {
+        "id": "H41RESH4ENWW", "freq": "weekly", "data_type": "balance", "unit": "M USD",
+        "desc": "财政部对信贷便利的出资(周三时点值, 2020-2022 有余额)",
+        "role": "负债端其他"
+    },
+
+    "H41_D1WLFOL": {"id": "D1WLFOL", "freq": "weekly", "data_type": "balance", "unit": "M USD", "desc": "外国官方存款:第1区(周三时点值)", "role": "外国官方存款分区"},
+    "H41_D2WLFOL": {"id": "D2WLFOL", "freq": "weekly", "data_type": "balance", "unit": "M USD", "desc": "外国官方存款:第2区(周三时点值)", "role": "外国官方存款分区"},
+    "H41_D3WLFOL": {"id": "D3WLFOL", "freq": "weekly", "data_type": "balance", "unit": "M USD", "desc": "外国官方存款:第3区(周三时点值)", "role": "外国官方存款分区"},
+    "H41_D4WLFOL": {"id": "D4WLFOL", "freq": "weekly", "data_type": "balance", "unit": "M USD", "desc": "外国官方存款:第4区(周三时点值)", "role": "外国官方存款分区"},
+    "H41_D5WLFOL": {"id": "D5WLFOL", "freq": "weekly", "data_type": "balance", "unit": "M USD", "desc": "外国官方存款:第5区(周三时点值)", "role": "外国官方存款分区"},
+    "H41_D6WLFOL": {"id": "D6WLFOL", "freq": "weekly", "data_type": "balance", "unit": "M USD", "desc": "外国官方存款:第6区(周三时点值)", "role": "外国官方存款分区"},
+    "H41_D7WLFOL": {"id": "D7WLFOL", "freq": "weekly", "data_type": "balance", "unit": "M USD", "desc": "外国官方存款:第7区(周三时点值)", "role": "外国官方存款分区"},
+    "H41_D8WLFOL": {"id": "D8WLFOL", "freq": "weekly", "data_type": "balance", "unit": "M USD", "desc": "外国官方存款:第8区(周三时点值)", "role": "外国官方存款分区"},
+    "H41_D9WLFOL": {"id": "D9WLFOL", "freq": "weekly", "data_type": "balance", "unit": "M USD", "desc": "外国官方存款:第9区(周三时点值)", "role": "外国官方存款分区"},
+    "H41_D10WLFOL": {"id": "D10WLFOL", "freq": "weekly", "data_type": "balance", "unit": "M USD", "desc": "外国官方存款:第10区(周三时点值)", "role": "外国官方存款分区"},
+    "H41_D11WLFOL": {"id": "D11WLFOL", "freq": "weekly", "data_type": "balance", "unit": "M USD", "desc": "外国官方存款:第11区(周三时点值)", "role": "外国官方存款分区"},
+    "H41_D12WLFOL": {"id": "D12WLFOL", "freq": "weekly", "data_type": "balance", "unit": "M USD", "desc": "外国官方存款:第12区(周三时点值)", "role": "外国官方存款分区"}
 }

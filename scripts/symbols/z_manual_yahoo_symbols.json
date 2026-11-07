@@ -124,5 +124,26 @@
         "unit": "USD",
         "freq": "daily",
         "comment": "NVIDIA 是 AI 领军企业，关注 AI 技术和数据隐私。"
+    },
+    "TLT": {
+        "ticker": "TLT",
+        "desc": "iShares 20+ 年美债 ETF（长期国债久期代表）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "20 年以上久期美债 ETF，宏观状态四变量中的长端利率维度。实测 Yahoo 自 2002-07-30 起有完整日线（ETF 成立 2002-07-22）。"
+    },
+    "Russell2000": {
+        "ticker": "^RUT",
+        "desc": "罗素 2000 小盘股指数（2000 家美国小市值公司）",
+        "unit": "Index",
+        "freq": "daily",
+        "comment": "小盘股风险偏好代表，用于与 S&P 500 做相对强弱。Yahoo 对该索引无历史深度限制，实测自 1987-09-10 指数基期起有完整日线。"
+    },
+    "IWM": {
+        "ticker": "IWM",
+        "desc": "iShares 罗素 2000 ETF（小盘股可交易载体）",
+        "unit": "USD",
+        "freq": "daily",
+        "comment": "跟踪 ^RUT 的 ETF，含成交量，用于校验指数走势与流动性。实测自 2000-05-26 起有完整日线。"
     }
 }
