@@ -7,7 +7,7 @@
 | 基线报告 | `docs/review/2026-11-05-full-audit.md`（下称"上轮报告"） |
 | 审计性质 | 只读审计；未修改源码、未改数据、未重置 checkpoint、未重新采集 |
 | 唯一交付 | 本文件 |
-| 最终判定 | **NOT READY**（审计时基线：G1/G2/G3/G4/G6/G7 六道门禁为红，G5 部分失效）；**当前修复进度见 §0.3 与 §17**（G1–G6 已转绿，仅 G7 未关闭） |
+| 最终判定 | **READY**（2026-11-07 修复完成：G1–G7 全部通过；审计基线时的 6 道红门禁已逐项关闭；已知限制与未验证项见 §16） |
 
 > 本报告对基线报告的所有"已修复"结论做了独立复核。复核方式：回读源码 + 跑既有测试 + 只读查询 canonical/derived 数据。**凡报告与代码不一致处，以代码与数据为准。**
 
@@ -15,9 +15,11 @@
 
 ## 0. 结论速览
 
-### 0.1 总体判定：NOT READY
+### 0.1 总体判定：READY（门禁通过 ≠ 无已知问题）
 
 上轮报告判定 READY（G1–G7 全 ✅）。本次复核结论不同：**上轮关闭的项大部分在旧代码路径上确实已修复，但本轮新增的第 14 个连接器（`nyfed`）与准备金模型、可视化站点把同一批不变量重新打穿了。** 这不是"文档改口径"的问题，而是新增代码没有接入既有门禁。
+
+经 2026-11-07 的第 1–7 批修复、G6 入库收尾与 G7 文档闭合，**G1–G7 现已全部通过**，最终判定改为 **READY**。原始 NOT READY 判定针对的是修复前基线；当前结论以 §12.1 的实测门禁表为准。READY 表示交付门禁通过，**不表示没有开放项**——已知限制、未验证项与非阻断的 M/L 级问题仍列在 §16。
 
 三个最关键的结论：
 
@@ -50,7 +52,7 @@
 | G4 静默丢失 | ✅ 绿（第 2 批方案 B 关闭） | 行单位改为连接器声明，14 个连接器逐一覆盖；取消声明即拒绝执行；错误声明触发门禁；合法空批不误报 |
 | G5 约束核验 | ✅ 绿（第 7 批关闭） | 准备金 PIT（H-N3，第 3 批）、发布时刻（H-N1/H-N2，第 4 批）、TGA 区间口径（H-N4，第 6 批：历史残差分位 + 下沿 0 截断）、区间标注（M-N2，第 7 批）、恒等式覆盖度（M-N1，第 7 批）均已修复。保留一条已知限制：TGA 残差校准与评估同源，属样本内覆盖 |
 | G6 版本库 | ✅ 绿（2026-11-07 推送后关闭） | 工作区干净；普通 `git push` 推送 `862d1df..0f061a6` 共 11 个提交（积压 9 + 本轮 2）；`main` = `origin/main` = `0f061a6`，ahead/behind 均为 0 |
-| G7 文档一致 | ❌ 红 | README 源数已修为 14；但新增连接器/模型/站点仍无设计文档，`visualization/README.md` 与站点仍互相矛盾（M-N5） |
+| G7 文档一致 | ✅ 绿（2026-11-07 文档闭合） | M-N5：站点 README 以代码为准改为 18 卡片/18 容器/3 Dashboard，删除"准备金预测缺失"过期项；M-N6：index 版本号 0.1.1→0.1.2、PIT 改为 release/revision 截断；补建 D04 §1.1/§4.14/§5、D06 §3.1、D11、arch 05 §8；删除 DGS5 死字段 |
 
 ### 0.4 相对上一次审计的变化
 
@@ -317,7 +319,7 @@ uv run python scripts/backfill_datasets.py --sources nyfed --entities srf_usage 
 - **upsert**：自然键（含 `revision_time`）未变，新值覆盖旧值；storage 会记录漂移并保留最终修订。无旧值残留。
 - **checkpoint**：由窗口右界推进到 `2026-11-07T00:00:00`（`advance_chunks` 语义，不是 `checkpoint_from` 的数据最大日期）；本次重采前为 `2026-11-06T15:23:16`。
 
-**门禁影响**（第 1 批当时）：G4 的"SRF 污染"子项关闭；C-N2 当时尚未修。**现状态**：G4 已随第 2 批方案 B 整体转绿（见 §17），G3 亦已转绿；G1/G2/G6/G7 仍红。
+**门禁影响**（第 1 批当时）：G4 的"SRF 污染"子项关闭；C-N2 当时尚未修。**现状态**：G1–G7 已于后续批次全部转绿（见 §17），本条目不再是门禁阻断项。
 
 ---
 
@@ -1226,7 +1228,7 @@ HIGH。不是"图表问题"而是"模型区间语义问题"；即使把 y 轴改
 
 ## 12. 门禁判定（G1–G7）
 
-### 12.1 当前状态（2026-11-07 第 7 批后 + 推送，实测）
+### 12.1 当前状态（2026-11-07 第 7 批 + G6/G7 收尾后，实测）
 
 | 门禁 | 结果 | 证据 | 结论 |
 |---|---|---|---|
@@ -1236,9 +1238,9 @@ HIGH。不是"图表问题"而是"模型区间语义问题"；即使把 y 轴改
 | **G4 静默丢失** | ✅ | 行单位连接器声明（方案 B）+ 注入门禁（第 2 批） | 通过 |
 | **G5 约束核验** | ✅ | PIT（H-N3）、发布时刻（H-N1/H-N2）、TGA 区间口径（H-N4）、区间标注（M-N2）、恒等式覆盖度（M-N1）均已实现并有测试/实测。**保留说明**：TGA 残差校准与评估同源，属样本内覆盖，不能当独立 OOS | 通过（带一条已知限制） |
 | **G6 版本库** | ✅ | 工作区干净（`git status --short` 无输出）；2026-11-07 普通 `git push` 推送 `862d1df..0f061a6` 共 11 个提交（积压 9 + 本轮 2）；`HEAD` = `origin/main` = `0f061a6cf558…`；`git log origin/main..HEAD` 与 `git log HEAD..origin/main` 均为 0 条 | 通过 |
-| **G7 文档一致** | ❌ | README 源数已对齐 14；新增连接器/模型/站点仍无设计文档；`visualization/README.md` 与站点互相矛盾（M-N5） | 不通过 |
+| **G7 文档一致** | ✅ | M-N5：`visualization/README.md` 按代码改为 18 卡片/18 图表容器/3 Dashboard，删除"准备金预测缺失"过期项；M-N6：`index.html` 版本号 0.1.1→0.1.2、PIT 表述改为 `max(observation, release, revision)` 截断。补建 D04 §1.1/§4.14/§5、D06 §3.1、D11、arch 05 §8；DGS5 死字段 `missing_tenor` 删除 | 通过 |
 
-**当前判定：NOT READY。** G1–G6 已全部通过；仅 G7（设计文档缺失、站点 README 与实现矛盾）未关闭。
+**当前判定：READY。** G1–G7 全部通过。门禁通过不等于无问题：已知限制、未验证项与仍开放的 M/L 级问题见 §16。
 
 **G6 剩余项明细（2026-11-07 推送后）**：
 
@@ -1361,26 +1363,33 @@ uv run python scripts/reserve_forecast.py check
 | P0 | C-N2 nyfed 门禁 | `_payload_units` 支持 `repo.operations` / `soma.summary`，或连接器接 `note_skip`；`checkpoint_from` 优先用 normalize 结果 |
 | P0 | H-N5/G1 | 修 `health()` 的 `_get_json` 调用；清 `E501` |
 | P0 | H-N8/G6 | ✅ 已关闭：积压 9 个提交 + 本轮 2 笔入库（`862d1df..0f061a6`，共 11 个提交）已全部推送，工作区干净且与 `origin/main` 同步 |
+| P0 | G7/H-N9 | ✅ 已关闭：M-N5/M-N6 判定与修正、补建架构/设计文档、DGS5 死字段清理（`f8d49c5`…`2973752`、`2fc01e7`） |
 | P1 | H-N1 调度 | `update_schedule` 增加 `nyfed` 的 SOMA 周四发布时刻与 SRF 操作后时刻 |
 | P1 | H-N3 PIT | `_load_number_series`/`load_soma` 读取 `release_time`，按 `release_time <= as_of` 截断 |
 | P1 | H-N4 TGA 区间 | ✅ 第 6 批已做：按 horizon 历史残差分位 + 下沿 0 截断；`chart5` 轴自适应 |
-| P1 | H-N6/H-N7/H-N9 | 更新 CLI/README 到 14 源；补 nyfed fixture + fetch→normalize 契约测试；补新增子系统文档 |
+| P1 | H-N6/H-N7/H-N9 | ✅ 已关闭：CLI/README 对齐 14 源（第 5 批）；nyfed fixture + fetch→normalize 契约（第 2 批）；新增子系统文档（G7：D04/D06/D11/arch 05） |
 | P2 | M-N1–M-N4 | ✅ M-N1/M-N2 已做（第 7 批：删除两条派生恒等式 + `joint` 改边际标注）；M-N3 原子写、M-N4 renderer try/catch 待做 |
-| P2 | M-N5–M-N10 | 同步站点 README/index 方法学声明；接入调度；补测试 |
+| P2 | M-N5–M-N10 | ✅ M-N5/M-N6（站点与 index 方法学声明）、M-N8/M-N9/M-N10 已关闭；**仍开放**：M-N3 原子写、M-N4 renderer try/catch、M-N7 |
 | P3 | L-N1–L-N9 | 清理注释、docstring、dev 依赖 |
 
 ---
 
 ## 16. 最终判定
 
-**NOT READY（截至 G6 入库收尾 + 推送，2026-11-07）。**
+**READY（G1–G7 全部通过，2026-11-07）。**
 
-- **已关闭**：C-N1/C-N2（CRITICAL 全部）、H-N1/N2/N3/N4/N5/N6/N7、M-N1/N2/N8/N9/N10、L-N1/N2/N6/N7。G1–G6 六道门禁转绿；全量 `2112 passed`，`mypy src`/`ruff` 零错误；G6 卫生批次与结尾两笔入库共 11 个提交已推送（`862d1df..0f061a6`，`main` 与 `origin/main` 同步、无 ahead/behind）。
-- **仍红**：
-  - **G7 文档一致**：README 源数已对齐 14，但 `nyfed` 连接器、`reserve-structural` 模型与 `visualization/` 站点仍无设计文档，站点 README 与实现互相矛盾（M-N5/M-N6）。
-- **G5 的已知限制（不因此降级，但不得扩大宣传）**：TGA 区间分位与 `tga_backtest` 用同一批 walk-forward 残差，属**样本内**覆盖；准备金的边际带未做跨 horizon 同时覆盖校正，站点已如实标注。
-- **不能判 READY 的理由**：仅剩 G7 文档缺口——"当前工作区可否作为交付基线"在代码与版本库层面已成立，但新增子系统仍无设计文档、站点说明与实现矛盾，交付基线仍需文档闭合。测试与静态检查转绿不改变这一点。
-- **下一步建议**：先处理 G7（补 `docs/architecture`/`docs/design` 与站点 README，按批准范围推进），再清理剩余 M-N3–M-N7 与 L 级项。G7 关闭前不判 READY。
+- **门禁结果**：G1 静态质量、G2 测试（`2112 passed`）、G3 契约测试、G4 静默丢失、G5 约束核验、G6 版本库、G7 文档一致——七道全部 ✅。G6 的闭环依据是工作区干净 + 与 `origin/main` 同步（`862d1df..0f061a6`）；G7 的依据是 M-N5/M-N6 判定与修正、补建 D04/D06/D11/arch 05、以及 DGS5 死字段清理（`f8d49c5`…`2973752`、`2fc01e7`）。
+- **已关闭的审计项**：C-N1/C-N2、H-N1–H-N9、M-N1/M-N2/M-N5/M-N6/M-N8/M-N9/M-N10、L-N1/L-N2/L-N6/L-N7。
+- **仍然开放的项（不影响门禁，但不抹掉）**：
+  - M-N3：派生写出的原子替换未覆盖全部路径；
+  - M-N4：可视化 renderer 缺统一 try/catch，单图异常可能中断后续渲染；
+  - M-N7：其余 L 级注释/文档瑕疵（见 §5）。
+- **已知限制（READY 不等于"没有问题"）**：
+  1. **G5 样本内覆盖**：TGA 区间分位与 `tga_backtest` 用同一批 walk-forward 残差，不是独立 OOS；准备金误差带为逐 horizon 边际分位，未做跨 horizon 联合覆盖校正，站点已如实标注（M-N2）。
+  2. **D11 模型限制**：canonical 单版本存储，回测 `actual` 是最终修订值，PIT 只保证"不看到未发布数据"；结构分解是持有假设而非行为模型；SOMA 交叉校验容差 1.0 USD 百万。
+  3. **未验证**：nyfed 的 release/revision 时刻（SRF 操作日 22:00 UTC、SOMA 次日 23:59:59）来自连接器常量，未与 NY Fed 官方发布页二次核对；若官方时刻调整，需同步 `nyfed.py` 与 D04 §4.14。
+  4. **L-N9 环境可复现性**：G2 的官方命令 `uv run pytest -q` 在未安装 pytest/hypothesis 的环境不可直接复现，本轮始终以 `uv run --with pytest --with pytest-asyncio --with hypothesis` 跑通。
+- **一句话**：代码与版本库可作为交付基线，文档已闭合到实现；上述开放项与已知限制仍需在后续迭代处理，不应因 READY 而忽略。
 
 ---
 
@@ -1397,6 +1406,7 @@ uv run python scripts/reserve_forecast.py check
 | 第 7 批 | M-N1 恒等式冗余 + M-N2 `joint` 标注 | ✅ 完成（已提交 `4521804` 并推送） | **G5 转绿**；G6 因未跟踪资产仍红 |
 | G6 卫生 | 生成物分离 + 8 项该入库资产 + 9 项跨线改动判归属 | ✅ 完成（8 个提交 `e7b33c4`…`d867c7b`；随 `862d1df..0f061a6` 一并推送） | 工作区干净 |
 | G6 入库收尾 | 溯源文本 49 页 + 5 全文、4 份报告快照、`.gitignore` 显式放行 | ✅ 完成（`8630758` 55 文件、`0f061a6` 4 文件，已推送） | **G6 转绿**（工作区干净、与 `origin/main` 同步） |
+| G7 文档闭合 | 站点 README/index 判定与修正 + arch/design 文档补建 + DGS5 死字段清理 | ✅ 完成（`f8d49c5`…`2973752` 5 笔 + `2fc01e7`） | **G7 转绿；G1–G7 全绿 → READY** |
 
 ### 第 1 批改动清单（已提交 `4ab246a`）
 
@@ -1626,6 +1636,23 @@ uv run mypy src                                  # Success: no issues found in 8
 - `fdam_attention.py` 的 18 行改动的语义是纯字体配置：`matplotlib.rcParams["font.family"]` 改为按候选族探测，`fontweight` 从 `bold` 改 `600`（PingFang SC 无 700 字重，会触发 findfont 回退告警）。**未改动任何计算逻辑**，已逐行核对 diff。
 - 符号表仅新增登记项（132 条 FRED H41_*、21 条 yahoo），不触发抓取，JSON 可解析；唯一删除 1 行是原占位项替换。
 - `docs/USD_Liquidity` 的分离结果：`assets/js/data.js`、`data/knowledge_points.json`、`data/coverage_matrix.json` 为构建产物 → 忽略；`reports/` 4 份与 `sources/extraction_records/*/page_*.txt` 49 份 + 5 份 `fulltext_layout.txt` 均为应有资产，**已在本轮以显式 `.gitignore` 例外入库**（`8630758`、`0f061a6`），不依赖 `git add -f`。最终状态：知识库源数据、溯源文本、报告快照全部纳入版本库，仅 3 个构建产物保持忽略。
+
+### G7 文档闭合改动清单（2026-11-07，6 个提交）
+
+| 提交 | hash | 文件 | 统计 | 说明 |
+|---|---|---|---|---|
+| `docs(architecture): 补 row_units 契约与可视化只读展示层边界` | `f8d49c5` | `docs/architecture/02-module-boundaries.md`、`05-data-pipeline.md` | 2 files, +20/−1 | row_units 必实现要求；展示层数据流与源/生成物边界；模块清单对齐 14 源 |
+| `docs(design): 补行单位门禁、nyfed 双端点与准备金模型设计` | `cdc7d6b` | `docs/design/04-connectors.md`、`06-quality.md`、`11-reserve-model.md`（新增） | 3 files, +149/−4 | D04 §1.1/§4.14/§5；D06 §3.1；D11 模型全文 |
+| `docs(usd-liquidity): 修正可视化站点说明与模型版本标注` | `489eea6` | `visualization/README.md`、`index.html` | 2 files, +54/−28 | M-N5/M-N6 修正 |
+| `docs(design): 修正 treasury_refunding 阶段标注为已实现` | `c8578ff` | `04-connectors.md` | 1 file, +1/−1 | 代码已有 fetch/normalize 且在 `DEFAULT_SOURCES` |
+| `docs(design): 修正 nyfed fixture 路径与样例清单` | `2973752` | `04-connectors.md` | 1 file, +2/−2 | 实际路径为 `repo_results/`、`soma_summary/`，无"两个 SOMA 快照" |
+| `chore(visualization): 移除未接线的 missing_tenor 遗留字段` | `2fc01e7` | `visualization/export_data.py`、`README.md` | 2 files, +1/−2 | 死字段清理 |
+
+**M-N5 / M-N6 判定**：
+
+- **M-N5：以代码为准，README 过期。** `index.html` 顶部为「18 张图 · 3 张 Dashboard」，`app.js` 的 `PANE_CHARTS` 与 18 个 `id="chart*"` 一致（`chart8b` 为副图，卡 15 无图表容器）；README 的「16 张图」是扩张前旧值。图 16 的准备金数据也已由 `derived/reserve_forecast*` 提供（`export_data.py::load_reserve_forecast` + `app.js::renderers.chart16`），README 的"缺失"项过期。
+- **M-N6：批 7 后代码已正确，index 仅剩文案偏差。** 「逐 horizon 边际」与 `_config().band` 一致；残留是版本号 `0.1.1` 与 `MODEL_VERSION = "reserve-structural-0.1.2"` 不符，以及 PIT 写法过宽，均已改。
+- **DGS5 清理范围**：`compute_yield_curve()` 只删 `"missing_tenor": "DGS5"` 一行；`tenor_years`/`tenor_labels` 是收益率曲线的真实列（无 5Y 列），不是为该字段准备的；repo 内 grep 无其他消费方。**如实说明**：`index.html` 卡 10、图例与总览缺失清单里有**硬编码**的 DGS5 缺失文案（不是由该字段驱动），因此"界面从没实现过"只对"字段驱动"成立；本轮未删这些静态文案，因为它们陈述的事实正确（源端无 DGS5、用 20Y 补位）。
 
 ### G4 行单位覆盖表（✅ 17 个形状全部声明、15 个形状注入验证，第 2 批方案 B）
 
