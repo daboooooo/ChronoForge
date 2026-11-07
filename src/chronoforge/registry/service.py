@@ -128,6 +128,12 @@ DEFAULT_SOURCES: tuple[SourceSpec, ...] = (
         {"req_per_min": 6},
         "财政部季度再融资公告（借款估计 + 现金余额假设；HTML 新闻稿）",
     ),
+    SourceSpec(
+        "nyfed", "Federal Reserve Bank of New York Markets Data API", "PUBLIC",
+        "https://markets.newyorkfed.org",
+        {"req_per_min": 60},
+        "纽约联储公开市场操作结果 API（免费无 key；SRF 每日用量）",
+    ),
 )
 
 _UPSERT_SOURCE_SQL = """

@@ -125,6 +125,11 @@ def build_connector(
         from chronoforge.connectors.alternative import AlternativeConnector
 
         return AlternativeConnector(settings=settings)
+    if source_id == "nyfed":
+        # 公开免费源（无 key）：NY Fed Markets Data API（SRF 用量）
+        from chronoforge.connectors.nyfed import NYFedConnector
+
+        return NYFedConnector(settings=settings)
     if source_id == "coinmetrics":
         # 公开免费源（社区层无 key）；付费层可选（COINMETRICS_API_KEY）
         from chronoforge.connectors.coinmetrics import CoinMetricsConnector
