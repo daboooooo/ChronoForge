@@ -81,7 +81,7 @@ uv run scripts/backfill_datasets.py --sources nyfed --start 2021-07-29
 
 ## 缺失项（如实声明）
 
-- **DGS5**：源端 `fred_series_DGS5` 未接入；收益率曲线用 `DGS20` 补位，缺失事实由 `export_data.py` 写入 `payload.yield_curve.missing_tenor = "DGS5"`。**待办**：`app.js` / `index.html` 目前未读取该字段在页面上显式标注（旧 README 写的"图 10 标注"在 UI 中不存在），需补一处文案或图例——属实现改动，本轮按约束未动。
+- **DGS5**：源端 `fred_series_DGS5` 未接入；收益率曲线用 `DGS20` 补位，不做插值、不做估算。
 - 准备金预测此前列为缺失项（图 16 "数据待补充"），现已由 `scripts/reserve_forecast.py` 产出，图 16 有完整渲染路径（`app.js::renderers.chart16`）。
 
 缺失序列不使用替代值、估算值或占位数值。

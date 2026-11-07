@@ -627,7 +627,6 @@ def compute_yield_curve(curve: pd.DataFrame, tips: pd.Series) -> dict[str, Any]:
         "dates": [d.strftime("%Y-%m-%d") for d in monthly.index],
         "values": values,
         "tips10": [None if pd.isna(x) else round(float(x), 3) for x in tips_m.values],
-        "missing_tenor": "DGS5",
     }
 
 
