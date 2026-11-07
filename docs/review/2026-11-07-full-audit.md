@@ -7,7 +7,7 @@
 | 基线报告 | `docs/review/2026-11-05-full-audit.md`（下称"上轮报告"） |
 | 审计性质 | 只读审计；未修改源码、未改数据、未重置 checkpoint、未重新采集 |
 | 唯一交付 | 本文件 |
-| 最终判定 | **NOT READY**（审计时基线：G1/G2/G3/G4/G6/G7 六道门禁为红，G5 部分失效）；**当前修复进度见 §0.3 与 §17**（G3/G4 已转绿） |
+| 最终判定 | **NOT READY**（审计时基线：G1/G2/G3/G4/G6/G7 六道门禁为红，G5 部分失效）；**当前修复进度见 §0.3 与 §17**（G1–G6 已转绿，仅 G7 未关闭） |
 
 > 本报告对基线报告的所有"已修复"结论做了独立复核。复核方式：回读源码 + 跑既有测试 + 只读查询 canonical/derived 数据。**凡报告与代码不一致处，以代码与数据为准。**
 
@@ -48,8 +48,8 @@
 | G2 测试 | ✅ 绿（第 5 批关闭） | `2111 passed`（第 1–6 批新增用例全绿） |
 | G3 契约测试 | ✅ 绿（第 2 批关闭） | nyfed 已补真实形状 fixture + fetch→normalize 全链路 + 负向用例 |
 | G4 静默丢失 | ✅ 绿（第 2 批方案 B 关闭） | 行单位改为连接器声明，14 个连接器逐一覆盖；取消声明即拒绝执行；错误声明触发门禁；合法空批不误报 |
-| G5 约束核验 | ⚠️ 部分恢复 | 准备金 PIT（H-N3，第 3 批）、发布时刻（H-N1/H-N2，第 4 批）、TGA 区间口径（H-N4，第 6 批：历史残差分位 + 下沿 0 截断）已修复；"联合 90%"标注（M-N2）仍开放 |
-| G6 版本库 | ❌ 红 | 第 5 批已提交 `a9b9b95`；第 6 批改动未提交；`register_nyfed_datasets.py`/`visualization/`/`docs/USD_Liquidity/` 未跟踪；领先 origin 57 个提交 |
+| G5 约束核验 | ✅ 绿（第 7 批关闭） | 准备金 PIT（H-N3，第 3 批）、发布时刻（H-N1/H-N2，第 4 批）、TGA 区间口径（H-N4，第 6 批：历史残差分位 + 下沿 0 截断）、区间标注（M-N2，第 7 批）、恒等式覆盖度（M-N1，第 7 批）均已修复。保留一条已知限制：TGA 残差校准与评估同源，属样本内覆盖 |
+| G6 版本库 | ✅ 绿（2026-11-07 推送后关闭） | 工作区干净；普通 `git push` 推送 `862d1df..0f061a6` 共 11 个提交（积压 9 + 本轮 2）；`main` = `origin/main` = `0f061a6`，ahead/behind 均为 0 |
 | G7 文档一致 | ❌ 红 | README 源数已修为 14；但新增连接器/模型/站点仍无设计文档，`visualization/README.md` 与站点仍互相矛盾（M-N5） |
 
 ### 0.4 相对上一次审计的变化
@@ -797,7 +797,7 @@ FAILED tests/unit/test_cli.py::TestRegistryCommands::test_list_sources_json
 
 ---
 
-### H-N8. G6 红：新增代码全部未提交，且分支落后远端 52 个提交 ✅ 已核实
+### H-N8. G6 红：新增代码全部未提交，且分支落后远端 52 个提交 ✅ 已核实 → ✅ 已关闭（2026-11-07 推送后）
 
 见 §2.1。尤其：
 - `nyfed.py`、`reserve_forecast.py`、`register_nyfed_datasets.py`、`visualization/`、`docs/USD_Liquidity/` 全部 `??`；
@@ -1235,17 +1235,18 @@ HIGH。不是"图表问题"而是"模型区间语义问题"；即使把 y 轴改
 | **G3 契约测试** | ✅ | nyfed 真实形状 fixture + fetch→normalize 全链路 + 负向用例（第 2 批） | 通过 |
 | **G4 静默丢失** | ✅ | 行单位连接器声明（方案 B）+ 注入门禁（第 2 批） | 通过 |
 | **G5 约束核验** | ✅ | PIT（H-N3）、发布时刻（H-N1/H-N2）、TGA 区间口径（H-N4）、区间标注（M-N2）、恒等式覆盖度（M-N1）均已实现并有测试/实测。**保留说明**：TGA 残差校准与评估同源，属样本内覆盖，不能当独立 OOS | 通过（带一条已知限制） |
-| **G6 版本库** | ❌ | 工作区已干净（`git status` 无输出）；G6 卫生批次 8 个提交（`e7b33c4`…`d867c7b`）**尚未推送**，`origin/main` 落后本分支 8 个提交 | 待推送后复判 |
+| **G6 版本库** | ✅ | 工作区干净（`git status --short` 无输出）；2026-11-07 普通 `git push` 推送 `862d1df..0f061a6` 共 11 个提交（积压 9 + 本轮 2）；`HEAD` = `origin/main` = `0f061a6cf558…`；`git log origin/main..HEAD` 与 `git log HEAD..origin/main` 均为 0 条 | 通过 |
 | **G7 文档一致** | ❌ | README 源数已对齐 14；新增连接器/模型/站点仍无设计文档；`visualization/README.md` 与站点互相矛盾（M-N5） | 不通过 |
 
-**当前判定：NOT READY。** G1–G5 已全部通过；G6 的工作区问题已清零但 8 个提交待推送，G7 设计文档仍缺。
+**当前判定：NOT READY。** G1–G6 已全部通过；仅 G7（设计文档缺失、站点 README 与实现矛盾）未关闭。
 
-**G6 剩余项明细（2026-11-07 G6 卫生批次后）**：
+**G6 剩余项明细（2026-11-07 推送后）**：
 
 | 类别 | 内容 | 是否应有之物 |
 |---|---|---|
 | 未跟踪 | **无**（`git status --short` 无输出） | — |
 | 已修改 | **无** | — |
+| 待推送 | **无**（ahead = 0，behind = 0） | — |
 
 ### 12.2 审计基线（2026-11-07 修复前，留档）
 
@@ -1359,7 +1360,7 @@ uv run python scripts/reserve_forecast.py check
 | P0 | C-N1 SRF SVE | 在 `_normalize_rp` 增加 SVE 过滤（`note` 含 `Small Value Exercise (SVE)` 或 `operationId` 规则），并回溯重算 `srf_usage` canonical |
 | P0 | C-N2 nyfed 门禁 | `_payload_units` 支持 `repo.operations` / `soma.summary`，或连接器接 `note_skip`；`checkpoint_from` 优先用 normalize 结果 |
 | P0 | H-N5/G1 | 修 `health()` 的 `_get_json` 调用；清 `E501` |
-| P0 | H-N8/G6 | 已推送 59 个提交（`4b25613..4521804`）；站点其余 6 项、`register_nyfed_datasets.py`、`docs/USD_Liquidity/` 与 9 个非本任务改动仍待入库 |
+| P0 | H-N8/G6 | ✅ 已关闭：积压 9 个提交 + 本轮 2 笔入库（`862d1df..0f061a6`，共 11 个提交）已全部推送，工作区干净且与 `origin/main` 同步 |
 | P1 | H-N1 调度 | `update_schedule` 增加 `nyfed` 的 SOMA 周四发布时刻与 SRF 操作后时刻 |
 | P1 | H-N3 PIT | `_load_number_series`/`load_soma` 读取 `release_time`，按 `release_time <= as_of` 截断 |
 | P1 | H-N4 TGA 区间 | ✅ 第 6 批已做：按 horizon 历史残差分位 + 下沿 0 截断；`chart5` 轴自适应 |
@@ -1372,15 +1373,14 @@ uv run python scripts/reserve_forecast.py check
 
 ## 16. 最终判定
 
-**NOT READY（截至第 7 批 + 推送，2026-11-07）。**
+**NOT READY（截至 G6 入库收尾 + 推送，2026-11-07）。**
 
-- **已关闭**：C-N1/C-N2（CRITICAL 全部）、H-N1/N2/N3/N4/N5/N6/N7、M-N1/N2/N8/N9/N10、L-N1/N2/N6/N7。G1–G5 五道门禁转绿；全量 `2112 passed`，`mypy src`/`ruff` 零错误；第 6/7 批已推送（59 个提交，`main` 与 `origin/main` 同步）。
+- **已关闭**：C-N1/C-N2（CRITICAL 全部）、H-N1/N2/N3/N4/N5/N6/N7、M-N1/N2/N8/N9/N10、L-N1/N2/N6/N7。G1–G6 六道门禁转绿；全量 `2112 passed`，`mypy src`/`ruff` 零错误；G6 卫生批次与结尾两笔入库共 11 个提交已推送（`862d1df..0f061a6`，`main` 与 `origin/main` 同步、无 ahead/behind）。
 - **仍红**：
-  - **G6 版本库**：工作区已干净（无未跟踪、无未提交改动）；G6 卫生批次的 8 个提交尚未推送，`origin/main` 落后 8 个，推送后 G6 即可转绿。
   - **G7 文档一致**：README 源数已对齐 14，但 `nyfed` 连接器、`reserve-structural` 模型与 `visualization/` 站点仍无设计文档，站点 README 与实现互相矛盾（M-N5/M-N6）。
 - **G5 的已知限制（不因此降级，但不得扩大宣传）**：TGA 区间分位与 `tga_backtest` 用同一批 walk-forward 残差，属**样本内**覆盖；准备金的边际带未做跨 horizon 同时覆盖校正，站点已如实标注。
-- **不能判 READY 的理由**：G6 工作区未收敛、G7 文档缺口，两项都会让"当前工作区可否作为交付基线"的答案成为否；测试与静态检查转绿不改变这一点。
-- **下一步建议**：按归属提交站点其余文件与 `register_nyfed_datasets.py`（G6）→ 补 `docs/architecture`/`docs/design` 与站点 README（G7）→ 剩余 M-N3–M-N7 与 L 级清理。在 G6/G7 关闭前不判 READY。
+- **不能判 READY 的理由**：仅剩 G7 文档缺口——"当前工作区可否作为交付基线"在代码与版本库层面已成立，但新增子系统仍无设计文档、站点说明与实现矛盾，交付基线仍需文档闭合。测试与静态检查转绿不改变这一点。
+- **下一步建议**：先处理 G7（补 `docs/architecture`/`docs/design` 与站点 README，按批准范围推进），再清理剩余 M-N3–M-N7 与 L 级项。G7 关闭前不判 READY。
 
 ---
 
@@ -1395,7 +1395,8 @@ uv run python scripts/reserve_forecast.py check
 | 第 5 批 | H-N5/H-N6 静态与测试红 + 文档/源数对齐 | ✅ 完成（已提交 `a9b9b95`） | **G1、G2 转绿** |
 | 第 6 批 | H-N4 TGA 区间口径 + 图 5 轴硬编码 | ✅ 完成（已提交 `82397f8`） | G5 的区间子项关闭 |
 | 第 7 批 | M-N1 恒等式冗余 + M-N2 `joint` 标注 | ✅ 完成（已提交 `4521804` 并推送） | **G5 转绿**；G6 因未跟踪资产仍红 |
-| G6 卫生 | 生成物分离 + 8 项该入库资产 + 9 项跨线改动判归属 | ✅ 完成（8 个提交 `e7b33c4`…`d867c7b`，未推送） | 工作区干净；G6 待推送 |
+| G6 卫生 | 生成物分离 + 8 项该入库资产 + 9 项跨线改动判归属 | ✅ 完成（8 个提交 `e7b33c4`…`d867c7b`；随 `862d1df..0f061a6` 一并推送） | 工作区干净 |
+| G6 入库收尾 | 溯源文本 49 页 + 5 全文、4 份报告快照、`.gitignore` 显式放行 | ✅ 完成（`8630758` 55 文件、`0f061a6` 4 文件，已推送） | **G6 转绿**（工作区干净、与 `origin/main` 同步） |
 
 ### 第 1 批改动清单（已提交 `4ab246a`）
 
@@ -1579,7 +1580,7 @@ uv run mypy src                                  # Success: no issues found in 8
 
 **验证**：`2112 passed, 10 warnings`；`ruff` 零错误；`mypy src` Success（86 files）。
 
-### G6 卫生批次改动清单（2026-11-07，8 个提交，未推送）
+### G6 卫生批次与本轮入库改动清单（2026-11-07，11 个提交，已推送）
 
 | 提交 | hash | 文件 | 统计 | 归属 |
 |---|---|---|---|---|
@@ -1591,6 +1592,32 @@ uv run mypy src                                  # Success: no issues found in 8
 | `chore(deps): 增加 matplotlib 并刷新锁文件` | `dc9b7a1` | `pyproject.toml`、`uv.lock` | +402 | 研究绘图脚本依赖 |
 | `fix(scripts): 中文字体改为探测可用族，fontweight 用 600` | `d4b86c0` | `fdam_attention.py`、`plot_btc_etf_flow.py`、`plot_rates_2y_effr.py` | +54/−14 | 研究绘图脚本 |
 | `feat(symbols): 补充 H.4.1 序列与 TLT/IWM/^RUT` | `d867c7b` | `z_manual_fred_symbols.json`、`z_manual_yahoo_symbols.json` | +152/−1 | 符号表（支撑准备金模型与站点） |
+| `docs(audit): 记录 G6 卫生批次的 8 个提交与归属判断` | `936cf8b` | `docs/review/2026-11-07-full-audit.md` | 1 file, +28/−8 | 审计记录 |
+| `docs(usd-liquidity): 入库逐页提取记录并显式放行溯源文本` | `8630758` | `.gitignore`、49 个 `page_*.txt`、5 个 `fulltext_layout.txt` | 55 files, +3317 | 知识库溯源 |
+| `docs(usd-liquidity): 入库知识库报告快照并放行 reports 例外` | `0f061a6` | `docs/USD_Liquidity/reports/` 4 份报告 | 4 files, +154 | 知识库报告 |
+
+**`.gitignore` 例外规则（本轮决定：显式放行，不用 `-f` 绕过）**
+
+根 `.gitignore` 的 `data/`、`reports/`、`*.txt`、`*.png` 规则本意是忽略仓库根运行时状态与生成物，但会按路径/扩展名匹配到 `docs/USD_Liquidity/` 内的**应有资产**。处理方式是补显式取反规则，而不是靠一次性 `git add -f`：
+
+```gitignore
+# 知识库源数据：`data/` 规则本意是仓库根运行时数据，这里需显式放行
+!docs/USD_Liquidity/data/
+!docs/USD_Liquidity/data/*.json
+
+# 知识库溯源文本：`*.txt` 规则针对运行时数据，逐页提取记录是知识库的分层溯源证据
+!docs/USD_Liquidity/sources/extraction_records/**/*.txt
+
+# 知识库报告：全局 `reports/` 规则针对运行时生成物，这里是随库发布的报告快照
+!docs/USD_Liquidity/reports/
+!docs/USD_Liquidity/reports/*.md
+```
+
+- 先 `!` 放行目录、再放行目录内文件，因为 Git 无法重新包含被排除目录里的文件；
+- 取反规则必须位于忽略规则之后（本文件末尾），否则不生效；
+- **只用 `-f` 会让后续新增页面文本再次被静默挡掉**，所以规则写入 `.gitignore` 并随库维护；
+- 例外生效后 `git status --untracked-files=all` 暴露 59 项（54 个 `.txt` + 4 份报告 + `.gitignore`），总体积约 200K，无二进制、无大文件，故直接入库；
+- `fulltext_layout.txt` 与 `page_*.txt` 同属提取记录、共 100K，随同一条 `**/*.txt` 例外纳入；`coverage_report.md`/`quality_report.md` 是脚本当前快照，重跑后会显示为已修改，属预期。
 
 **归属判断与语义风险**：
 
@@ -1598,7 +1625,7 @@ uv run mypy src                                  # Success: no issues found in 8
 - `uv.lock` 变动 +401 行**全为新增**（matplotlib 及其依赖树），无既有版本改动，无锁文件语义风险。
 - `fdam_attention.py` 的 18 行改动的语义是纯字体配置：`matplotlib.rcParams["font.family"]` 改为按候选族探测，`fontweight` 从 `bold` 改 `600`（PingFang SC 无 700 字重，会触发 findfont 回退告警）。**未改动任何计算逻辑**，已逐行核对 diff。
 - 符号表仅新增登记项（132 条 FRED H41_*、21 条 yahoo），不触发抓取，JSON 可解析；唯一删除 1 行是原占位项替换。
-- `docs/USD_Liquidity` 的分离结果：`assets/js/data.js`、`data/knowledge_points.json`、`data/coverage_matrix.json` 为构建产物 → 忽略；`reports/` 由全局 `reports/` 规则忽略（其中 conflicts/unresolved 两篇属分析稿，本轮未强制入库，如需要应显式 `git add -f` 并说明）；`sources/extraction_records/*/page_*.txt` 是被全局 `*.txt` 规则挡住的溯源文本，本轮**未入库**（49 个文件、200K），留作待确认项。
+- `docs/USD_Liquidity` 的分离结果：`assets/js/data.js`、`data/knowledge_points.json`、`data/coverage_matrix.json` 为构建产物 → 忽略；`reports/` 4 份与 `sources/extraction_records/*/page_*.txt` 49 份 + 5 份 `fulltext_layout.txt` 均为应有资产，**已在本轮以显式 `.gitignore` 例外入库**（`8630758`、`0f061a6`），不依赖 `git add -f`。最终状态：知识库源数据、溯源文本、报告快照全部纳入版本库，仅 3 个构建产物保持忽略。
 
 ### G4 行单位覆盖表（✅ 17 个形状全部声明、15 个形状注入验证，第 2 批方案 B）
 
