@@ -55,15 +55,28 @@ quality:
 
 - 行级丢弃率（审计 A-8）：连接器逐行跳过（`note_skip`）不计入异常计数，而按
   `非白名单跳过行 / (返回行 + 跳过行 + 未上报行)` 计算；达到阈值 → `QualityError`，
-  run FAILED 且 checkpoint 不推进。合法跳过白名单（`LEGIT_SKIP_REASONS`：
-  未收盘 K 线 / 未冻结当日 / 待结算 / 源显式缺失 / 非目标账户 / 同观测键收敛）
-  不计入分子，白名单由 `tests/quality/test_normalize_drop_gate.py` 锁定。
+  run FAILED 且 checkpoint 不推进。合法跳过白名单（`LEGIT_SKIP_REASONS`，共 9 项：
+  `incomplete_bar` / `same_day_unfrozen` / `pending_settlement` / `source_missing_value` /
+  `non_target_account` / `same_observation_key` / `sve_test_operation` /
+  `non_overnight_operation` / `not_yet_published`）不计入分子，白名单由
+  `tests/quality/test_normalize_drop_gate.py` 锁定。
 - 与 C1 的口径边界：批次抛异常 → `failed_units`（错误率门禁）；正常返回但逐行
   跳过 → kept/skipped 比率（本门禁）；两套口径不重复计数。
 
 - 阻断 = QualityStage 抛 `QualityError` → run FAILED；已落盘 canonical **不回滚**（provenance 可追溯，重放修复）
 - SUSPECT/INVALID 写入记录的 quality_status/quality_reason（Q-RANGE-003 → SUSPECT；Q-SCHEMA-001 → INVALID 且该记录不写 canonical，仅 flag）
 - **Quarantine 语义（审计 F-08）**：INVALID 记录不写 canonical；事后定位 = raw 层原文（append-only 保留）+ quality_flags 行的 raw_ref（jsonl 路径+行号）与 payload_digest（sha256）；重处理路径：raw_ref → 原始 payload → 修复 normalize → replay（howto §21）
+
+### 3.1 行单位与双层门禁（审计 C-N2 方案 B）
+
+- **分母来源**：`connector.row_units(raw)` 是唯一来源（契约见 D04 §1.1）。runner 不再按 payload 形状猜测；未声明 → `QualityError`，run FAILED，checkpoint 不推进；`0` → 合法空批，跳过门禁；`None` → 以"产出 + 上报跳过"为分母，无法发现未上报丢弃。
+- **未上报行**：`unreported = row_units − kept − skipped`。`unreported > 0` 计入非法丢弃；`< 0` 视为声明错误 → `QualityError`。
+- **两层判定**（同一 chunk 内分别结算）：
+  - 错误率门禁（C1）：`failed_units / attempted_units > 0.10`（严格大于）→ `QualityError`；
+  - 丢弃率门禁（A-8）：`invalid_drops / (kept + skipped + unreported) >= 0.50`（大于等于）→ `QualityError`。
+- **chunk 边界**：统计按 chunk 累加，结算后清零，不跨 chunk 平均（避免大 chunk 掩盖小 chunk 的全丢）。
+- **配置键**：`quality.normalize_error_threshold` / `quality.normalize_drop_threshold`（`config/settings.py`），默认 `0.10` / `0.50`。
+- **验证**：`tests/quality/test_normalize_drop_gate.py` 覆盖"取消声明 / 错误行数 / 合法空批 / 纯白名单跳过"四类；`tests/e2e` 与 `tests/real_pipeline_harness.py` 对 14 个连接器逐一注入。
 
 ## 4. 数据质量测试（tests/quality/，对真实入库数据，架构 07 §1）
 

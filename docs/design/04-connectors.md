@@ -36,9 +36,18 @@ class DataConnector(Protocol):
     def normalize(self, raw: RawBatch) -> list[BaseRecord]: ...         # -> 具体子类
     def validate(self, records: list[BaseRecord]) -> "QualityReport": ...  # 委托 quality.rules
     def checkpoint_from(self, raw: RawBatch | records) -> str | None: ...
+    def row_units(self, raw: RawBatch) -> int | None: ...  # 行级丢弃门禁分母（见 §1.1）
 ```
 
 - connector **不落盘、不写库**（架构 02 边界规则 6）；`normalize` 输出必含 provenance 字段（raw_record_id 由 pipeline 注入回调 `raw_ref_provider`）
+
+### 1.1 `row_units` 契约（审计 C-N2 方案 B）
+
+- **唯一来源**：行单位只能由连接器声明，runner 不再按 payload 形状推断（避免每加一个源就改 runner）。
+- **返回值语义**：`int` = 该批次可归一化的候选行数，必须等于 `normalize` 的候选行数（产出 + 经 `normalize_stats.note_skip` 上报的跳过）；`0` = 源端确实无数据（合法空批，门禁不适用）；`None` = 无行级粒度的单文档源（门禁以"产出 + 上报跳过"为分母，无法发现未上报丢弃）。
+- **失败语义**：未实现（继承基类默认的 `NotImplementedError`）→ runner 抛 `QualityError` 并拒绝执行该 run，**不降级为 0**（降级会把"契约缺失"伪装成"无数据"）；返回负数同样 `QualityError`。
+- **实现位置**：`connectors/base.py` 默认实现 + 各连接器覆写；runner 侧消费点为 `pipeline/runner.py::_declared_row_units` 与 `NormalizeStage.execute`。
+- **门禁公式**见 D06 §3.1。
 
 ## 2. 限流器（connectors/ratelimit.py）
 
@@ -213,11 +222,35 @@ HTTP 映射：401/403→AuthError；429→RateLimitError；400/404/422→Provide
 | continuity_model | `EVENT_BASED` |
 | 阶段 | Phase 4（Phase 1 可先建骨架） |
 
+### 4.14 nyfed（PUBLIC，NY Fed Markets Data API）
+
+| 项 | 规格 |
+|---|---|
+| endpoints | `GET https://markets.newyorkfed.org/api/rp/results/search.json`（参数 `startDate` / `endDate` / `operationTypes=Repo`）；`GET /api/soma/summary.json`（API 无日期参数，连接器在 fetch 层裁剪到请求窗口） |
+| 数据集选择 | `params.endpoint`：`rp_results`（默认）→ SRF 每日用量；`soma_summary` → SOMA 持仓 9 分项 |
+| 注册数据集 | `nyfed_repo_srf_usage`（NUMBER / `srf_usage`，1d，`TRADING_CALENDAR`，available_from `2021-07-29`）；`nyfed_soma_holdings`（NUMBER / 9 个 `soma_*` entity，1W，`RELEASE_SCHEDULE`，available_from `2003-07-09`） |
+| SRF 口径 | 仅 `term == "Overnight"`；按 `operationDate` 汇总 `totalAmtAccepted`，单位 USD 原值。排除 `note` 含 `small value exercise`（不区分大小写）的 SVE 测试操作——SVE 也是 Overnight，且 `operationId` 尾号无辨识度 |
+| SOMA 字段 | `total` / `bills` / `notesbonds` / `frn` / `tips` / `tipsInflationCompensation` / `mbs` / `cmbs` / `agencies` → `soma_*`，USD 原值；缺失字段记合法跳过 `source_missing_value` |
+| 时间语义 | SRF：`observation_time` = 操作日 00:00，`release_time` = `revision_time` = 操作日 22:00 UTC（固定值，保证重拉幂等）；未到该时刻的源端占位行按 `not_yet_published` 跳过，不写占位 0（H-N2）。SOMA：`observation_time` = `asOfDate`（周三）00:00，`release_time` = `revision_time` = 次日 23:59:59 |
+| 行单位 | `repo.operations` / `soma.summary` 数组长度（端点分派） |
+| 跳过原因 | 合法：`sve_test_operation` / `non_overnight_operation` / `not_yet_published`（SOMA 另有 `source_missing_value`）；非法：`malformed_row` / `bad_operation_date` / `missing_amount` / `non_numeric_amount` / `negative_amount` / `bad_as_of_date` / `non_numeric_value` |
+| checkpoint | 只取能产出记录的最新观测日（排除 SVE / Term / 未发布 / 全缺 SOMA 行）；纯 SVE 日 → `None` |
+| 注册脚本 | `scripts/register_nyfed_datasets.py`（幂等 upsert，`--dry-run` 可用） |
+| 测试依据 | `tests/fixtures/nyfed/` 真实形状（SRF 三笔真实操作、纯 SVE 单行、混合畸形、SOMA 两个快照）+ fetch→normalize 契约 + row_units 注入验证 |
+
 ## 5. 注册表初始化
 
 `registry/service.py` 提供 `bootstrap_defaults()`：将 §4 各源规格写入 source_registry（含 license 摘要、rate_limit_json），幂等（ON CONFLICT UPDATE）。CLI `chronoforge registry sync` 暴露。
 
-当前 `DEFAULT_SOURCES` 共 **12 条**：`binance_spot` / `binance_futures` / `deribit` / `ccxt` / `yahoo` / `fred` / `sec_edgar` / `sosovalue` / `alternative` / `coinmetrics` / `coinmarketcap` / `treasury_fiscal`。`treasury_refunding` 计划 Phase 4 加入。
+当前 `DEFAULT_SOURCES` 共 **14 条**（`registry/service.py::DEFAULT_SOURCES`）：`binance_spot` / `binance_futures` / `deribit` / `ccxt` / `yahoo` / `fred` / `sec_edgar` / `sosovalue` / `alternative` / `coinmetrics` / `coinmarketcap` / `treasury_fiscal` / `treasury_refunding` / `nyfed`。
+
+数据集注册入口（各自幂等）：
+
+| 脚本 | 用途 |
+|---|---|
+| `scripts/register_symbols_in_json_files.py` | 由 `scripts/symbols/z_manual_*.json` 批量注册 symbols |
+| `scripts/register_nyfed_datasets.py` | 注册 `nyfed_repo_srf_usage`、`nyfed_soma_holdings`（`--dry-run` 打印计划） |
+| `chronoforge registry sync` | `bootstrap_defaults()`，写入/更新 source_registry |
 
 > **下线源不会自动清理**：`bootstrap_defaults` 是 upsert，已下线源的 `source_registry` 残留行需手工 `DELETE`（如 `livecoinwatch` 清理时即如此处理）。
 
@@ -232,3 +265,4 @@ HTTP 映射：401/403→AuthError；429→RateLimitError；400/404/422→Provide
 - deribit：instrument_name 解析全字段；过期合约 → SUSPECT 不 INVALID
 - fred：同 observation 两个 vintage → 两条记录共存
 - yahoo：split 事件 → 四元组 + adjustment_type 正确
+- nyfed：`tests/fixtures/nyfed/{rp_results,soma_summary}/*.json` 为真实形状；SRF 三笔真实操作 + 纯 SVE 单行 + 混合畸形；SOMA 两个真实快照。契约断言 SVE 被排除、`not_yet_published` 不产生记录、`row_units` 等于数组长度；注入验证覆盖"取消声明 → `QualityError` 且 checkpoint 不推进"与"错误行数 → 门禁失败"。
