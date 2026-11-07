@@ -220,7 +220,7 @@ HTTP 映射：401/403→AuthError；429→RateLimitError；400/404/422→Provide
 | 版本 | 同一 forecast period 的多次公告按 `revision_time` 追加，禁止覆盖；回测按 `publication_time <= cutoff` |
 | 失败 | 解析失败 → `Q-TGA-010` 告警并保留原文；不得用 LLM 猜数字写核心表 |
 | continuity_model | `EVENT_BASED` |
-| 阶段 | Phase 4（Phase 1 可先建骨架） |
+| 阶段 | 已实现（`connectors/treasury_refunding.py` 含 `fetch`/`normalize`，且在 `DEFAULT_SOURCES`；Phase 4 计划已落地） |
 
 ### 4.14 nyfed（PUBLIC，NY Fed Markets Data API）
 
