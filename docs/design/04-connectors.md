@@ -236,7 +236,7 @@ HTTP 映射：401/403→AuthError；429→RateLimitError；400/404/422→Provide
 | 跳过原因 | 合法：`sve_test_operation` / `non_overnight_operation` / `not_yet_published`（SOMA 另有 `source_missing_value`）；非法：`malformed_row` / `bad_operation_date` / `missing_amount` / `non_numeric_amount` / `negative_amount` / `bad_as_of_date` / `non_numeric_value` |
 | checkpoint | 只取能产出记录的最新观测日（排除 SVE / Term / 未发布 / 全缺 SOMA 行）；纯 SVE 日 → `None` |
 | 注册脚本 | `scripts/register_nyfed_datasets.py`（幂等 upsert，`--dry-run` 可用） |
-| 测试依据 | `tests/fixtures/nyfed/` 真实形状（SRF 三笔真实操作、纯 SVE 单行、混合畸形、SOMA 两个快照）+ fetch→normalize 契约 + row_units 注入验证 |
+| 测试依据 | `tests/fixtures/nyfed/` 真实形状：`repo_results/{happy,sve_only,mixed_malformed}.json`（happy 含三笔真实操作）+ `soma_summary/happy.json`；fetch→normalize 契约 + row_units 注入验证 |
 
 ## 5. 注册表初始化
 
@@ -265,4 +265,4 @@ HTTP 映射：401/403→AuthError；429→RateLimitError；400/404/422→Provide
 - deribit：instrument_name 解析全字段；过期合约 → SUSPECT 不 INVALID
 - fred：同 observation 两个 vintage → 两条记录共存
 - yahoo：split 事件 → 四元组 + adjustment_type 正确
-- nyfed：`tests/fixtures/nyfed/{rp_results,soma_summary}/*.json` 为真实形状；SRF 三笔真实操作 + 纯 SVE 单行 + 混合畸形；SOMA 两个真实快照。契约断言 SVE 被排除、`not_yet_published` 不产生记录、`row_units` 等于数组长度；注入验证覆盖"取消声明 → `QualityError` 且 checkpoint 不推进"与"错误行数 → 门禁失败"。
+- nyfed：`tests/fixtures/nyfed/{repo_results,soma_summary}/*.json` 为真实形状；`repo_results` 含 happy（三笔真实操作）、sve_only（纯 SVE 单行）、mixed_malformed；`soma_summary` 含 happy 快照。契约断言 SVE 被排除、`not_yet_published` 不产生记录、`row_units` 等于数组长度；注入验证覆盖"取消声明 → `QualityError` 且 checkpoint 不推进"与"错误行数 → 门禁失败"。
