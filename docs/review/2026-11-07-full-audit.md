@@ -1235,19 +1235,17 @@ HIGH。不是"图表问题"而是"模型区间语义问题"；即使把 y 轴改
 | **G3 契约测试** | ✅ | nyfed 真实形状 fixture + fetch→normalize 全链路 + 负向用例（第 2 批） | 通过 |
 | **G4 静默丢失** | ✅ | 行单位连接器声明（方案 B）+ 注入门禁（第 2 批） | 通过 |
 | **G5 约束核验** | ✅ | PIT（H-N3）、发布时刻（H-N1/H-N2）、TGA 区间口径（H-N4）、区间标注（M-N2）、恒等式覆盖度（M-N1）均已实现并有测试/实测。**保留说明**：TGA 残差校准与评估同源，属样本内覆盖，不能当独立 OOS | 通过（带一条已知限制） |
-| **G6 版本库** | ❌ | 第 6/7 批已推送（`4b25613..4521804`，59 个提交，`main...origin/main` 已同步、领先 0）；但工作区仍有 9 个非本任务改动 + 8 项未跟踪 | 不通过 |
+| **G6 版本库** | ❌ | 工作区已干净（`git status` 无输出）；G6 卫生批次 8 个提交（`e7b33c4`…`d867c7b`）**尚未推送**，`origin/main` 落后本分支 8 个提交 | 待推送后复判 |
 | **G7 文档一致** | ❌ | README 源数已对齐 14；新增连接器/模型/站点仍无设计文档；`visualization/README.md` 与站点互相矛盾（M-N5） | 不通过 |
 
-**当前判定：NOT READY。** G1–G5 已全部通过；卡在 G6（工作区仍有未提交改动与未跟踪资产）与 G7（设计文档缺口）。
+**当前判定：NOT READY。** G1–G5 已全部通过；G6 的工作区问题已清零但 8 个提交待推送，G7 设计文档仍缺。
 
-**G6 剩余项明细**：
+**G6 剩余项明细（2026-11-07 G6 卫生批次后）**：
 
 | 类别 | 内容 | 是否应有之物 |
 |---|---|---|
-| 未跟踪（应有，需入库） | `visualization/README.md`、`visualization/data.js`、`visualization/data.json`、`visualization/refresh.sh`、`visualization/styles.css`、`visualization/vendor/`（1.0M，仅 echarts） | **是**，站点源码与离线依赖 |
-| 未跟踪（应有，需入库） | `scripts/register_nyfed_datasets.py` | **是**，nyfed 数据集注册入口 |
-| 未跟踪（应有，先拆分） | `docs/USD_Liquidity/`（1.7M） | **是**，但需先确认其中报告/截图是否属生成物 |
-| 已修改（非本任务） | `pyproject.toml`（+matplotlib）、`uv.lock`、`scripts/fdam_attention.py`、`scripts/plot_btc_etf_flow.py`、`scripts/plot_rates_2y_effr.py`、`scripts/symbols/z_manual_{fred,yahoo}_symbols.json`、`src/chronoforge/cli/_wiring.py`、`src/chronoforge/registry/service.py`（共 +619/−15） | 属另一条工作线，**未纳入本批提交**，需由其作者确认后单独提交 |
+| 未跟踪 | **无**（`git status --short` 无输出） | — |
+| 已修改 | **无** | — |
 
 ### 12.2 审计基线（2026-11-07 修复前，留档）
 
@@ -1378,7 +1376,7 @@ uv run python scripts/reserve_forecast.py check
 
 - **已关闭**：C-N1/C-N2（CRITICAL 全部）、H-N1/N2/N3/N4/N5/N6/N7、M-N1/N2/N8/N9/N10、L-N1/N2/N6/N7。G1–G5 五道门禁转绿；全量 `2112 passed`，`mypy src`/`ruff` 零错误；第 6/7 批已推送（59 个提交，`main` 与 `origin/main` 同步）。
 - **仍红**：
-  - **G6 版本库**：分支已同步，但工作区仍有 8 项未跟踪（`visualization/` 其余 6 项含 1.0M vendor、`scripts/register_nyfed_datasets.py`、`docs/USD_Liquidity/` 1.7M）与 9 个非本任务的已修改文件（+619/−15）。这些属应有之物，需在下批按归属提交。
+  - **G6 版本库**：工作区已干净（无未跟踪、无未提交改动）；G6 卫生批次的 8 个提交尚未推送，`origin/main` 落后 8 个，推送后 G6 即可转绿。
   - **G7 文档一致**：README 源数已对齐 14，但 `nyfed` 连接器、`reserve-structural` 模型与 `visualization/` 站点仍无设计文档，站点 README 与实现互相矛盾（M-N5/M-N6）。
 - **G5 的已知限制（不因此降级，但不得扩大宣传）**：TGA 区间分位与 `tga_backtest` 用同一批 walk-forward 残差，属**样本内**覆盖；准备金的边际带未做跨 horizon 同时覆盖校正，站点已如实标注。
 - **不能判 READY 的理由**：G6 工作区未收敛、G7 文档缺口，两项都会让"当前工作区可否作为交付基线"的答案成为否；测试与静态检查转绿不改变这一点。
@@ -1397,6 +1395,7 @@ uv run python scripts/reserve_forecast.py check
 | 第 5 批 | H-N5/H-N6 静态与测试红 + 文档/源数对齐 | ✅ 完成（已提交 `a9b9b95`） | **G1、G2 转绿** |
 | 第 6 批 | H-N4 TGA 区间口径 + 图 5 轴硬编码 | ✅ 完成（已提交 `82397f8`） | G5 的区间子项关闭 |
 | 第 7 批 | M-N1 恒等式冗余 + M-N2 `joint` 标注 | ✅ 完成（已提交 `4521804` 并推送） | **G5 转绿**；G6 因未跟踪资产仍红 |
+| G6 卫生 | 生成物分离 + 8 项该入库资产 + 9 项跨线改动判归属 | ✅ 完成（8 个提交 `e7b33c4`…`d867c7b`，未推送） | 工作区干净；G6 待推送 |
 
 ### 第 1 批改动清单（已提交 `4ab246a`）
 
@@ -1579,6 +1578,27 @@ uv run mypy src                                  # Success: no issues found in 8
 **数据证据**（canonical 1247 周）：`L2` 绝对最大值 0.0（非零周 0）；`L3 + L1` 绝对最大值 0.0（非零周 0）；`L1` 最大 2.000M USD、mean_abs 0.499M。
 
 **验证**：`2112 passed, 10 warnings`；`ruff` 零错误；`mypy src` Success（86 files）。
+
+### G6 卫生批次改动清单（2026-11-07，8 个提交，未推送）
+
+| 提交 | hash | 文件 | 统计 | 归属 |
+|---|---|---|---|---|
+| `chore: 忽略站点与知识库的生成物` | `e7b33c4` | `.gitignore` | +10/−1 | 生成物分离 |
+| `chore(viz): 入库站点静态资源与使用说明` | `3e7c771` | `visualization/{README.md,refresh.sh,styles.css,vendor/echarts.min.js}` | 4 files, +661 | 可视化站点 |
+| `feat(registry): 注册 NY Fed 数据集并对接连接器工厂` | `aa57d0a` | `scripts/register_nyfed_datasets.py`、`src/chronoforge/cli/_wiring.py`、`src/chronoforge/registry/service.py` | 3 files, +109 | 数据源注册（与第 4 批 nyfed 连接器同一逻辑链） |
+| `chore: 放行 docs/USD_Liquidity/data 源数据` | `bf7f824` | `.gitignore` | +4 | 知识库 |
+| `docs(usd-liquidity): 入库研究知识库源文件与说明` | `8893679` | README、index.html、visualization_report.md、assets(css/js)、`data/*.json`（生成物除外）、scripts、sources、tests | 36 files, +5789 | 知识库 |
+| `chore(deps): 增加 matplotlib 并刷新锁文件` | `dc9b7a1` | `pyproject.toml`、`uv.lock` | +402 | 研究绘图脚本依赖 |
+| `fix(scripts): 中文字体改为探测可用族，fontweight 用 600` | `d4b86c0` | `fdam_attention.py`、`plot_btc_etf_flow.py`、`plot_rates_2y_effr.py` | +54/−14 | 研究绘图脚本 |
+| `feat(symbols): 补充 H.4.1 序列与 TLT/IWM/^RUT` | `d867c7b` | `z_manual_fred_symbols.json`、`z_manual_yahoo_symbols.json` | +152/−1 | 符号表（支撑准备金模型与站点） |
+
+**归属判断与语义风险**：
+
+- `_wiring.py`/`service.py` 与 `register_nyfed_datasets.py` 是同一逻辑链（注册表外键 + 连接器工厂分支），拆开提交会留下"脚本存在但无法注册"的中间态，故合并为一笔。
+- `uv.lock` 变动 +401 行**全为新增**（matplotlib 及其依赖树），无既有版本改动，无锁文件语义风险。
+- `fdam_attention.py` 的 18 行改动的语义是纯字体配置：`matplotlib.rcParams["font.family"]` 改为按候选族探测，`fontweight` 从 `bold` 改 `600`（PingFang SC 无 700 字重，会触发 findfont 回退告警）。**未改动任何计算逻辑**，已逐行核对 diff。
+- 符号表仅新增登记项（132 条 FRED H41_*、21 条 yahoo），不触发抓取，JSON 可解析；唯一删除 1 行是原占位项替换。
+- `docs/USD_Liquidity` 的分离结果：`assets/js/data.js`、`data/knowledge_points.json`、`data/coverage_matrix.json` 为构建产物 → 忽略；`reports/` 由全局 `reports/` 规则忽略（其中 conflicts/unresolved 两篇属分析稿，本轮未强制入库，如需要应显式 `git add -f` 并说明）；`sources/extraction_records/*/page_*.txt` 是被全局 `*.txt` 规则挡住的溯源文本，本轮**未入库**（49 个文件、200K），留作待确认项。
 
 ### G4 行单位覆盖表（✅ 17 个形状全部声明、15 个形状注入验证，第 2 批方案 B）
 
