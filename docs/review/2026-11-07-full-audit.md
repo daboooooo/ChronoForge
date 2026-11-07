@@ -23,17 +23,17 @@
 
 1. ~~**SRF 口径把美联储的 SVE 测试操作当成真实用量写入 canonical**（C-N1）。~~ **已修复（2026-11-07 第 1 批）**：按 `note` 排除 SVE，4 条测试先红后绿，重采 2021-07-29 至今，11 个被污染日期全部纠正（2025-11-05 → 3M，2026-05-27 → 11M）。
 2. ~~**C1/A-8 门禁对 `nyfed` 完全失效**（C-N2）。~~ **已修复（2026-11-07 第 2 批，方案 B）**：删除 runner 的 `_payload_units` 形状猜测，改为连接器契约 `DataConnector.row_units(raw)`；未声明即拒绝执行（不降级为 0）。14 个连接器逐个声明行单位，含 deribit chart（`result.ticks`）、coinmarketcap（`data.quotes`）、yahoo（`chart.result[0].timestamp`）、sec_edgar（`filings.recent` 列式 / `facts` 四层嵌套）。nyfed 同时补齐 `note_skip`（合法/非法分离）与 `checkpoint_from` 对齐。注入验证覆盖全部连接器：取消声明 / 错误行数均触发 `QualityError` 且 checkpoint 不推进，合法空批不误报。
-3. ~~**准备金模型的"PIT 截断"只截 observation_time，不截 release_time**（H-N3）。~~ **已修复（2026-11-07 第 3 批）**：`AsOfFrame` 按 `max(observation_time, release_time, revision_time)` 截断；origin 周三收盘只看到上周三观测，FRED `release_time` 与 SOMA `revision_time` 两条链路都参与判断；回测同步按该时点截断，naive 基准也只用最近可知值。模型升级为 `reserve-structural-0.1.2`，回测数字如实变差（同一 703 个 origin：h=1 全样本 MAE 56,089 → 79,597，+41.9%；h=2 +12.8%；h=4 +14.0%）；对 naive / seasonal naive 仍全部显著，currency 消融的显著 horizon 由 h=2 移到 h=1。**TGA 区间发散是算法性的**（H-N4），并被图 5 的硬编码 y 轴裁切掩盖。
+3. ~~**准备金模型的"PIT 截断"只截 observation_time，不截 release_time**（H-N3）。~~ **已修复（2026-11-07 第 3 批）**：`AsOfFrame` 按 `max(observation_time, release_time, revision_time)` 截断；origin 周三收盘只看到上周三观测，FRED `release_time` 与 SOMA `revision_time` 两条链路都参与判断；回测同步按该时点截断，naive 基准也只用最近可知值。模型升级为 `reserve-structural-0.1.2`，回测数字如实变差（同一 703 个 origin：h=1 全样本 MAE 56,089 → 79,597，+41.9%；h=2 +12.8%；h=4 +14.0%）；对 naive / seasonal naive 仍全部显著，currency 消融的显著 horizon 由 h=2 移到 h=1。**TGA 区间发散是算法性的**（H-N4），并被图 5 的硬编码 y 轴裁切掩盖。**H-N4 已于第 6 批修复**：区间改为按 horizon 的历史残差分位（P5–P95），下沿按 0 截断，图 5 轴放开为自动缩放；2027-02-04 区间由 −5.62T ~ +7.08T 收敛为 0.06T ~ 1.70T。
 
 ### 0.2 严重级别统计
 
-| 级别 | 本次新增 | 已修复（第 1–5 批） | 现存 | 合计 |
+| 级别 | 本次新增 | 已修复（第 1–6 批） | 现存 | 合计 |
 |---|---|---|---|---|
 | CRITICAL | 2（C-N1、C-N2） | 2（C-N1、C-N2） | **0** | 2 |
-| HIGH | 9 条（H-N1–H-N9） | 6（H-N1、H-N2、H-N3、H-N5、H-N6、H-N7） | **3（H-N4、H-N8、H-N9）** | 9 |
+| HIGH | 9 条（H-N1–H-N9） | 7（H-N1、H-N2、H-N3、H-N4、H-N5、H-N6、H-N7） | **2（H-N8、H-N9）** | 9 |
 | MEDIUM | 10 | 3（M-N8、M-N9、M-N10） | **7** | 10 |
 | LOW | 9 | 4（L-N1、L-N2、L-N6、L-N7） | **5** | 9 |
-| 合计 | — | 15 | **15 条** | 30 |
+| 合计 | — | 16 | **14 条** | 30 |
 
 > 编号规则：`*-N*` 表示本轮新增（N = new）；`C1/A-1/H1/M1` 等沿用上轮编号。
 > 修复状态以 §17「修复进度」为准（每批完成后更新）。
@@ -43,11 +43,11 @@
 | 门禁 | 结果 | 直接原因 |
 |---|---|---|
 | G1 静态质量 | ✅ 绿（第 5 批关闭） | `mypy src` 0 errors；`ruff check src scripts/backfill_datasets.py` 0 errors |
-| G2 测试 | ✅ 绿（第 5 批关闭） | `2109 passed`（第 1–5 批新增用例全绿） |
+| G2 测试 | ✅ 绿（第 5 批关闭） | `2111 passed`（第 1–6 批新增用例全绿） |
 | G3 契约测试 | ✅ 绿（第 2 批关闭） | nyfed 已补真实形状 fixture + fetch→normalize 全链路 + 负向用例 |
 | G4 静默丢失 | ✅ 绿（第 2 批方案 B 关闭） | 行单位改为连接器声明，14 个连接器逐一覆盖；取消声明即拒绝执行；错误声明触发门禁；合法空批不误报 |
-| G5 约束核验 | ⚠️ 部分恢复 | 准备金 PIT（H-N3，第 3 批，6 条回归）与发布时刻（H-N1/H-N2，第 4 批：SOMA 23:00 / SRF 22:00 + 未公布行跳过）已修复；区间口径（H-N4/M-N2）仍开放 |
-| G6 版本库 | ❌ 红 | 第 4 批已提交（`afb4d28`）；第 5 批改动仍未提交；`register_nyfed_datasets.py`/`visualization/`/`docs/USD_Liquidity/` 未跟踪；领先 origin 56 个提交 |
+| G5 约束核验 | ⚠️ 部分恢复 | 准备金 PIT（H-N3，第 3 批）、发布时刻（H-N1/H-N2，第 4 批）、TGA 区间口径（H-N4，第 6 批：历史残差分位 + 下沿 0 截断）已修复；"联合 90%"标注（M-N2）仍开放 |
+| G6 版本库 | ❌ 红 | 第 5 批已提交 `a9b9b95`；第 6 批改动未提交；`register_nyfed_datasets.py`/`visualization/`/`docs/USD_Liquidity/` 未跟踪；领先 origin 57 个提交 |
 | G7 文档一致 | ❌ 红 | README 源数已修为 14；但新增连接器/模型/站点仍无设计文档，`visualization/README.md` 与站点仍互相矛盾（M-N5） |
 
 ### 0.4 相对上一次审计的变化
@@ -66,7 +66,7 @@
 | G1/G2/G7 | 全绿 | nyfed + 文档漂移导致红 | **重新打开** |
 | G6 | 工作区干净 | 新一轮改动未提交、未推送 | **重新打开** |
 
-> **本轮新增项的修复状态**：C-N1、C-N2（第 1–2 批）、H-N7（第 2 批）、H-N3（第 3 批）、H-N1/H-N2（第 4 批）、H-N5/H-N6（第 5 批）已修复；M-N8/M-N9/M-N10 与 L-N1/L-N2/L-N6/L-N7 随之关闭。H-N4（TGA 区间）、H-N8（版本库）、H-N9（文档）与其余 M/L 仍开放。详见 §17。
+> **本轮新增项的修复状态**：C-N1、C-N2（第 1–2 批）、H-N7（第 2 批）、H-N3（第 3 批）、H-N1/H-N2（第 4 批）、H-N5/H-N6（第 5 批）、H-N4（第 6 批）已修复；M-N8/M-N9/M-N10 与 L-N1/L-N2/L-N6/L-N7 随之关闭。H-N8（版本库）、H-N9（文档）与其余 M/L 仍开放（M-N2 与 H-N4 同源，仍未修）。详见 §17。
 
 > 上轮报告自身还有一处内部数字不一致：§0.1/§1.6 写 `1972 passed`，§2.1 写 `1862 passed`，§2 写 `1770 passed`。本轮实测 1980 passed / 3 failed。作为文档瑕疵记为 L-N8，不影响代码结论。
 
@@ -612,15 +612,14 @@ PY
 
 ---
 
-### H-N4. TGA 区间在 2027-02-04 发散：算法性线性放大，图 5 硬编码 y 轴裁切掩盖 ✅ 已核实
+### H-N4. TGA 区间在 2027-02-04 发散：算法性线性放大，图 5 硬编码 y 轴裁切掩盖 ✅ 已核实 → ✅ 已修复（2026-11-07 第 6 批）
 
-**位置**：
-- [tga_forecast.py#L297-L306](file:///Users/horsenli/Works/ChronoForge/scripts/tga_forecast.py#L297-L306)
-- [tga_forecast.py#L1275-L1278](file:///Users/horsenli/Works/ChronoForge/scripts/tga_forecast.py#L1275-L1278)
-- [tga_forecast.py#L1311-L1318](file:///Users/horsenli/Works/ChronoForge/scripts/tga_forecast.py#L1311-L1318)
-- [app.js#L503](file:///Users/horsenli/Works/ChronoForge/visualization/app.js#L503)
+**位置（修复前）**：
+- [tga_forecast.py](file:///Users/horsenli/Works/ChronoForge/scripts/tga_forecast.py) `_component_row`（`band = _band(source_type, model) * abs(amount)`）
+- `aggregate_forecast`（`daily_lower`/`daily_upper` 求和 + `cum_sum`）
+- [app.js#L504](file:///Users/horsenli/Works/ChronoForge/visualization/app.js#L504)（修复前为 `min: 0, max: 1.45`）
 
-**算法**：
+**算法（修复前）**：
 
 ```python
 # _component_row: 组件带 = 金额的 50%
@@ -636,21 +635,75 @@ pl.col("upper").sum().alias("daily_upper"),
 (ctx.last_tga + pl.col("daily_upper").cum_sum()).alias("upper"),
 ```
 
-**判定：是区间累积算法问题，不是数据问题。** 每个组件的带宽按金额的 50% 生成，逐日相加后 `cum_sum`，带宽随预测天数线性增长；到 59 天后，日半宽合计约 6.35 万亿美元。
+#### 根因定位（用实际数据分层验证，非仅读代码）
 
-**derived 实测值**（`data/derived/tga_forecast`，run_date=2026-11-06，target=2027-02-04）：
+对 `data/derived/tga_forecast_components`（`run_date=2026-11-06/scenario=base`，59 个预测日）逐层复算：
 
-| scenario | predicted_tga | lower | upper |
-|---|---|---|---|
-| base | 730,972 | **−5,622,973** | **7,084,918** |
-| liquidity_easing | 209,781 | **−5,973,376** | 6,392,938 |
-| liquidity_tightening | 1,252,164 | −5,272,570 | **7,768,898** |
+| 层 | 量 | 实测值 |
+|---|---|---|
+| ① 组件带假设 | 59 天内 `Σ(upper−lower)/2`（线性累加后的带宽） | **6.354T** |
+| ② 独立误差传播 | `sqrt(Σ((upper−lower)/2)²)`（RSS） | **0.453T** |
+| ③ 差异倍数 | ① / ② | **14.0×** |
+| ④ 50% 带本身的覆盖率 | RSS 带宽对历史误差的实际覆盖（h7/14/30/60/90） | **74.5% / 68.1% / 50.0% / 48.6% / 45.7%** |
 
-（单位：百万美元；predicted 0.73T，区间 −5.62T ~ +7.08T。）
+结论：**两者叠加，但主因明确是 ②→① 的累加方式。**
 
-**为什么图上看不见**：`chart5` 的 y 轴是 `min: 0, max: 1.45`（万亿美元），而 `bandLo` 直接使用 `lower`（可为负），`band` 使用 `hi - lo`。负下沿与 7T 上沿都被裁掉，观众只看到一条窄带，误以为区间正常。
+- **主因（贡献 14× 放大）**：`cum_sum` 把"每日新增的独立误差"当成"完全相关的同向误差"线性相加。误差应按方差叠加（√h 量级），线性相加使带宽随天数线性膨胀。这是**统计问题**——即使组件带数值完全正确，线性累加也会发散。
+- **次因**：`bands` 里的 50% / 100% 是按金额拍的比例，并非任何置信水平的分位；把它当作 90% 区间本身就不成立。RSS 带宽（0.453T）在历史误差上的覆盖只有 45.7%–74.5%，远不到 90%。这是**口径问题**。
+- 因此不是数据问题，也不是渲染问题：`predicted_tga` 本身正常，只有 `lower`/`upper` 的语义错了。
 
-**判定**：HIGH。模型输出本身产生无意义的 ±6T 区间，且可视化层主动掩盖了它。修复方向应是"区间按预测期做分位/方差传播，而非逐日带线性累加 + 硬编码轴改为自适应或在图上显式标注越界"。本轮只记录，不改。
+#### 两类错误分开修
+
+| 错误性质 | 表现 | 修复 |
+|---|---|---|
+| **(a) 区间宽度算错（统计）** | 带宽随 h 线性增长；50% 比例带不对应 90% 分位 | 改为**按 horizon 的历史残差分位**（P5–P95）。`eval_row` 中 `error = predicted − actual`，故 actual 的 90% 区间 = `[predicted − q95(error), predicted + (−q05(error))]`。校准值写入 `config/tga/model.yaml: interval_bands`，每档 n=276–376 |
+| **(b) 出现物理不可能值（口径）** | `lower` 为 −5.97T，TGA 余额不可能为负 | 聚合时下沿按 `max(0.0, lower)` 截断。这是**物理约束**，不是统计分位；`upper` 不做对称截断。同时在 `model.yaml` 与 docstring 中写明这层区别 |
+
+兜底（`model` 未配置 `interval_bands` 时）：按**独立误差方差传播** `sqrt(cum_sum(daily_var))`，不再退回旧线性累加。
+
+**代码落点（修复后）**：
+- [tga_forecast.py#L293-L301](file:///Users/horsenli/Works/ChronoForge/scripts/tga_forecast.py#L293-L301)：`_interval_offsets`（horizon → 偏移）
+- [tga_forecast.py#L1320-L1335](file:///Users/horsenli/Works/ChronoForge/scripts/tga_forecast.py#L1320-L1335)：日方差 → `_fallback_half`
+- [tga_forecast.py#L1341-L1358](file:///Users/horsenli/Works/ChronoForge/scripts/tga_forecast.py#L1341-L1358)：按 horizon 取偏移 + `max(0.0, lower)`
+- [model.yaml](file:///Users/horsenli/Works/ChronoForge/config/tga/model.yaml)：`interval_bands`（7/14/30/60/90）+ 口径注释；`bands` 降级为"仅组件行展示用"
+- [app.js#L504](file:///Users/horsenli/Works/ChronoForge/visualization/app.js#L504)：`yVal({ name: "万亿美元" })`，轴由数据自动缩放
+- `MODEL_VERSION` `tga-forecast-0.4.0 → 0.5.0`（`find_success_run`/`create_run` 以 model_version 区分，阻断旧 run 复用；旧分区保留不覆盖）
+
+#### 修复前后实测区间（origin 2026-11-06，base 情景，单位：万亿美元）
+
+| horizon | target | predicted | 修复前 lo / hi | 修复后 lo / hi | 修复后宽度 |
+|---|---|---|---|---|---|
+| 7 | 2026-11-13 | 0.847 | 0.479 / 1.215 | **0.730 / 1.041** | 0.311 |
+| 14 | 2026-11-20 | 0.667 | −0.137 / 1.471 | **0.524 / 1.038** | 0.514 |
+| 30 | 2026-12-04 | 0.839 | −0.867 / 2.545 | **0.628 / 1.366** | 0.739 |
+| 60 | 2027-01-05 | 0.996 | −3.016 / 5.009 | **0.388 / 1.761** | 1.373 |
+| 90 | 2027-02-04 | 0.731 | **−5.623 / 7.085** | **0.056 / 1.699** | 1.643 |
+
+**点预测一字未动**（0.847 / 0.667 / 0.839 / 0.996 / 0.731），变化只在区间。远端 2027-02-04 的 −5.97T 已消失，下沿 0.056T（未触发 0 截断，说明校准分位本身已落在正区）。
+
+#### 对既有 backtest 结论与页面文案的影响（先评估后动手）
+
+- **backtest 点预测指标不变**：MAE / RMSE / MAPE / Direction / Bias 只依赖 `predicted_tga`，本批未改预测路径，数值保持原样。
+- **Coverage 会变**：旧口径带宽发散到 ±6T，覆盖恒为 100%，这个指标此前没有信息量；新口径下应接近 90%。但**校准样本与评估样本是同一批 walk-forward 残差**，因此该 90% 属**样本内**结果，不能当作独立 OOS 验证。`interval_bands` 的注释已写明"校准样本更新后需重跑 tga_backtest 并重算本表"。
+- **Pinball loss 会变**：它直接取决于带宽，本批**未重跑** `tga_backtest`，因此不提供新 pinball 数字；不把"改了区间"说成"提升了 pinball"。
+- **页面文案**：图 05 的"90% 区间"从"±50% 金额线性带"变为"历史残差 P5–P95"；轴放开后，若区间超出旧经验范围会真实显示，不再被 `0–1.45` 裁掉。M-N2（把逐 horizon 边际分位标成"联合 90%"）**本批未动**，仍是开放项。
+
+#### 验证
+
+```bash
+uv run --with pytest --with pytest-asyncio --with hypothesis python -m pytest -q
+# 2111 passed, 10 warnings in 90.40s（新增 2 条区间用例）
+uv run ruff check src scripts/tga_forecast.py tests/unit/test_tga_forecast.py
+# All checks passed!
+uv run mypy src
+# Success: no issues found in 86 source files
+```
+
+新增用例：
+- `test_forecast_interval_uses_horizon_residual_offsets`：h7 边界严格等于 `predicted + 偏移`；h30 远端 `lower == 0`（截断生效）。
+- `test_forecast_interval_fallback_propagates_independently`：无 `interval_bands` 时两天各 ±100，第二天半宽为 141.42（RSS），不是 200（线性）。
+
+**本批未提交**（等待确认）。
 
 ---
 
@@ -954,7 +1007,7 @@ df = result.frame.select(["observation_time", "value"])
 
 ### 7.1 结论
 
-**是 `tga_forecast.py` 的区间累积算法问题，不是数据问题。**
+**是 `tga_forecast.py` 的区间累积算法问题，不是数据问题。** 已于第 6 批修复，详见 H-N4 的"根因定位 / 两类错误分开修 / 修复前后实测"。
 
 ### 7.2 证据链
 
@@ -985,6 +1038,15 @@ df = result.frame.select(["observation_time", "value"])
 
 HIGH。不是"图表问题"而是"模型区间语义问题"；即使把 y 轴改成自适应，也只是把 ±6T 的荒谬区间显示出来。修复应改成按 horizon 的误差传播（例如用历史预测误差的经验分位，或用组件协方差），并对负 TGA 做下界约束。
 
+### 7.5 修复结果（第 6 批）
+
+1. **统计口径**：区间改由 `config/tga/model.yaml: interval_bands` 提供，按 horizon 的历史残差 P5–P95 生成，不再用组件金额比例带累加；
+2. **物理约束**：聚合时 `lower = max(0.0, lower)`，上沿不动；
+3. **兜底路径**：缺 `interval_bands` 时按方差传播 `sqrt(cum_sum(daily_var))`，不是线性累加；
+4. **可视化**：`chart5` 去掉 `min: 0, max: 1.45`，轴自适应。
+
+修复后 2027-02-04（origin 2026-11-06）区间为 **0.056T ~ 1.699T**；修复前为 −5.623T ~ 7.085T。
+
 ---
 
 ## 8. 专项：`visualization/` 全目录
@@ -1008,13 +1070,13 @@ HIGH。不是"图表问题"而是"模型区间语义问题"；即使把 y 轴改
 |---|---|---|---|
 | chart1 | 1.2–4.5T | WRESBAL 1.394–4.276 | ✅ 覆盖 |
 | chart2 | 0–12 | 连续下降 11 周 | ✅ 覆盖 |
-| chart5 | **0–1.45T** | TGA 预测 −5.97T ~ +7.78T | ❌ **裁切**（H-N4） |
+| chart5 | ~~0–1.45T~~ → 自动缩放（第 6 批） | TGA 预测 0.056–1.699T（修复后） | ✅ 已放开（H-N4） |
 | chart6 | 0–5.6% | 利率最高 5.4% | ✅ 覆盖 |
 | chart10 | max 6 | 5.31 | ✅ 覆盖 |
 | chart11 | visualMap ±2.2 | 仅颜色饱和 | ✅ 不影响数据 |
 | chart16 | 2.4–3.7T | 2.828–3.621 | ✅ 覆盖 |
 
-**结论**：上轮修过的坐标轴确实修好了，但 **chart5 是遗漏的一处**，且恰好掩盖了本次最严重的模型异常。
+**结论**：上轮修过的坐标轴确实修好了；**chart5 是遗漏的一处**，且恰好掩盖了本次最严重的模型异常。第 6 批已去掉 `min/max` 并同时修复区间口径（H-N4），轴不再需要人工兜底。
 
 ### 8.3 `PANE_CHARTS` 与卡片面板
 
@@ -1106,19 +1168,19 @@ HIGH。不是"图表问题"而是"模型区间语义问题"；即使把 y 轴改
 
 ## 12. 门禁判定（G1–G7）
 
-### 12.1 当前状态（2026-11-07 第 5 批后，实测）
+### 12.1 当前状态（2026-11-07 第 6 批后，实测）
 
 | 门禁 | 结果 | 证据 | 结论 |
 |---|---|---|---|
 | **G1 静态质量** | ✅ | `uv run mypy src` → `Success: no issues found in 86 source files`；`uv run ruff check src scripts/backfill_datasets.py` → `All checks passed!` | 通过 |
-| **G2 测试** | ✅ | `uv run --with pytest --with pytest-asyncio --with hypothesis python -m pytest -q` → `2109 passed` | 通过 |
+| **G2 测试** | ✅ | `uv run --with pytest --with pytest-asyncio --with hypothesis python -m pytest -q` → `2111 passed` | 通过 |
 | **G3 契约测试** | ✅ | nyfed 真实形状 fixture + fetch→normalize 全链路 + 负向用例（第 2 批） | 通过 |
 | **G4 静默丢失** | ✅ | 行单位连接器声明（方案 B）+ 注入门禁（第 2 批） | 通过 |
-| **G5 约束核验** | ⚠️ | PIT（H-N3）与发布时刻（H-N1/H-N2）已修；TGA 区间算法（H-N4）与"联合 90%"标注（M-N2）仍未修 | 部分通过 |
-| **G6 版本库** | ❌ | 第 4 批已提交 `afb4d28`；第 5 批改动未提交；`register_nyfed_datasets.py`/`visualization/`/`docs/USD_Liquidity/` 未跟踪；领先 origin 56 提交 | 不通过 |
+| **G5 约束核验** | ⚠️ | PIT（H-N3）、发布时刻（H-N1/H-N2）、TGA 区间口径（H-N4）已修；"联合 90%"标注（M-N2）仍未修 | 部分通过 |
+| **G6 版本库** | ❌ | 第 5 批已提交 `a9b9b95`；第 6 批改动未提交；`register_nyfed_datasets.py`/`visualization/`/`docs/USD_Liquidity/` 未跟踪；领先 origin 57 提交 | 不通过 |
 | **G7 文档一致** | ❌ | README 源数已对齐 14；新增连接器/模型/站点仍无设计文档；`visualization/README.md` 与站点互相矛盾（M-N5） | 不通过 |
 
-**当前判定：NOT READY。** 卡在 G6（版本库未收敛）与 G7（文档缺口），G5 的区间口径仍失效。G1/G2 已转绿，不能据此放宽——TGA 2027-02-04 的 ±6T 区间与图 5 硬编码轴仍是会误导使用者的实质缺陷。
+**当前判定：NOT READY。** 卡在 G6（版本库未收敛）与 G7（文档缺口），G5 的区间口径已修复但"联合 90%"标注仍不实（M-N2）。G1/G2 已转绿，不能据此放宽。
 
 ### 12.2 审计基线（2026-11-07 修复前，留档）
 
@@ -1235,7 +1297,7 @@ uv run python scripts/reserve_forecast.py check
 | P0 | H-N8/G6 | 把 `nyfed`、`reserve_forecast`、`visualization`、`register_nyfed_datasets`、`docs/USD_Liquidity` 成套提交；推送 52 个提交 |
 | P1 | H-N1 调度 | `update_schedule` 增加 `nyfed` 的 SOMA 周四发布时刻与 SRF 操作后时刻 |
 | P1 | H-N3 PIT | `_load_number_series`/`load_soma` 读取 `release_time`，按 `release_time <= as_of` 截断 |
-| P1 | H-N4 TGA 区间 | 改为按 horizon 的误差传播/经验分位；`chart5` y 轴自适应或显式标注越界 |
+| P1 | H-N4 TGA 区间 | ✅ 第 6 批已做：按 horizon 历史残差分位 + 下沿 0 截断；`chart5` 轴自适应 |
 | P1 | H-N6/H-N7/H-N9 | 更新 CLI/README 到 14 源；补 nyfed fixture + fetch→normalize 契约测试；补新增子系统文档 |
 | P2 | M-N1–M-N4 | 修恒等式命名/口径、联合区间、原子写、renderer try/catch |
 | P2 | M-N5–M-N10 | 同步站点 README/index 方法学声明；接入调度；补测试 |
@@ -1245,15 +1307,15 @@ uv run python scripts/reserve_forecast.py check
 
 ## 16. 最终判定
 
-**NOT READY（截至第 5 批，2026-11-07）。**
+**NOT READY（截至第 6 批，2026-11-07）。**
 
-- **已关闭**：C-N1/C-N2（CRITICAL 全部）、H-N1/N2/N3/N5/N6/N7、M-N8/N9/N10、L-N1/N2/N6/N7。G1、G2、G3、G4 四道门禁转绿；全量 `2109 passed`，`mypy`/`ruff` 零错误。
+- **已关闭**：C-N1/C-N2（CRITICAL 全部）、H-N1/N2/N3/N4/N5/N6/N7、M-N8/N9/N10、L-N1/N2/N6/N7。G1、G2、G3、G4 四道门禁转绿；全量 `2111 passed`，`mypy`/`ruff` 零错误。
 - **仍红**：
-  - **G6 版本库**：第 4 批已提交 `afb4d28`，第 5 批改动未提交，`register_nyfed_datasets.py`/`visualization/`/`docs/USD_Liquidity/` 仍未跟踪，分支领先 origin 56 个提交。
+  - **G6 版本库**：第 5 批已提交 `a9b9b95`，第 6 批改动未提交，`register_nyfed_datasets.py`/`visualization/`/`docs/USD_Liquidity/` 仍未跟踪，分支领先 origin 57 个提交。
   - **G7 文档一致**：README 源数已对齐 14，但 `nyfed` 连接器、`reserve-structural` 模型与 `visualization/` 站点仍无设计文档，站点 README 与实现互相矛盾（M-N5/M-N6）。
-  - **G5 约束核验（部分）**：TGA 区间在 2027-02-04 仍产生 −5.62T ~ +7.08T 的算法性发散（H-N4），图 5 硬编码 y 轴仍在掩盖；置信带仍标为"联合"但实为逐 horizon 边际分位（M-N2）。
-- **不能判 READY 的理由**：测试与静态检查转绿只说明门禁 G1/G2 恢复，不代表 G5/G6/G7 关闭。TGA 区间与"联合 90%"是会直接误导使用者解读的实质缺陷，版本库未收敛则当前工作区不可作为交付基线。
-- **下一步建议**：提交第 5 批并推送（G6）→ 修 H-N4/M-N2 区间算法与标注（G5）→ 补 `docs/architecture`/`docs/design` 与站点 README（G7）。在 H-N4/M-N2 关闭前，不应对外发布 TGA 预测区间或准备金"联合 90%"带宽。
+  - **G5 约束核验（部分）**：H-N4 已修（2027-02-04 区间 0.056T ~ 1.699T）；但置信带仍标为"联合 90%"，实为逐 horizon 边际分位（M-N2）。
+- **不能判 READY 的理由**：测试与静态检查转绿只说明门禁 G1/G2 恢复，不代表 G5/G6/G7 关闭。"联合 90%"标注不实仍会误导使用者；版本库未收敛则当前工作区不可作为交付基线。
+- **下一步建议**：确认并提交第 6 批 → 修 M-N2 区间标注（G5）→ 第 7 批 M-N1 恒等式冗余 → 补 `docs/architecture`/`docs/design` 与站点 README（G7）→ 推送（G6）。在 M-N2 关闭前，不应对外宣称准备金带宽是"联合 90%"。
 
 ---
 
@@ -1265,7 +1327,8 @@ uv run python scripts/reserve_forecast.py check
 | 第 2 批 | C-N2 nyfed 门禁 + 方案 B 行单位契约 + fixture + 注入验证 | ✅ 完成（已提交 `f688c3f`） | **G3 转绿；G4 转绿** |
 | 第 3 批 | H-N3 准备金 PIT | ✅ 完成（已提交 `2499eca`） | G5 部分恢复（PIT 子项关闭） |
 | 第 4 批 | H-N1 发布时刻 + H-N2 SRF 未公布占位 + nyfed 窗口 | ✅ 完成（已提交 `afb4d28`） | G5 部分恢复（发布时刻子项关闭） |
-| 第 5 批 | H-N5/H-N6 静态与测试红 + 文档/源数对齐 | ✅ 完成（2026-11-07，未提交） | **G1、G2 转绿** |
+| 第 5 批 | H-N5/H-N6 静态与测试红 + 文档/源数对齐 | ✅ 完成（已提交 `a9b9b95`） | **G1、G2 转绿** |
+| 第 6 批 | H-N4 TGA 区间口径 + 图 5 轴硬编码 | ✅ 完成（2026-11-07，未提交） | G5 的区间子项关闭 |
 
 ### 第 1 批改动清单（已提交 `4ab246a`）
 
@@ -1390,7 +1453,7 @@ uv run ruff check src/chronoforge/config/update_schedule.py src/chronoforge/conn
 
 **3 条全量失败**均为 docs/CLI 漂移（第 5 批已修复）：`test_readme_source_count_matches_default_sources`（README `13 sources`）、`test_sync_bootstraps_all_sources_idempotent`（CLI `13 sources`）、`test_list_sources_json`（源列表缺 `nyfed`）。
 
-### 第 5 批改动清单（2026-11-07，未提交）
+### 第 5 批改动清单（2026-11-07，已提交 `a9b9b95`）
 
 | 文件/对象 | 类型 | 说明 |
 |---|---|---|
@@ -1410,6 +1473,29 @@ uv run --with pytest --with pytest-asyncio --with hypothesis python -m pytest -q
 ```
 
 **未做**：H-N4（TGA 区间算法）与 M-N2（"联合"标注）、M-N1/N3–N7、M-N9 之外的可视化/调度项、L-N3/N4/N5/N8/N9 均未改；`docs/architecture`/`docs/design` 缺文档未补。这些是真正的剩余缺口，不计入本批。
+
+### 第 6 批改动清单（2026-11-07，未提交）
+
+| 文件/对象 | 类型 | 说明 |
+|---|---|---|
+| `config/tga/model.yaml` | 修改 | 新增 `interval_bands`（7/14/30/60/90，USD 百万，P5–P95 残差偏移）+ 口径注释；`bands` 降级为"仅组件行展示用，不参与区间合成" |
+| `scripts/tga_forecast.py` | 修改 | `MODEL_VERSION → tga-forecast-0.5.0`；新增 `_interval_offsets`；`aggregate_forecast` 删除 `daily_lower`/`daily_upper` 与 `cum_sum`，改为日方差 RSS 兜底 + 按 horizon 取偏移 + `max(0.0, lower)` |
+| `tests/unit/test_tga_forecast.py` | 扩充 | 2 条：horizon 偏移命中 + 下沿 0 截断；无 `interval_bands` 时方差传播（RSS≠线性） |
+| `visualization/app.js` | 修改 | `chart5` 去掉 `yAxis.min/max`（原 0/1.45），轴自适应 |
+| `docs/review/2026-11-07-full-audit.md` | 修改 | H-N4 修复记录（根因实测/两类错误/前后数值/backtest 影响）、§0 统计/门禁、§7、§8.2、§12/§15/§16/§17 |
+| `data/derived/tga_forecast` | 新增 run | `36e223cae0c29e10`（origin 2026-11-07，60 行）、`ff1148f6576d7dd4`（origin 2026-11-06，59 行，用于前后对比）；旧 run 保留、不覆盖 |
+
+**验证命令与结果**：
+
+```bash
+uv run --with pytest --with pytest-asyncio --with hypothesis python -m pytest -q
+                                                 # 2111 passed, 10 warnings in 90.40s
+uv run ruff check src scripts/tga_forecast.py tests/unit/test_tga_forecast.py
+                                                 # All checks passed!
+uv run mypy src                                  # Success: no issues found in 86 source files
+```
+
+**未做**：M-N2（"联合 90%"标注）未动；未重跑 `tga_backtest`（pinball/coverage 需单独评估）；未提交、未推送。
 
 ### G4 行单位覆盖表（✅ 17 个形状全部声明、15 个形状注入验证，第 2 批方案 B）
 

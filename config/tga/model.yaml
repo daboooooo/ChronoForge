@@ -3,8 +3,8 @@
 # 约定：
 # - 本文件任何变更 → config_hash 变化 → 新 forecast run，不覆盖历史（§6.8 规则 4）。
 # - 情景参数在 scenarios.yaml（Phase 4）；Phase 3 固定 base 情景，不调整任何现金流。
-# - bands 为 P0 简化区间（按 source_type 的相对带宽），Phase 5 用 Walk-forward
-#   残差分位数校准后替换（§12 Phase 4 任务 5 / §6.10）。
+# - bands 仅用于组件行自身的近似上下沿（展示/去重身份），不再参与预测区间合成。
+# - interval_bands 为预测区间的正式口径：按 horizon 的历史残差分位（H-N4）。
 
 version: "1"
 
@@ -25,13 +25,26 @@ windows:
 # 趋势因子截断（防止小基数月份趋势爆表，§6.5 P0 步骤 3）
 trend_cap: [0.8, 1.2]
 
-# 区间：predicted ± band × |predicted|（P0 简化；KNOWN_FINAL 为确定值）
+# 区间：predicted ± band × |predicted|（仅组件行展示用，不参与预测区间合成）
 bands:
   KNOWN_FINAL: 0.0
   KNOWN_PROVISIONAL: 0.05
   SEASONAL: 0.5
   STATISTICAL: 0.5
   UNCLASSIFIED: 1.0
+
+# 预测区间：按 horizon 的历史残差分位（USD 百万，P5–P95，H-N4）。
+# 口径：error = predicted − actual，故 actual 的 90% 区间为
+#   [predicted − q95(error), predicted − q05(error)]，即下列偏移。
+# 来源：tga_backtest walk-forward 评估（2026-11-07，每档 n=276–376）。
+# 下沿在聚合时按 0 截断（TGA 余额不能为负，属物理约束而非统计分位）。
+# 校准样本更新后需重跑 tga_backtest 并重算本表；仅改数值不改结构。
+interval_bands:
+  7: [-117058, 194229]
+  14: [-143029, 370963]
+  30: [-211677, 527147]
+  60: [-608869, 764412]
+  90: [-674707, 968452]
 
 # 置信度评分（§6.10，用于报告构成展示）
 confidence:

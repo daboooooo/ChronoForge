@@ -525,6 +525,51 @@ def test_aggregate_rejects_conflicting_event_identity():
         aggregate_forecast(ctx, comps)
 
 
+def test_forecast_interval_uses_horizon_residual_offsets():
+    """H-N4：区间按 horizon 历史残差分位偏移，且下沿按 0 截断。"""
+    model = {
+        **_model(),
+        "interval_bands": {7: (-100.0, 200.0), 14: (-150.0, 300.0),
+                           30: (-9000.0, 4000.0)},
+    }
+    ctx = ForecastContext(
+        ORIGIN, [7, 14, 30], model, _calendar(), _balance_df(),
+        _cashflow_df([]), _auctions_df([]),
+    )
+    d = ctx.grid[0]
+    comps = _rows_to_components([_comp(d, "TAX", 100.0, None)])
+    _, forecast = aggregate_forecast(ctx, comps)
+
+    row = forecast.filter(pl.col("target_date") == d)
+    pred = float(row["predicted_tga"][0])
+    assert abs(float(row["lower"][0]) - (pred - 100.0)) < 1e-6
+    assert abs(float(row["upper"][0]) - (pred + 200.0)) < 1e-6
+
+    # 远端：偏移超过预测值本身 → 下沿钳到 0，而不是出现负余额
+    last = forecast.filter(pl.col("horizon") == 30).tail(1)
+    assert float(last["lower"][0]) == 0.0
+    assert float(last["upper"][0]) > float(last["predicted_tga"][0])
+
+
+def test_forecast_interval_fallback_propagates_independently():
+    """H-N4 兜底：未配置 interval_bands 时按方差相加，而非线性累加。"""
+    ctx = _ctx(_cashflow_df([]), _auctions_df([]))
+    d1, d2 = ctx.grid[0], ctx.grid[1]
+    wide = {"lower": -100.0, "upper": 100.0}
+    comps = _rows_to_components([
+        {**_comp(d1, "TAX", 0.0, None), **wide},
+        {**_comp(d2, "TAX", 0.0, None), **wide},
+    ])
+    _, forecast = aggregate_forecast(ctx, comps)
+
+    base = float(ctx.last_tga)
+    r1 = forecast.filter(pl.col("target_date") == d1)
+    r2 = forecast.filter(pl.col("target_date") == d2)
+    assert abs(float(r1["lower"][0]) - (base - 100.0)) < 1e-6
+    # 两天各 ±100 → sqrt(100² + 100²) = 141.42，而不是线性的 200
+    assert abs(float(r2["lower"][0]) - (base - 141.421356)) < 0.01
+
+
 def test_aggregate_horizon_boundary_flags():
     ctx = _ctx(_cashflow_df([]), _auctions_df([]))
     comps = _rows_to_components(

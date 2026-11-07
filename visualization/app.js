@@ -500,7 +500,8 @@
         grid: { left: 58, right: 28, top: 40, bottom: 34 },
         legend: { data: ["TGA 日度", "基线", "宽松", "收紧"], top: 2, right: 6 },
         xAxis: xTime(),
-        yAxis: yVal({ name: "万亿美元", min: 0, max: 1.45 }),
+        // 区间/情景可能超出 0–1.45T 的旧经验范围，轴交给自动缩放，避免截断真实区间
+        yAxis: yVal({ name: "万亿美元" }),
         tooltip: {
           trigger: "axis",
           backgroundColor: "rgba(13,18,26,.96)",

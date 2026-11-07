@@ -53,7 +53,7 @@ from tga_common import (
 from chronoforge.cli._wiring import open_meta, open_query_service
 from chronoforge.config.settings import Settings
 
-MODEL_VERSION = "tga-forecast-0.4.0"  # TGA-1 去重键修正：版本须变更以阻断旧逻辑 run 复用
+MODEL_VERSION = "tga-forecast-0.5.0"  # H-N4 区间口径：按 horizon 历史残差分位
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # 组件输出统一 schema（§6.1；predicted 带符号，单位 USD Million）
@@ -288,6 +288,17 @@ def _rows_to_components(rows: list[dict]) -> pl.DataFrame:
 
 def _band(source_type: str, model: dict) -> float:
     return float(model["bands"].get(source_type, 0.5))
+
+
+def _interval_offsets(model: dict) -> dict[int, tuple[float, float]]:
+    """horizon → (下沿偏移, 上沿偏移)，来自 model.yaml 的历史残差分位（H-N4）。
+
+    仅当 model 显式配置 interval_bands 时返回非空；缺省走组件带宽独立传播兜底。
+    """
+    return {
+        int(h): (float(bounds[0]), float(bounds[1]))
+        for h, bounds in model.get("interval_bands", {}).items()
+    }
 
 
 def _confidence(source_type: str, model: dict) -> float:
@@ -1166,6 +1177,11 @@ def aggregate_forecast(
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """组件聚合 → 逐日净现金流 + TGA 累计（去重、守恒、horizon 分桶）。
 
+    区间口径（H-N4）：优先用 model.yaml 的 interval_bands（按 horizon 的历史
+    残差分位偏移，下沿按 0 截断）；未配置时按组件带宽独立传播兜底
+    （日方差 = Σ band²，累计半宽 = sqrt(Σ 日方差)），不再线性累加——旧口径
+    把独立误差当完全相关，2027-02-04 会放大到 ±6T 并出现负余额。
+
     Returns:
         (去重后的组件 DataFrame, tga_forecast DataFrame)。
 
@@ -1274,8 +1290,6 @@ def aggregate_forecast(
         )
     daily = comps.group_by("target_date").agg(
         pl.col("predicted").sum().alias("daily_net"),
-        pl.col("lower").sum().alias("daily_lower"),
-        pl.col("upper").sum().alias("daily_upper"),
     ).sort("target_date")
     # Q-TGA-012：组件之和 == 聚合结果（守恒，整体 + 逐月）
     total_components = float(comps["predicted"].sum())
@@ -1302,34 +1316,46 @@ def aggregate_forecast(
     )
     # 覆盖完整网格：无组件日补零，保证 TGA 累计逐日连续
     grid_df = pl.DataFrame({"target_date": ctx.grid}, schema={"target_date": pl.Date})
+    # 兜底半宽：组件带宽按独立误差传播（日方差 = Σ band²）。
+    daily_var = comps.group_by("target_date").agg(
+        ((pl.col("upper") - pl.col("lower")) / 2).pow(2).sum().alias("_daily_var")
+    )
     daily = (
         grid_df.join(daily, on="target_date", how="left")
         .join(dominant, on="target_date", how="left")
+        .join(daily_var, on="target_date", how="left")
         .sort("target_date")
         .with_columns(
             pl.col("daily_net").fill_null(0.0),
-            pl.col("daily_lower").fill_null(0.0),
-            pl.col("daily_upper").fill_null(0.0),
+            pl.col("_daily_var").fill_null(0.0),
             pl.col("source_type").fill_null("STATISTICAL"),
         )
         .with_columns(
             (ctx.last_tga + pl.col("daily_net").cum_sum()).alias("predicted_tga"),
-            (ctx.last_tga + pl.col("daily_lower").cum_sum()).alias("lower"),
-            (ctx.last_tga + pl.col("daily_upper").cum_sum()).alias("upper"),
+            pl.col("_daily_var").cum_sum().sqrt().alias("_fallback_half"),
         )
     )
     boundary_dates = {
         max(d for d in ctx.grid if (d - ctx.origin).days <= h) for h in ctx.horizons
     }
+    offsets = _interval_offsets(ctx.model)
     rows = []
     for row in daily.iter_rows(named=True):
         d = row["target_date"]
         horizon = min(h for h in ctx.horizons if (d - ctx.origin).days <= h)
+        predicted = row["predicted_tga"]
+        if horizon in offsets:
+            lower = predicted + offsets[horizon][0]
+            upper = predicted + offsets[horizon][1]
+        else:
+            lower = predicted - row["_fallback_half"]
+            upper = predicted + row["_fallback_half"]
         rows.append({
             "target_date": d, "horizon": horizon,
             "is_horizon_boundary": d in boundary_dates,
-            "predicted_tga": row["predicted_tga"], "lower": row["lower"],
-            "upper": row["upper"], "daily_net": row["daily_net"],
+            "predicted_tga": predicted,
+            # TGA 余额不能为负：下沿按 0 截断（物理约束，非统计分位）
+            "lower": max(0.0, lower), "upper": upper, "daily_net": row["daily_net"],
             "source_type": row["source_type"],
         })
     forecast = pl.DataFrame(rows, schema={
