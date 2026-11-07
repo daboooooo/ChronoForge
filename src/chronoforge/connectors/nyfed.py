@@ -53,6 +53,7 @@ from chronoforge.connectors.base import (
     RawBatch,
 )
 from chronoforge.connectors.errors import ProviderError, RateLimitError, SchemaError, TransportError
+from chronoforge.connectors.normalize_stats import note_skip
 from chronoforge.connectors.ratelimit import RateLimiter
 from chronoforge.models.base import BaseRecord
 from chronoforge.models.enums import CanonicalType, QualityStatus
@@ -88,6 +89,66 @@ _SOMA_FIELDS: dict[str, str] = {
 }
 
 logger = structlog.get_logger()
+
+
+def _classify_srf_row(row: object) -> tuple[date, float] | str:
+    """SRF 行分类：产出 (观测日, 接受金额) 或跳过原因。
+
+    跳过原因与 `normalize_stats.LEGIT_SKIP_REASONS` 对应：
+    - `sve_test_operation` / `non_overnight_operation` 合法（源侧正常行为）
+    - 其余（`malformed_row` / `bad_operation_date` / `missing_amount` /
+      `non_numeric_amount` / `negative_amount`）不合法，计入行级丢弃率。
+    """
+    if not isinstance(row, dict):
+        return "malformed_row"
+    note = row.get("note")
+    if isinstance(note, str) and _SVE_MARKER in note.lower():
+        return "sve_test_operation"
+    # SRF 仅隔夜；Term Repo 不属 SRF 口径
+    if str(row.get("term", "")).strip().lower() != "overnight":
+        return "non_overnight_operation"
+    try:
+        obs_date = date.fromisoformat(str(row.get("operationDate")))
+    except (ValueError, TypeError):
+        return "bad_operation_date"
+    raw_amount = row.get("totalAmtAccepted")
+    if raw_amount is None:
+        return "missing_amount"
+    try:
+        amount = float(raw_amount)
+    except (ValueError, TypeError):
+        return "non_numeric_amount"
+    if amount < 0:
+        return "negative_amount"
+    return obs_date, amount
+
+
+def _classify_soma_row(row: object) -> tuple[date | None, dict[str, float], dict[str, int]]:
+    """SOMA 行分类：返回 (asOfDate, 分项值, 跳过原因计数)。
+
+    9 个分项逐个解析：缺失记 `source_missing_value`（合法），非数值记
+    `non_numeric_value`（不合法）。整行无法解析时 asOfDate 为 None。
+    """
+    if not isinstance(row, dict):
+        return None, {}, {"malformed_row": 1}
+    try:
+        as_of = date.fromisoformat(str(row.get("asOfDate")))
+    except (ValueError, TypeError):
+        return None, {}, {"bad_as_of_date": 1}
+    values: dict[str, float] = {}
+    reasons: dict[str, int] = {}
+    for entity, field in _SOMA_FIELDS.items():
+        raw_value = row.get(field)
+        if raw_value is None:
+            reason = "source_missing_value"
+            reasons[reason] = reasons.get(reason, 0) + 1
+            continue
+        try:
+            values[entity] = float(raw_value)
+        except (ValueError, TypeError):
+            reason = "non_numeric_value"
+            reasons[reason] = reasons.get(reason, 0) + 1
+    return as_of, values, reasons
 
 
 class NYFedConnector(DataConnector):
@@ -293,35 +354,12 @@ class NYFedConnector(DataConnector):
         skipped: dict[str, int] = {}
 
         for row in rows:
-            if not isinstance(row, dict):
-                skipped["malformed_row"] = skipped.get("malformed_row", 0) + 1
+            outcome = _classify_srf_row(row)
+            if isinstance(outcome, str):
+                skipped[outcome] = skipped.get(outcome, 0) + 1
+                note_skip(outcome)
                 continue
-            # SVE 是 NY Fed 的小额测试操作，不是真实 SRF 用量；按 note 排除
-            note = row.get("note")
-            if isinstance(note, str) and _SVE_MARKER in note.lower():
-                skipped["sve_test_operation"] = skipped.get("sve_test_operation", 0) + 1
-                continue
-            # SRF 仅隔夜；Term Repo 不属 SRF 口径
-            if str(row.get("term", "")).strip().lower() != "overnight":
-                skipped["non_overnight"] = skipped.get("non_overnight", 0) + 1
-                continue
-            try:
-                obs_date = date.fromisoformat(str(row.get("operationDate")))
-            except (ValueError, TypeError):
-                skipped["bad_operation_date"] = skipped.get("bad_operation_date", 0) + 1
-                continue
-            raw_amount = row.get("totalAmtAccepted")
-            if raw_amount is None:
-                skipped["missing_amount"] = skipped.get("missing_amount", 0) + 1
-                continue
-            try:
-                amount = float(raw_amount)
-            except (ValueError, TypeError):
-                skipped["non_numeric_amount"] = skipped.get("non_numeric_amount", 0) + 1
-                continue
-            if amount < 0:
-                skipped["negative_amount"] = skipped.get("negative_amount", 0) + 1
-                continue
+            obs_date, amount = outcome
             by_date[obs_date] = by_date.get(obs_date, 0.0) + amount
 
         records: list[BaseRecord] = []
@@ -372,29 +410,19 @@ class NYFedConnector(DataConnector):
 
         now = datetime.now(UTC).replace(tzinfo=None)
         records: list[BaseRecord] = []
-        skipped = 0
+        skipped: dict[str, int] = {}
 
         for row in rows:
-            if not isinstance(row, dict):
-                skipped += 1
-                continue
-            try:
-                as_of = date.fromisoformat(str(row.get("asOfDate")))
-            except (ValueError, TypeError):
-                skipped += 1
+            as_of, values, reasons = _classify_soma_row(row)
+            for reason, count in reasons.items():
+                skipped[reason] = skipped.get(reason, 0) + count
+                note_skip(reason, count)
+            if as_of is None:
                 continue
             observation_time = datetime.combine(as_of, datetime.min.time())
             release_time = observation_time + timedelta(days=1, hours=23, minutes=59, seconds=59)
 
-            for entity, field in _SOMA_FIELDS.items():
-                raw_value = row.get(field)
-                if raw_value is None:
-                    continue
-                try:
-                    value = float(raw_value)
-                except (ValueError, TypeError):
-                    skipped += 1
-                    continue
+            for entity, value in values.items():
                 records.append(
                     NUMBER(
                         schema_version="1.0",
@@ -421,7 +449,8 @@ class NYFedConnector(DataConnector):
                 source="nyfed",
                 endpoint=_SOMA_ENDPOINT,
                 kept=len(records),
-                skipped=skipped,
+                skipped=sum(skipped.values()),
+                reasons=skipped,
             )
 
         return records
@@ -462,18 +491,61 @@ class NYFedConnector(DataConnector):
                 )
         return QualityReport(findings=findings)
 
+    def row_units(self, raw: RawBatch) -> int | None:
+        """行单位：SRF ``repo.operations`` / SOMA ``soma.summary`` 数组长度。"""
+        payload = raw.payload
+        if not isinstance(payload, dict):
+            raise SchemaError(
+                "nyfed: payload is not a dict",
+                context={"source": "nyfed", "endpoint": raw.endpoint},
+            )
+        if raw.endpoint == _SOMA_ENDPOINT:
+            soma = payload.get("soma")
+            rows = soma.get("summary") if isinstance(soma, dict) else None
+            if not isinstance(rows, list):
+                raise SchemaError(
+                    "nyfed: soma.summary is not a list",
+                    context={"source": "nyfed", "endpoint": raw.endpoint},
+                )
+            return len(rows)
+        repo = payload.get("repo")
+        rows = repo.get("operations") if isinstance(repo, dict) else None
+        if not isinstance(rows, list):
+            raise SchemaError(
+                "nyfed: repo.operations is not a list",
+                context={"source": "nyfed", "endpoint": raw.endpoint},
+            )
+        return len(rows)
+
     def checkpoint_from(self, raw: RawBatch | list[BaseRecord]) -> str | None:
-        """checkpoint cursor：最新观测日期（YYYY-MM-DD）。"""
+        """checkpoint cursor：与实际产出对齐的最新观测日期（YYYY-MM-DD）。
+
+        - SRF：只取能产出记录的行（排除 SVE / Term / 畸形行），纯 SVE 日 → None
+        - SOMA：只取至少有一个可解析分项的行，全缺 → None
+        - records：取 observation_time 最大日期
+        """
         if isinstance(raw, RawBatch):
+            payload = raw.payload if isinstance(raw.payload, dict) else {}
             if raw.endpoint == _SOMA_ENDPOINT:
-                payload = raw.payload if isinstance(raw.payload, dict) else {}
-                rows = payload.get("soma", {}).get("summary", [])
-                dates = [str(r.get("asOfDate")) for r in rows if isinstance(r, dict)]
-                return max(dates) if dates else None
-            rows = raw.payload.get("repo", {}).get("operations", []) if isinstance(raw.payload, dict) else []
-            dates = [str(r.get("operationDate")) for r in rows if isinstance(r, dict)]
-            return max(dates) if dates else None
-        elif isinstance(raw, list):
+                rows = payload.get("soma", {}).get("summary")
+                if not isinstance(rows, list):
+                    return None
+                soma_dates: list[date] = []
+                for row in rows:
+                    as_of, values, _reasons = _classify_soma_row(row)
+                    if as_of is not None and values:
+                        soma_dates.append(as_of)
+                return max(soma_dates).isoformat() if soma_dates else None
+            rows = payload.get("repo", {}).get("operations")
+            if not isinstance(rows, list):
+                return None
+            srf_dates: list[date] = []
+            for row in rows:
+                outcome = _classify_srf_row(row)
+                if not isinstance(outcome, str):
+                    srf_dates.append(outcome[0])
+            return max(srf_dates).isoformat() if srf_dates else None
+        if isinstance(raw, list):
             obs = [r.observation_time for r in raw if isinstance(r, NUMBER)]
             return max(obs).strftime("%Y-%m-%d") if obs else None
         return None

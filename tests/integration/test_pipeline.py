@@ -194,6 +194,12 @@ class FakeConnector:
                 payload["pad"] = "x" * self.pad_bytes
         yield RawBatch(endpoint=f"https://api.test/{request.dataset_id}", payload=payload)
 
+    def row_units(self, raw: RawBatch) -> int | None:
+        """测试双：payload 的 ``rows`` 数组即候选行；shape 违规按 0 计。"""
+        payload = raw.payload
+        rows = payload.get("rows") if isinstance(payload, dict) else None
+        return len(rows) if isinstance(rows, list) else 0
+
     def normalize(self, raw: RawBatch) -> list[Any]:
         payload = raw.payload
         if payload["chunk_no"] in self.fail_normalize_chunks:

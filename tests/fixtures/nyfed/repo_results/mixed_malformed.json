@@ -1,0 +1,50 @@
+{
+  "repo": {
+    "operations": [
+      {
+        "operationId": "RP 110525 3",
+        "auctionStatus": "Results",
+        "operationDate": "2025-11-05",
+        "settlementDate": "2025-11-05",
+        "maturityDate": "2025-11-06",
+        "operationType": "Repo",
+        "operationMethod": "Multiple Price",
+        "settlementType": "Same Day",
+        "termCalenderDays": 1,
+        "term": "Overnight",
+        "releaseTime": "13:30",
+        "closeTime": "13:45",
+        "note": "",
+        "lastUpdated": "2025-11-05 13:45:52",
+        "operationLimit": 500000000000,
+        "totalAmtSubmitted": 3000000,
+        "totalAmtAccepted": 3000000,
+        "details": []
+      },
+      {
+        "operationId": "SYNTH-BAD-AMOUNT",
+        "operationDate": "2025-11-05",
+        "term": "Overnight",
+        "totalAmtAccepted": "not-a-number"
+      },
+      {
+        "operationId": "SYNTH-BAD-DATE",
+        "operationDate": "",
+        "term": "Overnight",
+        "totalAmtAccepted": 1000000
+      },
+      {
+        "operationId": "SYNTH-TERM",
+        "operationDate": "2025-11-05",
+        "term": "Term",
+        "totalAmtAccepted": 50000000
+      },
+      {
+        "operationId": "SYNTH-MISSING-AMOUNT",
+        "operationDate": "2025-11-05",
+        "term": "Overnight"
+      },
+      "not-an-object"
+    ]
+  }
+}

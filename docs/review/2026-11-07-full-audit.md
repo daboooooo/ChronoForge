@@ -7,7 +7,7 @@
 | 基线报告 | `docs/review/2026-11-05-full-audit.md`（下称"上轮报告"） |
 | 审计性质 | 只读审计；未修改源码、未改数据、未重置 checkpoint、未重新采集 |
 | 唯一交付 | 本文件 |
-| 最终判定 | **NOT READY**（G1/G2/G3/G4/G6/G7 六道门禁为红；G5 部分失效） |
+| 最终判定 | **NOT READY**（审计时基线：G1/G2/G3/G4/G6/G7 六道门禁为红，G5 部分失效）；**当前修复进度见 §0.3 与 §17**（G3/G4 已转绿） |
 
 > 本报告对基线报告的所有"已修复"结论做了独立复核。复核方式：回读源码 + 跑既有测试 + 只读查询 canonical/derived 数据。**凡报告与代码不一致处，以代码与数据为准。**
 
@@ -22,18 +22,18 @@
 三个最关键的结论：
 
 1. ~~**SRF 口径把美联储的 SVE 测试操作当成真实用量写入 canonical**（C-N1）。~~ **已修复（2026-11-07 第 1 批）**：按 `note` 排除 SVE，4 条测试先红后绿，重采 2021-07-29 至今，11 个被污染日期全部纠正（2025-11-05 → 3M，2026-05-27 → 11M）。
-2. **C1/A-8 门禁对 `nyfed` 完全失效**（C-N2）。`_payload_units` 只认顶层 `rows/data/result/observations/values`，nyfed 的 `{repo:{operations:[...]}}` 与 `{soma:{summary:[...]}}` 一律返回 0；连接器没有 `note_skip`；`checkpoint_from` 直接读 raw 最大日期。结果是"有输入、零产出、checkpoint 照常推进"，与上轮 C1 的症状完全一致。
+2. ~~**C1/A-8 门禁对 `nyfed` 完全失效**（C-N2）。~~ **已修复（2026-11-07 第 2 批，方案 B）**：删除 runner 的 `_payload_units` 形状猜测，改为连接器契约 `DataConnector.row_units(raw)`；未声明即拒绝执行（不降级为 0）。14 个连接器逐个声明行单位，含 deribit chart（`result.ticks`）、coinmarketcap（`data.quotes`）、yahoo（`chart.result[0].timestamp`）、sec_edgar（`filings.recent` 列式 / `facts` 四层嵌套）。nyfed 同时补齐 `note_skip`（合法/非法分离）与 `checkpoint_from` 对齐。注入验证覆盖全部连接器：取消声明 / 错误行数均触发 `QualityError` 且 checkpoint 不推进，合法空批不误报。
 3. **准备金模型的"PIT 截断"只截 observation_time，不截 release_time**（H-N3）；**TGA 区间发散是算法性的**（H-N4），并被图 5 的硬编码 y 轴裁切掩盖。
 
 ### 0.2 严重级别统计
 
-| 级别 | 本次新增 | 已修复（第 1 批） | 现存 | 合计 |
+| 级别 | 本次新增 | 已修复（第 1–2 批） | 现存 | 合计 |
 |---|---|---|---|---|
-| CRITICAL | 2（C-N1、C-N2） | 1（C-N1） | **1（C-N2）** | 2 |
+| CRITICAL | 2（C-N1、C-N2） | 2（C-N1、C-N2） | **0** | 2 |
 | HIGH | 5 组（H-N1–H-N4、H-N5–H-N9） | 0 | **5 组** | 5 组 |
 | MEDIUM | 10 | 0 | **10** | 10 |
 | LOW | 8 | 0 | **8** | 8 |
-| 合计 | — | 1 | **24 条 / 5 组** | 29 |
+| 合计 | — | 2 | **24 条 / 5 组** | 29 |
 
 > 编号规则：`*-N*` 表示本轮新增（N = new）；`C1/A-1/H1/M1` 等沿用上轮编号。
 > 修复状态以 §17「修复进度」为准（每批完成后更新）。
@@ -42,10 +42,10 @@
 
 | 门禁 | 结果 | 直接原因 |
 |---|---|---|
-| G1 静态质量 | ❌ 红 | `mypy src` 2 errors、`ruff check src` 2 errors，全部在 `nyfed.py` |
-| G2 测试 | ❌ 红 | `3 failed, 1980 passed`：docs 一致性 1 条 + CLI 源数/源列表 2 条 |
-| G3 契约测试 | ❌ 红（重新打开） | `nyfed` 无真实响应 fixture、无 fetch→normalize 全链路测试 |
-| G4 静默丢失 | ❌ 红（重新打开） | SRF SVE 污染已修（第 1 批）；**C-N2 仍红**——`nyfed` 零产出/逐行丢弃不触发门禁 |
+| G1 静态质量 | ❌ 红 | `mypy src` 2 errors、`ruff check src` 1 error（均仍在 `nyfed.py`；第 5 批处理） |
+| G2 测试 | ❌ 红 | `3 failed, 2080 passed`：docs 一致性 1 条 + CLI 源数/源列表 2 条（第 2 批新增用例全绿） |
+| G3 契约测试 | ✅ 绿（第 2 批关闭） | nyfed 已补真实形状 fixture + fetch→normalize 全链路 + 负向用例 |
+| G4 静默丢失 | ✅ 绿（第 2 批方案 B 关闭） | 行单位改为连接器声明，14 个连接器逐一覆盖；取消声明即拒绝执行；错误声明触发门禁；合法空批不误报 |
 | G5 约束核验 | ⚠️ 部分失效 | PIT、发布时刻、区间口径三条硬约束在新增代码上无三方证据 |
 | G6 版本库 | ❌ 红 | 15 个工作区改动 + `nyfed.py`/`reserve_forecast.py`/`visualization/`/`docs/USD_Liquidity/` 全部未跟踪；落后 origin 52 个提交 |
 | G7 文档一致 | ❌ 红 | README `13 sources` vs 实际 14；新增连接器/模型/站点无有效文档；站点 README 仍写 16 张图、准备金"未实现" |
@@ -66,7 +66,7 @@
 | G1/G2/G7 | 全绿 | nyfed + 文档漂移导致红 | **重新打开** |
 | G6 | 工作区干净 | 新一轮改动未提交、未推送 | **重新打开** |
 
-> **本轮新增项的修复状态**：C-N1 已修复（第 1 批）；C-N2 与全部 H/M/L 仍开放。详见 §17。
+> **本轮新增项的修复状态**：C-N1、C-N2 均已修复（第 1–2 批）；全部 H/M/L 仍开放。详见 §17。
 
 > 上轮报告自身还有一处内部数字不一致：§0.1/§1.6 写 `1972 passed`，§2.1 写 `1862 passed`，§2 写 `1770 passed`。本轮实测 1980 passed / 3 failed。作为文档瑕疵记为 L-N8，不影响代码结论。
 
@@ -315,11 +315,11 @@ uv run python scripts/backfill_datasets.py --sources nyfed --entities srf_usage 
 - **upsert**：自然键（含 `revision_time`）未变，新值覆盖旧值；storage 会记录漂移并保留最终修订。无旧值残留。
 - **checkpoint**：由窗口右界推进到 `2026-11-07T00:00:00`（`advance_chunks` 语义，不是 `checkpoint_from` 的数据最大日期）；本次重采前为 `2026-11-06T15:23:16`。
 
-**门禁影响**：G4 的"SRF 污染"子项关闭，但 **G4 仍红**（C-N2 的静默丢失未修）。G1/G2/G3/G6/G7 不受本批影响，仍红。
+**门禁影响**（第 1 批当时）：G4 的"SRF 污染"子项关闭；C-N2 当时尚未修。**现状态**：G4 已随第 2 批方案 B 整体转绿（见 §17），G3 亦已转绿；G1/G2/G6/G7 仍红。
 
 ---
 
-### C-N2. `nyfed` 零产出/逐行丢弃不触发门禁，checkpoint 照常推进 ✅ 已核实
+### C-N2. `nyfed` 零产出/逐行丢弃不触发门禁，checkpoint 照常推进 ✅ 已核实 → ✅ 已修复（2026-11-07，第 2 批）
 
 **位置**：
 - [runner.py#L433-L449](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/pipeline/runner.py#L433-L449) `_payload_units`
@@ -376,7 +376,36 @@ assert _payload_units({"soma": {"summary": [{"asOfDate": "2026-11-04"}]}}) == 0
 
 **测试缺口**：[tests/quality/test_normalize_drop_gate.py](file:///Users/horsenli/Works/ChronoForge/tests/quality/test_normalize_drop_gate.py) 只覆盖 OHLCV 的 list payload；全仓 grep `nyfed` 在 `tests/` 下**0 命中**。
 
-**判定**：CRITICAL。它是所有 nyfed 解析缺陷的"静默放大器"，且直接违反 G4。
+**判定**：CRITICAL。它是所有 nyfed 解析缺陷的"静默放大器"，且直接违反 G4。**已于 2026-11-07 第 2 批修复，见下。**
+
+#### 第 2 批修复记录（2026-11-07）
+
+| 修复点 | 实现 | 证据 |
+|---|---|---|
+| 行单位判定（方案 B） | 删除 runner 的 `_payload_units` 形状猜测；改为连接器契约 `DataConnector.row_units(raw) -> int \| None`，runner 只消费声明。基类默认抛 `NotImplementedError`；runner 捕获后抛 `QualityError`（**拒绝执行，不降级为 0**——降级会把"契约缺失"伪装成"无数据"）；显式 `None` 仅用于单文档源；负值视为非法声明 | [base.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/base.py)、[runner.py](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/pipeline/runner.py) |
+| 14 个连接器逐一声明 | `alternative`（`data`）、`binance_spot`/`binance_futures`/`ccxt`（顶层 list；单快照 dict=1）、`coinmarketcap`（`data.quotes`）、`coinmetrics`（`data`）、`deribit`（chart `result.ticks`；其它 `result`）、`fred`（`observations`）、`nyfed`（`repo.operations` / `soma.summary`）、`sec_edgar`（`filings.recent` 或分页顶层 `accessionNumber`；companyfacts 四层累计）、`sosovalue`（`data`）、`treasury_fiscal`（`data`）、`treasury_refunding`（显式 `None`）、`yahoo`（`chart.result[0].timestamp`） | 各连接器 `row_units`；[tests/unit/test_connector_row_units.py](file:///Users/horsenli/Works/ChronoForge/tests/unit/test_connector_row_units.py) |
+| `note_skip` 合法/非法分离 | `sve_test_operation`、`non_overnight_operation` 进白名单；`malformed_row` / `bad_operation_date` / `missing_amount` / `non_numeric_amount` / `negative_amount` / `non_numeric_value` / `bad_as_of_date` 计为非法丢弃 | [nyfed.py#L78-L137](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/nyfed.py#L78-L137)、[normalize_stats.py#L31-L46](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/normalize_stats.py#L31-L46) |
+| SOMA 缺分项 | 逐分项上报 `source_missing_value`（合法），不再静默 `continue` | 同上 `_classify_soma_row` |
+| `checkpoint_from` 对齐产出 | 只取能产出记录的日期（SRF 排除 SVE/Term/畸形；SOMA 要求至少一个可解析分项），零产出返回 `None` | [nyfed.py#L509-L544](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/nyfed.py#L509-L544) |
+| 真实形状 fixture | `tests/fixtures/nyfed/`：SRF 2025-11-05 三笔真实操作、纯 SVE 单行、混合畸形、SOMA 两个真实快照；来源与核对日期见 SOURCE.md | [SOURCE.md](file:///Users/horsenli/Works/ChronoForge/tests/fixtures/nyfed/SOURCE.md) |
+| 全链路 + 负向用例 | `tests/integration/test_nyfed.py`：fetch（MockTransport，真实 fixture）→ normalize；note_skip 计数；checkpoint 契约 | 12 passed |
+| 注入验证（全部连接器） | `tests/quality/test_row_units_gate.py`：15 个形状 × 3 模式 = 45 用例。取消声明 → `QualityError` + checkpoint 不推进；错误行数（声明 +2）→ `QualityError` + checkpoint 不推进；合法空批 → `SUCCESS` + cursor 推进 | 45 passed |
+
+**先红后绿**：
+- 修复前（`_payload_units` 旧实现 + 无 `note_skip`）：`tests/unit/test_payload_units.py`、`tests/integration/test_nyfed.py` 新增用例与 `tests/quality/test_nyfed_gate.py` 共 **9 failed / 22 passed**，失败点分别落在"嵌套形状返回 0"“无 note_skip 计数”“checkpoint_from 取 raw 最大日期”“静默丢弃不抛 QualityError（DID NOT RAISE）”。
+- 方案 B 注入验证（全部连接器）：`tests/quality/test_row_units_gate.py` **45 passed**——取消声明与错误行数均 `QualityError` + `checkpoint_after IS NULL`，合法空批 `SUCCESS` + cursor 推进。
+- 修复后：定向套件（quality + pipeline + 行单位契约）**152 passed**；全量 `3 failed, 2080 passed`（3 条失败与本批无关，见 §2.2）。
+
+**门禁影响**：
+- **G3 契约测试 → ✅ 绿**：nyfed 已有真实形状 fixture + fetch→normalize 全链路 + 负向用例。
+- **G4 静默丢失 → ✅ 绿**：行单位改为连接器声明后，14 个连接器全部纳入门禁口径；未声明拒绝执行；错误声明触发门禁；合法空批不误报（见 §17 覆盖表）。
+- G1/G2/G6/G7 不受本批影响。
+
+**SVE 过滤复核（2026-11-07，方案 B 前）**：对全部已落盘 SRF raw 去重后的 1684 条操作复核——13 条 SVE 全部带 `note`，不存在"note 为空但实为 SVE"的行；1554 条空 note 行中，金额 0 与 < 5M 的为真实未用量/常规操作，`operationId` 尾号在 SVE 与真实行中混用，不能作判据。非空 note 中除 SVE 外还有"额度调整/结算差额"说明，均非测试操作。SOMA `summary` 结构只有 `asOfDate` + 持仓字段，无 note/测试标记，且全量文本字段无 test 字样。**结论：已核，无需改。**
+
+**改动边界**：`base.py`（新增 `row_units` 契约默认）、`runner.py`（删除 `_payload_units`、新增 `_declared_row_units`）、14 个连接器（`row_units` 声明）、`normalize_stats.py`（白名单）、`nyfed.py`（分类/上报/checkpoint）、`tests/unit/test_connector_row_units.py`、`tests/quality/test_row_units_gate.py`、`tests/quality/test_nyfed_gate.py`、`tests/integration/test_pipeline.py`（`FakeConnector.row_units`）、`tests/integration/test_nyfed.py`、fixture 目录 + 本报告。删除了 `tests/unit/test_payload_units.py`（测试已删除的 `_payload_units`）。未改 `pyproject.toml`、`windows.py`、`service.py`、`_wiring.py` 等既有未提交内容；未动 `data/`、`meta/`、`var/`。
+
+**未提交**：按用户要求，第 2 批改动先不提交，等确认。
 
 ---
 
@@ -548,7 +577,7 @@ nyfed.py:125: error: Missing positional argument "params" in call to "_get_json"
 nyfed.py:126: error: Argument 1 ... has incompatible type "dict[str, str]"; expected "str"  [arg-type]
 ```
 
-`ruff` 另有 2 个 `E501`。
+`ruff` 另有 1 个 `E501`（模块 docstring 第 6 行 URL；第 5 批处理）。
 
 **含义**：`health()` 一旦被调用（CLI 健康检查/探活）会抛 `TypeError`，而不是返回 `HealthStatus(ok=False)`——`except Exception` 会捕获，但仍会把"代码 bug"伪装成"上游不可用"。同时 G1 门禁直接为红。
 
@@ -941,6 +970,8 @@ HIGH。不是"图表问题"而是"模型区间语义问题"；即使把 y 轴改
 
 ## 12. 门禁判定（G1–G7）
 
+> 下表为**审计时基线**（2026-11-07 修复前）。当前状态以 §0.3 与 §17 为准。
+
 | 门禁 | 结果 | 证据 | 结论 |
 |---|---|---|---|
 | **G1 静态质量** | ❌ | `mypy` 2 errors、`ruff` 2 errors（均在 `nyfed.py`） | 不通过 |
@@ -987,12 +1018,11 @@ where observation_time in (timestamp '2025-11-05', timestamp '2026-05-27')
 order by observation_time""").pl().to_pandas())
 PY
 
-# 4. nyfed payload 门禁失效（C-N2）
-uv run python - <<'PY'
-from chronoforge.pipeline.runner import _payload_units
-print(_payload_units({"repo": {"operations": [{"operationDate": "2026-11-06"}]}}))  # 0
-print(_payload_units({"soma": {"summary": [{"asOfDate": "2026-11-04"}]}}))         # 0
-PY
+# 4. 行单位契约（C-N2 已修；方案 B 注入验证）
+uv run --with pytest --with pytest-asyncio --with hypothesis \
+  python -m pytest tests/unit/test_connector_row_units.py tests/quality/test_row_units_gate.py -q
+# 期望：41 + 45 passed（取消声明/错误行数 → QualityError 且 checkpoint 不推进；空批 → SUCCESS）
+uv run python -c "from chronoforge.connectors.base import DataConnector; DataConnector.row_units(object(), None)"
 
 # 5. SOMA/SRF 发布时刻（H-N1）
 uv run python -c "from chronoforge.config.update_schedule import publish_time_utc; print('nyfed', publish_time_utc('nyfed'))"
@@ -1080,17 +1110,17 @@ uv run python scripts/reserve_forecast.py check
 
 | 批次 | 范围 | 状态 | 门禁影响 |
 |---|---|---|---|
-| 第 1 批 | C-N1 SRF 口径 + 污染数据重采 | ✅ 完成（2026-11-07，未提交） | G4 的 SRF 子项关闭；G4 仍红（C-N2 未修） |
-| 第 2 批 | C-N2 nyfed 门禁 + fixture + 注入验证 | 待开始 | 预计 G3/G4 可转绿 |
+| 第 1 批 | C-N1 SRF 口径 + 污染数据重采 | ✅ 完成（已提交 `4ab246a`） | G4 的 SRF 子项关闭 |
+| 第 2 批 | C-N2 nyfed 门禁 + 方案 B 行单位契约 + fixture + 注入验证 | ✅ 完成（2026-11-07，未提交） | **G3 转绿；G4 转绿** |
 | 第 3 批 | H-N3 准备金 PIT | 待开始 | G5 部分恢复 |
 | 第 4 批 | H-N4 TGA 区间 + 图 5 轴 | 待开始 | G5 部分恢复 |
 | 第 5 批 | 失败用例 + mypy/ruff + 文档 | 待开始 | 预计 G1/G2/G7 可转绿 |
 
-### 第 1 批改动清单（仅本次改动，未提交）
+### 第 1 批改动清单（已提交 `4ab246a`）
 
 | 文件/对象 | 类型 | 说明 |
 |---|---|---|
-| `src/chronoforge/connectors/nyfed.py` | 修改（该文件本身仍为未跟踪） | 增加 SVE note 过滤与 `_SVE_MARKER` |
+| `src/chronoforge/connectors/nyfed.py` | 修改（首次纳入版本库） | 增加 SVE note 过滤与 `_SVE_MARKER` |
 | `tests/integration/test_nyfed.py` | **新增** | 4 条 SRF/SVE 用例 |
 | `data/canonical/NUMBER/entity=srf_usage` | 数据重写 | 1317 行，11 个污染日期被纠正 |
 | `data/raw/nyfed/nyfed_repo_srf_usage` | 新增一次抓取 | `ingest_date=2026-11-07`；旧 raw 保留 |
@@ -1108,5 +1138,76 @@ uv run --with pytest --with pytest-asyncio --with hypothesis \
 
 **与既有未提交内容的关系**：`nyfed.py` 在本次修复前就是未跟踪文件；本次只在其内部加入 SVE 过滤，没有触碰 `registry/service.py`、`windows.py`、`_wiring.py`、`pyproject.toml` 等既有未提交改动。`tests/integration/test_nyfed.py` 是本次新增，与既有未跟踪的 `docs/USD_Liquidity/`、`visualization/`、`reserve_forecast.py` 无关。
 
-**未做**：未提交、未推送；未删除 `docs/USD_Liquidity/reports/quality_report.md`。
+**未做**：未推送；未删除 `docs/USD_Liquidity/reports/quality_report.md`。
+
+### 第 2 批改动清单（2026-11-07，未提交）
+
+| 文件/对象 | 类型 | 说明 |
+|---|---|---|
+| `src/chronoforge/connectors/base.py` | 修改 | 新增 `DataConnector.row_units(raw) -> int \| None` 契约；基类默认抛 `NotImplementedError`（未声明即不可运行） |
+| `src/chronoforge/pipeline/runner.py` | 修改 | 删除 `_payload_units` 形状猜测；新增 `_declared_row_units`，每个 batch 在 normalize 前取声明，未声明/负值 → `QualityError`；`failed_units += max(units, 1)` |
+| `src/chronoforge/connectors/*.py`（14 个） | 修改 | 逐一声明 `row_units`（见 §17 覆盖表）；形状漂移抛 `SchemaError` |
+| `src/chronoforge/connectors/normalize_stats.py` | 修改 | 白名单增加 `sve_test_operation` / `non_overnight_operation` |
+| `src/chronoforge/connectors/nyfed.py` | 修改 | `_classify_srf_row` / `_classify_soma_row`、`note_skip`、checkpoint 对齐 |
+| `tests/unit/test_connector_row_units.py` | **新增** | 表驱动 14 连接器真声明（含空批、嵌套形状、形状漂移、基类默认） |
+| `tests/unit/test_payload_units.py` | **删除** | 测试已删除的 runner `_payload_units` |
+| `tests/quality/test_row_units_gate.py` | **新增** | 15 形状 × 3 模式：取消声明 / 错误行数 / 合法空批 |
+| `tests/integration/test_pipeline.py` | 修改 | `FakeConnector` 增加 `row_units` 测试双 |
+| `tests/integration/test_nyfed.py` | 扩充 | 12 条：SVE 口径、note_skip、checkpoint、fetch→normalize 全链路 |
+| `tests/quality/test_nyfed_gate.py` | **新增** | 注入"静默丢弃"假实现 → 门禁变红；纯 SVE 合法跳过 → 绿 |
+| `tests/quality/test_normalize_drop_gate.py` | 修改 | 白名单锁测试同步新增两个合法原因 |
+| `tests/fixtures/nyfed/` | **新增** | 真实形状 SRF/SOMA fixture + `SOURCE.md` |
+| `docs/review/2026-11-07-full-audit.md` | 修改 | C-N2 修复记录、SVE 复核、§0 统计/门禁、本节 |
+
+**验证命令与结果**：
+
+```bash
+uv run --with pytest --with pytest-asyncio --with hypothesis \
+  python -m pytest tests/unit/test_connector_row_units.py -q                          # 41 passed
+uv run --with pytest --with pytest-asyncio --with hypothesis \
+  python -m pytest tests/quality tests/integration/test_pipeline.py \
+  tests/unit/test_connector_row_units.py -q                                           # 152 passed
+uv run --with pytest --with pytest-asyncio --with hypothesis python -m pytest -q      # 3 failed, 2080 passed
+uv run ruff check src tests/unit/test_connector_row_units.py \
+  tests/quality/test_row_units_gate.py tests/integration/test_pipeline.py             # 1 error（nyfed docstring E501，第 5 批）
+uv run mypy src                                                                       # 2 errors（nyfed health() 缺 params，第 5 批）
+```
+
+3 条失败均为 docs/CLI 漂移（README `13 sources`、CLI `13 sources`、源列表缺 `nyfed`），属第 5 批范围；本批新增用例全绿。
+
+### G4 行单位覆盖表（✅ 17 个形状全部声明、15 个形状注入验证，第 2 批方案 B）
+
+runner 不再猜测 payload 形状：每个连接器必须实现 `row_units`，返回值等于 normalize 候选行数（产出 + 上报跳过）；`0` 表示源端确实无数据；`None` 仅用于无行级粒度的单文档源；形状漂移抛 `SchemaError`；未声明由基类抛 `NotImplementedError`，runner 转为 `QualityError` 拒绝执行。
+
+| 连接器 | 端点/形状 | 声明的行单位 | 契约测试 |
+|---|---|---|---|
+| alternative | `{"data": [...]}` | `len(data)` | ✅ |
+| binance_spot | 顶层 list / ticker dict | `len(list)`；单快照 dict = `1` | ✅ |
+| binance_futures | 顶层 list / ticker dict | 同上 | ✅ |
+| ccxt_bridge | 顶层 list（OHLCV/trades） | `len(list)` | ✅ |
+| coinmarketcap | `{"data": {"quotes": [...]}}` | `len(data["quotes"])` | ✅（盲区已关） |
+| coinmetrics | `{"data": [...]}` | `len(data)` | ✅ |
+| deribit（chart） | `{"result": {"ticks": [...], ...}}`（并行数组） | `len(result["ticks"])`（不是数组条数） | ✅（盲区已关） |
+| deribit（ticker/funding） | `{"result": [...]}` | `len(result)` | ✅ |
+| fred | `{"observations": [...]}` | `len(observations)` | ✅ |
+| nyfed（SRF） | `{"repo": {"operations": [...]}}` | `len(repo["operations"])` | ✅（盲区已关） |
+| nyfed（SOMA） | `{"soma": {"summary": [...]}}` | `len(soma["summary"])` | ✅（盲区已关） |
+| sec_edgar（submissions） | `{"filings": {"recent": {并行数组列}}}` | `len(recent["accessionNumber"])`（分页文件用顶层键） | ✅（盲区已关） |
+| sec_edgar（companyfacts） | `{"facts": {taxonomy: {concept: {units: {...}}}}}` | 四层遍历后的观测条目总数 | ✅（盲区已关） |
+| sosovalue | `{"code": 0, "data": [...]}` | `len(data)` | ✅ |
+| treasury_fiscal | `{"data": [...]}` | `len(data)` | ✅ |
+| treasury_refunding | `{"release_html": "..."}`（单文档） | 显式 `None`（无行级粒度） | ✅ |
+| yahoo | `{"chart": {"result": [{"timestamp": [...]}]}}` | `0`（空 result）或 `len(result[0]["timestamp"])` | ✅（盲区已关） |
+
+**注入验证（`tests/quality/test_row_units_gate.py`，45 passed）**：
+
+| 注入 | 结果 |
+|---|---|
+| 取消声明（`row_units` 抛 `NotImplementedError`） | 15/15 `QualityError`，`checkpoint_after IS NULL` |
+| 错误行数（声明真实值 +2） | 15/15 `QualityError: normalize drop rate`，`checkpoint_after IS NULL` |
+| 合法空批（真实声明 `0` / `None`） | 15/15 `SUCCESS`，cursor 推进到窗口右界 |
+
+**契约测试（`tests/unit/test_connector_row_units.py`，41 passed）**：覆盖上述全部形状的真声明、空批、`None` 语义、形状漂移 `SchemaError`，以及基类默认抛 `NotImplementedError`。
+
+**残余风险（明确边界，不掩盖）**：门禁只能发现"声明 > 产出"，无法发现"连接器把有数据的批次错报为 0"。该风险由契约测试的真实形状覆盖 + 形状漂移抛错来约束，不再依赖 runner 猜测；新增连接器若忘写 `row_units` 会直接拒绝执行，而不是静默为 0。
 </content>

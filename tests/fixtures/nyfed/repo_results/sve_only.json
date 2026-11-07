@@ -1,0 +1,37 @@
+{
+  "repo": {
+    "operations": [
+      {
+        "operationId": "RP 110525 25",
+        "auctionStatus": "Results",
+        "operationDate": "2025-11-05",
+        "settlementDate": "2025-11-05",
+        "maturityDate": "2025-11-06",
+        "operationType": "Repo",
+        "operationMethod": "Multiple Price",
+        "settlementType": "Same Day",
+        "termCalenderDays": 1,
+        "term": "Overnight",
+        "releaseTime": "10:00",
+        "closeTime": "10:15",
+        "note": "<p>This operation is a Small Value Exercise (SVE); the daily SRF operation will still take place at its regularly scheduled time, 1:30pm ET.</p>",
+        "lastUpdated": "2025-11-05 10:15:55",
+        "operationLimit": 250000000,
+        "totalAmtSubmitted": 99000000,
+        "totalAmtAccepted": 99000000,
+        "details": [
+          {
+            "securityType": "Treasury",
+            "amtSubmitted": 42000000,
+            "amtAccepted": 42000000,
+            "minimumBidRate": 4.0,
+            "percentHighRate": 4.0,
+            "percentLowRate": 4.0,
+            "percentStopOutRate": 4.0,
+            "percentWeightedAverageRate": 4.0
+          }
+        ]
+      }
+    ]
+  }
+}

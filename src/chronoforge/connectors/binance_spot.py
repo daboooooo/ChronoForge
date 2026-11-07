@@ -32,6 +32,7 @@ from chronoforge.connectors.errors import (
     ChronoForgeError,
     ProviderError,
     RateLimitError,
+    SchemaError,
     TransportError,
     map_http_status,
 )
@@ -675,6 +676,18 @@ class BinanceSpotConnector(DataConnector):
                     ))
 
         return QualityReport(findings=findings)
+
+    def row_units(self, raw: RawBatch) -> int | None:
+        """K 线/aggTrades 为行数组；ticker24hr 为单快照（1 行）。"""
+        payload = raw.payload
+        if isinstance(payload, (list, tuple)):
+            return len(payload)
+        if isinstance(payload, dict):
+            return 0 if not payload else 1
+        raise SchemaError(
+            "binance_spot: payload is neither list nor dict",
+            context={"source": "binance_spot", "endpoint": raw.endpoint},
+        )
 
     def checkpoint_from(
         self, raw: RawBatch | list[BaseRecord]

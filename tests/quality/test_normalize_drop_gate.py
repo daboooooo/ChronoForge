@@ -162,4 +162,6 @@ def test_legit_skip_reasons_whitelist_is_locked() -> None:
         "source_missing_value",
         "non_target_account",
         "duplicate_observation",
+        "sve_test_operation",
+        "non_overnight_operation",
     })

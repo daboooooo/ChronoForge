@@ -35,6 +35,7 @@ from chronoforge.connectors.errors import (
     AuthError,
     ProviderError,
     RateLimitError,
+    SchemaError,
     TransportError,
     map_http_status,
 )
@@ -64,6 +65,8 @@ _DERIBIT_REQ_PER_MIN = 100
 _INSTRUMENT_WEIGHT = 1
 _BOOK_SUMMARY_WEIGHT = 1
 _CHART_DATA_WEIGHT = 1
+# chart 端点：payload 为并行数组（result.ticks 为行单位）
+_CHART_ENDPOINT = "/public/get_tradingview_chart_data"
 
 # chart 分页护栏：continuation token 重复或页数超限即失败，
 # 避免源端分页异常导致无限请求/重复采集（审计 P2，2026-11-05）
@@ -353,7 +356,7 @@ class DeribitConnector(DataConnector):
                 seen_continuations.add(token)
 
             yield RawBatch(
-                endpoint="/public/get_tradingview_chart_data",
+                endpoint=_CHART_ENDPOINT,
                 payload=data,
                 raw_meta={
                     "http_status": response.status_code,
@@ -780,6 +783,35 @@ class DeribitConnector(DataConnector):
                     ))
 
         return QualityReport(findings=findings)
+
+    def row_units(self, raw: RawBatch) -> int | None:
+        """行单位：chart 用 ``result.ticks``（并行数组），其余用 ``result`` 列表。"""
+        payload = raw.payload
+        if not isinstance(payload, dict):
+            raise SchemaError(
+                "deribit: payload is not a dict",
+                context={"source": "deribit", "endpoint": raw.endpoint},
+            )
+        result = payload.get("result")
+        if raw.endpoint == _CHART_ENDPOINT:
+            if not isinstance(result, dict):
+                raise SchemaError(
+                    "deribit: chart result is not a dict",
+                    context={"source": "deribit", "endpoint": raw.endpoint},
+                )
+            ticks = result.get("ticks")
+            if not isinstance(ticks, list):
+                raise SchemaError(
+                    "deribit: chart result.ticks is not a list",
+                    context={"source": "deribit", "endpoint": raw.endpoint},
+                )
+            return len(ticks)
+        if not isinstance(result, list):
+            raise SchemaError(
+                "deribit: result is not a list",
+                context={"source": "deribit", "endpoint": raw.endpoint},
+            )
+        return len(result)
 
     def checkpoint_from(
         self, raw: RawBatch | list[BaseRecord]

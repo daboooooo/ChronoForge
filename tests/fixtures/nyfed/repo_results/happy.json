@@ -1,0 +1,123 @@
+{
+  "repo": {
+    "operations": [
+      {
+        "operationId": "RP 110525 1",
+        "auctionStatus": "Results",
+        "operationDate": "2025-11-05",
+        "settlementDate": "2025-11-05",
+        "maturityDate": "2025-11-06",
+        "operationType": "Repo",
+        "operationMethod": "Multiple Price",
+        "settlementType": "Same Day",
+        "termCalenderDays": 1,
+        "term": "Overnight",
+        "releaseTime": "08:15",
+        "closeTime": "08:30",
+        "note": "Today's afternoon SRF operation will have an aggregate operation limit of $500.000 billion, which is $500 billion less the amount of total accepted propositions in this morning's SRF operation.",
+        "lastUpdated": "2025-11-05 08:32:03",
+        "operationLimit": 500000000000,
+        "totalAmtSubmitted": 0,
+        "totalAmtAccepted": 0,
+        "details": [
+          {"securityType": "Treasury", "amtSubmitted": 0, "amtAccepted": 0, "minimumBidRate": 4.0},
+          {"securityType": "Agency", "amtSubmitted": 0, "amtAccepted": 0, "minimumBidRate": 4.0},
+          {"securityType": "Mortgage-Backed", "amtSubmitted": 0, "amtAccepted": 0, "minimumBidRate": 4.0}
+        ]
+      },
+      {
+        "operationId": "RP 110525 25",
+        "auctionStatus": "Results",
+        "operationDate": "2025-11-05",
+        "settlementDate": "2025-11-05",
+        "maturityDate": "2025-11-06",
+        "operationType": "Repo",
+        "operationMethod": "Multiple Price",
+        "settlementType": "Same Day",
+        "termCalenderDays": 1,
+        "term": "Overnight",
+        "releaseTime": "10:00",
+        "closeTime": "10:15",
+        "note": "<p>This operation is a Small Value Exercise (SVE); the daily SRF operation will still take place at its regularly scheduled time, 1:30pm ET.</p>",
+        "lastUpdated": "2025-11-05 10:15:55",
+        "operationLimit": 250000000,
+        "totalAmtSubmitted": 99000000,
+        "totalAmtAccepted": 99000000,
+        "details": [
+          {
+            "securityType": "Treasury",
+            "amtSubmitted": 42000000,
+            "amtAccepted": 42000000,
+            "minimumBidRate": 4.0,
+            "percentHighRate": 4.0,
+            "percentLowRate": 4.0,
+            "percentStopOutRate": 4.0,
+            "percentWeightedAverageRate": 4.0
+          },
+          {
+            "securityType": "Agency",
+            "amtSubmitted": 20000000,
+            "amtAccepted": 20000000,
+            "minimumBidRate": 4.0,
+            "percentHighRate": 4.0,
+            "percentLowRate": 4.0,
+            "percentStopOutRate": 4.0,
+            "percentWeightedAverageRate": 4.0
+          },
+          {
+            "securityType": "Mortgage-Backed",
+            "amtSubmitted": 37000000,
+            "amtAccepted": 37000000,
+            "minimumBidRate": 4.0,
+            "percentHighRate": 4.0,
+            "percentLowRate": 4.0,
+            "percentStopOutRate": 4.0,
+            "percentWeightedAverageRate": 4.0
+          }
+        ]
+      },
+      {
+        "operationId": "RP 110525 3",
+        "auctionStatus": "Results",
+        "operationDate": "2025-11-05",
+        "settlementDate": "2025-11-05",
+        "maturityDate": "2025-11-06",
+        "operationType": "Repo",
+        "operationMethod": "Multiple Price",
+        "settlementType": "Same Day",
+        "termCalenderDays": 1,
+        "term": "Overnight",
+        "releaseTime": "13:30",
+        "closeTime": "13:45",
+        "note": "",
+        "lastUpdated": "2025-11-05 13:45:52",
+        "operationLimit": 500000000000,
+        "totalAmtSubmitted": 3000000,
+        "totalAmtAccepted": 3000000,
+        "details": [
+          {
+            "securityType": "Treasury",
+            "amtSubmitted": 1000000,
+            "amtAccepted": 1000000,
+            "minimumBidRate": 4.0,
+            "percentHighRate": 4.0,
+            "percentLowRate": 4.0,
+            "percentStopOutRate": 4.0,
+            "percentWeightedAverageRate": 4.0
+          },
+          {"securityType": "Agency", "amtSubmitted": 0, "amtAccepted": 0, "minimumBidRate": 4.0},
+          {
+            "securityType": "Mortgage-Backed",
+            "amtSubmitted": 2000000,
+            "amtAccepted": 2000000,
+            "minimumBidRate": 4.0,
+            "percentHighRate": 4.0,
+            "percentLowRate": 4.0,
+            "percentStopOutRate": 4.0,
+            "percentWeightedAverageRate": 4.0
+          }
+        ]
+      }
+    ]
+  }
+}

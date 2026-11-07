@@ -130,3 +130,17 @@ class DataConnector(Protocol):
     def checkpoint_from(
         self, raw: RawBatch | list[Any]
     ) -> str | None: ...
+
+    def row_units(self, raw: RawBatch) -> int | None:
+        """声明本批次可归一化的候选行数（行级丢弃门禁的唯一口径）。
+
+        - 必须由具体连接器实现。未实现（继承本默认）视为契约缺失：
+          Runner 拒绝执行该 run，不做形状猜测、不降级为 0。
+        - 返回值必须等于 ``normalize`` 的候选行数（产出 + 上报跳过）；
+          返回 0 表示源端确实无数据（合法空批次，门禁不适用）。
+        - 返回 ``None`` 仅用于无行级粒度的源（如单文档公告）：
+          门禁以 ``产出 + 上报跳过`` 为分母，无法发现未上报丢弃。
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} 未声明 row_units；行级丢弃门禁无法运行"
+        )

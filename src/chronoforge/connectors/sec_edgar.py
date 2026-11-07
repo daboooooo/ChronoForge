@@ -36,6 +36,7 @@ from chronoforge.connectors.errors import (
     ConfigError,
     ProviderError,
     RateLimitError,
+    SchemaError,
     TransportError,
 )
 from chronoforge.connectors.normalize_stats import note_skip
@@ -708,6 +709,56 @@ class SECEdgarConnector(DataConnector):
                     ))
 
         return QualityReport(findings=findings)
+
+    def row_units(self, raw: RawBatch) -> int | None:
+        """行单位：submissions 用 filings 列式数组；companyfacts 用观测条目总数。
+
+        - submissions 主响应：``filings.recent.accessionNumber`` 长度；
+        - submissions 分页文件：顶层 ``accessionNumber`` 长度；
+        - companyfacts：``facts`` → taxonomy → concept → units → 观测数组，
+          累计所有观测条目（四层嵌套，行单位不是数组条数）。
+        """
+        payload = raw.payload
+        if not isinstance(payload, dict):
+            raise SchemaError(
+                "sec_edgar: payload is not a dict",
+                context={"source": "sec_edgar", "endpoint": raw.endpoint},
+            )
+        if "companyfacts" in raw.endpoint:
+            facts = payload.get("facts")
+            if not isinstance(facts, dict):
+                raise SchemaError(
+                    "sec_edgar: facts is not a dict",
+                    context={"source": "sec_edgar", "endpoint": raw.endpoint},
+                )
+            total = 0
+            for concepts in facts.values():
+                if not isinstance(concepts, dict):
+                    continue
+                for concept in concepts.values():
+                    if not isinstance(concept, dict):
+                        continue
+                    units = concept.get("units")
+                    if not isinstance(units, dict):
+                        continue
+                    for observations in units.values():
+                        if isinstance(observations, list):
+                            total += len(observations)
+            return total
+        filings = payload.get("filings")
+        container: object = filings.get("recent") if isinstance(filings, dict) else payload
+        if not isinstance(container, dict):
+            raise SchemaError(
+                "sec_edgar: filings container is not a dict",
+                context={"source": "sec_edgar", "endpoint": raw.endpoint},
+            )
+        accessions = container.get("accessionNumber")
+        if not isinstance(accessions, list):
+            raise SchemaError(
+                "sec_edgar: accessionNumber is not a list",
+                context={"source": "sec_edgar", "endpoint": raw.endpoint},
+            )
+        return len(accessions)
 
     def checkpoint_from(
         self, raw: RawBatch | list[BaseRecord]

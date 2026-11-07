@@ -542,6 +542,22 @@ class SoSoValueConnector(DataConnector):
 
         return QualityReport(findings=findings)
 
+    def row_units(self, raw: RawBatch) -> int | None:
+        """ETF summary 行单位：``data`` 数组长度（空列表返回 0）。"""
+        payload = raw.payload
+        if not isinstance(payload, dict):
+            raise SchemaError(
+                "sosovalue: payload is not a dict",
+                context={"source": "sosovalue", "endpoint": raw.endpoint},
+            )
+        rows = payload.get("data")
+        if not isinstance(rows, list):
+            raise SchemaError(
+                "sosovalue: data is not a list",
+                context={"source": "sosovalue", "endpoint": raw.endpoint},
+            )
+        return len(rows)
+
     def checkpoint_from(
         self, raw: RawBatch | list[BaseRecord]
     ) -> str | None:

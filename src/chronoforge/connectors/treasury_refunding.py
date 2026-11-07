@@ -305,6 +305,15 @@ class TreasuryRefundingConnector:
                 ))
         return QualityReport(findings=findings)
 
+    def row_units(self, raw: RawBatch) -> int | None:
+        """单文档源（季度再融资公告）：无行级粒度，返回 None。
+
+        normalize 从整份 HTML 解析公告记录；无法产生记录时抛异常（不静默），
+        因此不需要行级丢弃门禁。
+        """
+        del raw
+        return None
+
     def checkpoint_from(self, raw: RawBatch | list[BaseRecord]) -> str | None:
         """checkpoint = 新闻稿发布日（季度事件语义）。"""
         if isinstance(raw, RawBatch):

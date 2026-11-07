@@ -33,6 +33,7 @@ from chronoforge.connectors.errors import (
     ChronoForgeError,
     ProviderError,
     RateLimitError,
+    SchemaError,
     TransportError,
     map_http_status,
 )
@@ -687,6 +688,18 @@ class BinanceFuturesConnector(DataConnector):
                     ))
 
         return QualityReport(findings=findings)
+
+    def row_units(self, raw: RawBatch) -> int | None:
+        """K 线/资金费率为行数组；openInterest 为单快照（1 行）。"""
+        payload = raw.payload
+        if isinstance(payload, (list, tuple)):
+            return len(payload)
+        if isinstance(payload, dict):
+            return 0 if not payload else 1
+        raise SchemaError(
+            "binance_futures: payload is neither list nor dict",
+            context={"source": "binance_futures", "endpoint": raw.endpoint},
+        )
 
     def checkpoint_from(
         self, raw: RawBatch | list[BaseRecord]

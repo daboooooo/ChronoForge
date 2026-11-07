@@ -519,6 +519,28 @@ class CoinMarketCapConnector(DataConnector):
 
         return QualityReport(findings=findings)
 
+    def row_units(self, raw: RawBatch) -> int | None:
+        """全市场快照行单位：``data.quotes`` 数组长度（空列表返回 0）。"""
+        payload = raw.payload
+        if not isinstance(payload, dict):
+            raise SchemaError(
+                "coinmarketcap: payload is not a dict",
+                context={"source": "coinmarketcap", "endpoint": raw.endpoint},
+            )
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise SchemaError(
+                "coinmarketcap: data is not a dict",
+                context={"source": "coinmarketcap", "endpoint": raw.endpoint},
+            )
+        quotes = data.get("quotes")
+        if not isinstance(quotes, list):
+            raise SchemaError(
+                "coinmarketcap: data.quotes is not a list",
+                context={"source": "coinmarketcap", "endpoint": raw.endpoint},
+            )
+        return len(quotes)
+
     def checkpoint_from(self, raw: RawBatch | list[BaseRecord]) -> str | None:
         """提取 checkpoint cursor：最新观测日期（YYYY-MM-DD）。
 

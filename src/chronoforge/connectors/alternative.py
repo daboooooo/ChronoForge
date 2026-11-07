@@ -406,6 +406,22 @@ class AlternativeConnector(DataConnector):
 
         return QualityReport(findings=findings)
 
+    def row_units(self, raw: RawBatch) -> int | None:
+        """F&G 行单位：``data`` 数组长度；空列表（源端无数据）返回 0。"""
+        payload = raw.payload
+        if not isinstance(payload, dict):
+            raise SchemaError(
+                "alternative: payload is not a dict",
+                context={"source": "alternative", "endpoint": raw.endpoint},
+            )
+        rows = payload.get("data")
+        if not isinstance(rows, list):
+            raise SchemaError(
+                "alternative: data is not a list",
+                context={"source": "alternative", "endpoint": raw.endpoint},
+            )
+        return len(rows)
+
     def checkpoint_from(self, raw: RawBatch | list[BaseRecord]) -> str | None:
         """提取 checkpoint cursor：最新观测日期（YYYY-MM-DD）。
 

@@ -671,6 +671,46 @@ class YahooConnector(DataConnector):
 
         return QualityReport(findings=findings)
 
+    def row_units(self, raw: RawBatch) -> int | None:
+        """图表行单位：``chart.result[0].timestamp`` 数组长度（bar 数）。
+
+        注意并行数组形状：result 只有 1 个元素，不能把 ``len(result)`` 当行数。
+        ``result: []`` 为源端无数据 → 0。
+        """
+        payload = raw.payload
+        if not isinstance(payload, dict):
+            raise SchemaError(
+                "yahoo: payload is not a dict",
+                context={"source": "yahoo", "endpoint": raw.endpoint},
+            )
+        chart = payload.get("chart")
+        if not isinstance(chart, dict):
+            raise SchemaError(
+                "yahoo: chart is not a dict",
+                context={"source": "yahoo", "endpoint": raw.endpoint},
+            )
+        result = chart.get("result")
+        if not isinstance(result, list):
+            raise SchemaError(
+                "yahoo: chart.result is not a list",
+                context={"source": "yahoo", "endpoint": raw.endpoint},
+            )
+        if not result:
+            return 0
+        first = result[0]
+        if not isinstance(first, dict):
+            raise SchemaError(
+                "yahoo: chart.result[0] is not a dict",
+                context={"source": "yahoo", "endpoint": raw.endpoint},
+            )
+        timestamps = first.get("timestamp")
+        if not isinstance(timestamps, list):
+            raise SchemaError(
+                "yahoo: chart.result[0].timestamp is not a list",
+                context={"source": "yahoo", "endpoint": raw.endpoint},
+            )
+        return len(timestamps)
+
     def checkpoint_from(
         self, raw: RawBatch | list[BaseRecord]
     ) -> str | None:

@@ -445,6 +445,22 @@ class TreasuryFiscalConnector(DataConnector):
                     ))
         return QualityReport(findings=findings)
 
+    def row_units(self, raw: RawBatch) -> int | None:
+        """DTS/拍卖表行单位：``data`` 数组长度（空列表返回 0）。"""
+        payload = raw.payload
+        if not isinstance(payload, dict):
+            raise SchemaError(
+                "treasury_fiscal: payload is not a dict",
+                context={"source": "treasury_fiscal", "endpoint": raw.endpoint},
+            )
+        rows = payload.get("data")
+        if not isinstance(rows, list):
+            raise SchemaError(
+                "treasury_fiscal: data is not a list",
+                context={"source": "treasury_fiscal", "endpoint": raw.endpoint},
+            )
+        return len(rows)
+
     def checkpoint_from(self, raw: RawBatch | list[BaseRecord]) -> str | None:
         if isinstance(raw, RawBatch):
             payload = raw.payload if isinstance(raw.payload, dict) else {}

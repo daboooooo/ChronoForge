@@ -48,6 +48,7 @@ from chronoforge.connectors.base import (
 from chronoforge.connectors.errors import (
     ProviderError,
     RateLimitError,
+    SchemaError,
     TransportError,
 )
 from chronoforge.connectors.normalize_stats import note_skip
@@ -661,6 +662,22 @@ class FREDConnector(DataConnector):
                 ))
 
         return QualityReport(findings=findings)
+
+    def row_units(self, raw: RawBatch) -> int | None:
+        """FRED 观测行单位：``observations`` 数组长度（空列表返回 0）。"""
+        payload = raw.payload
+        if not isinstance(payload, dict):
+            raise SchemaError(
+                "fred: payload is not a dict",
+                context={"source": "fred", "endpoint": raw.endpoint},
+            )
+        rows = payload.get("observations")
+        if not isinstance(rows, list):
+            raise SchemaError(
+                "fred: observations is not a list",
+                context={"source": "fred", "endpoint": raw.endpoint},
+            )
+        return len(rows)
 
     def checkpoint_from(
         self, raw: RawBatch | list[BaseRecord]

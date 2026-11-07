@@ -22,6 +22,8 @@ _NormalizeCounts = dict[str, int]
 # - source_missing_value：源显式缺失（null/"."/空行），如 FRED "."、Yahoo 全 null bar
 # - non_target_account：treasury Table I/II 中非 TGA 账户行（域过滤）
 # - duplicate_observation：同一观测键多行收敛（PIT/revision 去重）
+# - sve_test_operation：nyfed 的 Small Value Exercise 测试操作（非真实 SRF 用量）
+# - non_overnight_operation：nyfed Term Repo 行（不属 SRF 隔夜口径）
 LEGIT_SKIP_REASONS: frozenset[str] = frozenset({
     "unclosed_bar",
     "unfinished_kline",
@@ -30,6 +32,8 @@ LEGIT_SKIP_REASONS: frozenset[str] = frozenset({
     "source_missing_value",
     "non_target_account",
     "duplicate_observation",
+    "sve_test_operation",
+    "non_overnight_operation",
 })
 
 _counts: ContextVar[_NormalizeCounts | None] = ContextVar(

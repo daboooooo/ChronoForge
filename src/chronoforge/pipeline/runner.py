@@ -430,23 +430,35 @@ class ValidateStage:
 # ---------------------------------------------------------------------------
 
 
-def _payload_units(payload: object) -> int:
-    """可识别行数组的 raw 批次行数；未知形状返回 0（不做兜底推断）。
+def _declared_row_units(connector: DataConnector, batch: RawBatch) -> int:
+    """消费连接器声明的行单位（审计 C-N2 方案 B）。
 
-    payload 形状由连接器决定：多数源为 list；部分为分页/JSON-RPC 包装 dict。
-    空列表返回 0（真无数据，不参与行级丢弃率）；未知形状返回 0，此时
-    行级丢弃检测完全依赖连接器的 note_skip 结构化上报，避免误报。
+    - 行单位唯一来源是 ``connector.row_units(batch)``，runner 不再按 payload
+      形状推断，避免每加一个连接器就要改 runner。
+    - 未声明（``NotImplementedError``）→ ``QualityError``：拒绝执行该 run，
+      不降级为 0（降级会把"契约缺失"伪装成"无数据"）。
+    - 返回 ``None``（无行级粒度的单文档源）折算为 0；门禁仍以
+      ``产出 + 上报跳过`` 为分母。
+    - 返回负数视为连接器实现错误 → ``QualityError``。
 
     失败调用无法取得真实条数时，调用方以 max(本函数返回值, 1) 作为下界。
     """
-    if isinstance(payload, (list, tuple)):
-        return len(payload)
-    if isinstance(payload, dict):
-        for key in ("rows", "data", "result", "observations", "values"):
-            value = payload.get(key)
-            if isinstance(value, (list, tuple)):
-                return len(value)
-    return 0
+    try:
+        declared = connector.row_units(batch)
+    except NotImplementedError as exc:
+        raise QualityError(
+            f"{connector.source_id}: connector 未声明 row_units；"
+            "行级丢弃门禁拒绝执行",
+            context={"stage": "normalize", "endpoint": batch.endpoint},
+        ) from exc
+    if declared is None:
+        return 0
+    if declared < 0:
+        raise QualityError(
+            f"{connector.source_id}: row_units 返回负数 {declared}",
+            context={"stage": "normalize", "endpoint": batch.endpoint},
+        )
+    return declared
 
 
 class NormalizeStage:
@@ -458,7 +470,7 @@ class NormalizeStage:
       schema_version 保持模型已有值
     - 错误率 = 失败记录数/(成功记录数+失败记录数) >
       settings.normalize_error_threshold → QualityError
-    - 失败调用无法回传记录数，按 payload 单元数（下界）计入分子/分母，
+    - 失败调用无法回传记录数，按连接器声明的 row_units（下界）计入分子/分母，
       避免全失败时分母退化为 0 而短路阈值判定（审计 C1）
     - 行级丢弃率 = 非白名单跳过行/(返回行+跳过行) >=
       settings.normalize_drop_threshold → QualityError（审计 A-8）；
@@ -499,13 +511,15 @@ class NormalizeStage:
             if chunk is not current_chunk:
                 _enforce_drop_gate()
                 current_chunk = chunk
+            # 行单位由连接器声明（缺失 → QualityError，不降级）
+            units = _declared_row_units(ctx.connector, batch)
             token = begin_normalize()
             try:
                 records = ctx.connector.normalize(batch)
             except Exception as exc:  # 记录级失败不中断（D05 §1）
                 end_normalize(token)
                 result.error_count += 1
-                failed_units += max(_payload_units(batch.payload), 1)
+                failed_units += max(units, 1)
                 result.errors.append(
                     f"normalize failed for {raw_ref.raw_record_id}: "
                     f"{type(exc).__name__}: {exc}"
@@ -513,9 +527,7 @@ class NormalizeStage:
                 continue
             skips = end_normalize(token)
             reported_skips = sum(skips.values())
-            untracked = max(
-                0, _payload_units(batch.payload) - len(records) - reported_skips
-            )
+            untracked = max(0, units - len(records) - reported_skips)
             drop_attempted += len(records) + reported_skips + untracked
             drop_invalid += untracked + sum(
                 count

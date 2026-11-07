@@ -39,6 +39,7 @@ from chronoforge.connectors.ratelimit import RateLimiter
 from chronoforge.exceptions import (
     ProviderError,
     RateLimitError,
+    SchemaError,
     TransportError,
 )
 from chronoforge.models.base import BaseRecord
@@ -997,6 +998,18 @@ class CcxtBridgeConnector(DataConnector):
                     ))
 
         return QualityReport(findings=findings)
+
+    def row_units(self, raw: RawBatch) -> int | None:
+        """OHLCV/trades 为行数组；ticker 为单快照（1 行）。"""
+        payload = raw.payload
+        if isinstance(payload, (list, tuple)):
+            return len(payload)
+        if isinstance(payload, dict):
+            return 0 if not payload else 1
+        raise SchemaError(
+            "ccxt_bridge: payload is neither list nor dict",
+            context={"source": "ccxt_bridge", "endpoint": raw.endpoint},
+        )
 
     def checkpoint_from(
         self, raw: RawBatch | list[BaseRecord]
