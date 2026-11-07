@@ -57,3 +57,12 @@ output/
 
 # 生成物报告（审计 C-3：reports/ 下均为可再生产物，不入库）
 reports/
+
+# 可视化站点生成物（visualization/export_data.py 可再生，见 visualization/README.md）
+visualization/data.js
+visualization/data.json
+
+# 美元流动性知识库构建产物（scripts/build_knowledge_base.py 可再生）
+docs/USD_Liquidity/assets/js/data.js
+docs/USD_Liquidity/data/knowledge_points.json
+docs/USD_Liquidity/data/coverage_matrix.json
