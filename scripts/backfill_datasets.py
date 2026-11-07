@@ -108,7 +108,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--intervals", type=str, nargs="+", default=DEFAULT_INTERVALS,
-        help=f"只处理指定 K 线周期（仅作用于 params 含 interval 的 dataset，默认 {'/'.join(DEFAULT_INTERVALS)}）",
+        help=(
+            "只处理指定 K 线周期（仅作用于 params 含 interval 的 dataset，"
+            f"默认 {'/'.join(DEFAULT_INTERVALS)}）"
+        ),
     )
     parser.add_argument(
         "--start", type=str,

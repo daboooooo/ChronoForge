@@ -78,10 +78,10 @@ HTTPS_PROXY=http://127.0.0.1:7897 chronoforge pipeline run --dataset btcusdt-ohl
 
 ```bash
 chronoforge registry sync
-# Output: source_registry bootstrapped: 13 sources
+# Output: source_registry bootstrapped: 14 sources
 ```
 
-This populates `source_registry` in the SQLite metadata store with 13 pre-configured sources:
+This populates `source_registry` in the SQLite metadata store with 14 pre-configured sources:
 
 | source_id | Access Type | Description |
 |-----------|-------------|-------------|
@@ -98,6 +98,7 @@ This populates `source_registry` in the SQLite metadata store with 13 pre-config
 | `coinmarketcap` | PUBLIC | CoinMarketCap global metrics (BTC dominance, market caps) |
 | `treasury_fiscal` | PUBLIC | U.S. Treasury Fiscal Data API (DTS, auctions, MTS) |
 | `treasury_refunding` | PUBLIC | U.S. Treasury Quarterly Refunding announcements |
+| `nyfed` | PUBLIC | NY Fed Markets API (SRF usage, SOMA holdings) |
 
 ### Step 2: Register Datasets
 

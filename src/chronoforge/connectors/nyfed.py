@@ -3,7 +3,8 @@
 数据源：Federal Reserve Bank of New York Markets Data API（公开免 key）
 
 数据集通过 `params.endpoint` 选择端点：
-- `rp_results`（默认）：`GET /api/rp/results/search.json?startDate=...&endDate=...&operationTypes=Repo`
+- `rp_results`（默认）：`GET /api/rp/results/search.json`
+  （`startDate` / `endDate` / `operationTypes=Repo`）
 - `soma_summary`：`GET /api/soma/summary.json`（SOMA 按券种周频持仓，
   asOfDate 为周三、周四发布；实测 2003-07-09 → 2026-11-04 共 1218 行，
   单位为 USD 原值）
@@ -211,11 +212,12 @@ class NYFedConnector(DataConnector):
         try:
             today = datetime.now(UTC).date()
             self._get_json(
+                _ENDPOINT,
                 {
                     "startDate": (today - timedelta(days=30)).isoformat(),
                     "endDate": today.isoformat(),
                     "operationTypes": "Repo",
-                }
+                },
             )
             return HealthStatus(ok=True, latency_ms=int((time.monotonic() - start) * 1000))
         except Exception as exc:

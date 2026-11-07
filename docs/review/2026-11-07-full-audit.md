@@ -27,13 +27,13 @@
 
 ### 0.2 严重级别统计
 
-| 级别 | 本次新增 | 已修复（第 1–4 批） | 现存 | 合计 |
+| 级别 | 本次新增 | 已修复（第 1–5 批） | 现存 | 合计 |
 |---|---|---|---|---|
 | CRITICAL | 2（C-N1、C-N2） | 2（C-N1、C-N2） | **0** | 2 |
-| HIGH | 5 组（H-N1–H-N4、H-N5–H-N9） | 2 组（H-N1、H-N3） | **3 组** | 5 组 |
-| MEDIUM | 10 | 0 | **10** | 10 |
-| LOW | 8 | 0 | **8** | 8 |
-| 合计 | — | 4 | **22 条 / 3 组** | 29 |
+| HIGH | 9 条（H-N1–H-N9） | 6（H-N1、H-N2、H-N3、H-N5、H-N6、H-N7） | **3（H-N4、H-N8、H-N9）** | 9 |
+| MEDIUM | 10 | 3（M-N8、M-N9、M-N10） | **7** | 10 |
+| LOW | 9 | 4（L-N1、L-N2、L-N6、L-N7） | **5** | 9 |
+| 合计 | — | 15 | **15 条** | 30 |
 
 > 编号规则：`*-N*` 表示本轮新增（N = new）；`C1/A-1/H1/M1` 等沿用上轮编号。
 > 修复状态以 §17「修复进度」为准（每批完成后更新）。
@@ -42,13 +42,13 @@
 
 | 门禁 | 结果 | 直接原因 |
 |---|---|---|
-| G1 静态质量 | ❌ 红 | `mypy src` 2 errors、`ruff check src` 1 error（均仍在 `nyfed.py`；第 5 批处理） |
-| G2 测试 | ❌ 红 | `3 failed, 2106 passed`：docs 一致性 1 条 + CLI 源数/源列表 2 条（第 2–4 批新增用例全绿） |
+| G1 静态质量 | ✅ 绿（第 5 批关闭） | `mypy src` 0 errors；`ruff check src scripts/backfill_datasets.py` 0 errors |
+| G2 测试 | ✅ 绿（第 5 批关闭） | `2109 passed`（第 1–5 批新增用例全绿） |
 | G3 契约测试 | ✅ 绿（第 2 批关闭） | nyfed 已补真实形状 fixture + fetch→normalize 全链路 + 负向用例 |
 | G4 静默丢失 | ✅ 绿（第 2 批方案 B 关闭） | 行单位改为连接器声明，14 个连接器逐一覆盖；取消声明即拒绝执行；错误声明触发门禁；合法空批不误报 |
-| G5 约束核验 | ⚠️ 部分恢复 | 准备金 PIT（H-N3，第 3 批，6 条回归）与发布时刻（H-N1，第 4 批：SOMA 23:00 / SRF 22:00 + 未公布行跳过）已修复；区间口径（H-N4/M-N2）仍开放 |
-| G6 版本库 | ❌ 红 | 19 项工作区改动；`register_nyfed_datasets.py`/`visualization/`/`docs/USD_Liquidity/` 未跟踪；领先 origin 55 个提交 |
-| G7 文档一致 | ❌ 红 | README `13 sources` vs 实际 14；新增连接器/模型/站点无有效文档；站点 README 仍写 16 张图、准备金"未实现" |
+| G5 约束核验 | ⚠️ 部分恢复 | 准备金 PIT（H-N3，第 3 批，6 条回归）与发布时刻（H-N1/H-N2，第 4 批：SOMA 23:00 / SRF 22:00 + 未公布行跳过）已修复；区间口径（H-N4/M-N2）仍开放 |
+| G6 版本库 | ❌ 红 | 第 4 批已提交（`afb4d28`）；第 5 批改动仍未提交；`register_nyfed_datasets.py`/`visualization/`/`docs/USD_Liquidity/` 未跟踪；领先 origin 56 个提交 |
+| G7 文档一致 | ❌ 红 | README 源数已修为 14；但新增连接器/模型/站点仍无设计文档，`visualization/README.md` 与站点仍互相矛盾（M-N5） |
 
 ### 0.4 相对上一次审计的变化
 
@@ -66,7 +66,7 @@
 | G1/G2/G7 | 全绿 | nyfed + 文档漂移导致红 | **重新打开** |
 | G6 | 工作区干净 | 新一轮改动未提交、未推送 | **重新打开** |
 
-> **本轮新增项的修复状态**：C-N1、C-N2 已修复（第 1–2 批）；H-N3（第 3 批）、H-N1（第 4 批）已修复；其余 H/M/L 仍开放。详见 §17。
+> **本轮新增项的修复状态**：C-N1、C-N2（第 1–2 批）、H-N7（第 2 批）、H-N3（第 3 批）、H-N1/H-N2（第 4 批）、H-N5/H-N6（第 5 批）已修复；M-N8/M-N9/M-N10 与 L-N1/L-N2/L-N6/L-N7 随之关闭。H-N4（TGA 区间）、H-N8（版本库）、H-N9（文档）与其余 M/L 仍开放。详见 §17。
 
 > 上轮报告自身还有一处内部数字不一致：§0.1/§1.6 写 `1972 passed`，§2.1 写 `1862 passed`，§2 写 `1770 passed`。本轮实测 1980 passed / 3 failed。作为文档瑕疵记为 L-N8，不影响代码结论。
 
@@ -654,7 +654,7 @@ pl.col("upper").sum().alias("daily_upper"),
 
 ---
 
-### H-N5. G1 红：`mypy` 与 `ruff` 均在 `nyfed.py` 报错 ✅ 已核实
+### H-N5. G1 红：`mypy` 与 `ruff` 均在 `nyfed.py` 报错 ✅ 已核实 → ✅ 已修复（2026-11-07 第 5 批）
 
 **位置**：[nyfed.py#L118-L136](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/nyfed.py#L118-L136)
 
@@ -683,17 +683,53 @@ nyfed.py:126: error: Argument 1 ... has incompatible type "dict[str, str]"; expe
 
 **判定**：HIGH（同时是门禁失败与功能缺陷）。
 
+**修复（第 5 批）**：`health()` 的探活语义是"拉取最近一个月的 SRF 回购结果"，因此补上 `_ENDPOINT` 并保留原 params（不是伪造）。docstring 第 6 行长 URL 折成两行；`backfill_datasets.py:111` 的 help f-string 拆成隐式拼接。
+
+```text
+# 修复前
+$ uv run ruff check src scripts/backfill_datasets.py
+src/chronoforge/connectors/nyfed.py:6:96: E501 Line too long (103 > 100)
+scripts/backfill_datasets.py:111:101: E501 Line too long (114 > 100)
+Found 2 errors.
+
+$ uv run mypy src
+src/chronoforge/connectors/nyfed.py:213: error: Missing positional argument "params" in call to "_get_json" of "NYFedConnector"  [call-arg]
+src/chronoforge/connectors/nyfed.py:214: error: Argument 1 to "_get_json" of "NYFedConnector" has incompatible type "dict[str, str]"; expected "str"  [arg-type]
+Found 2 errors in 1 file (checked 86 source files)
+
+# 修复后
+$ uv run ruff check src scripts/backfill_datasets.py    # All checks passed!
+$ uv run mypy src                                        # Success: no issues found in 86 source files
+```
+
 ---
 
-### H-N6. G2 红：3 条测试失败，新增源未同步测试 ✅ 已核实
+### H-N6. G2 红：3 条测试失败，新增源未同步测试 ✅ 已核实 → ✅ 已修复（2026-11-07 第 5 批）
 
 见 §2.2。`test_cli.py` 的 `13 sources` 与源集合断言、`test_docs_consistency.py` 的 README 源数断言全部因新增 `nyfed` 而失败。
+
+**修复（第 5 批）**：以代码事实（`DEFAULT_SOURCES` 14 个，含 `nyfed`）为准改文档与断言——README 的 `bootstrapped: 14 sources` / `14 pre-configured sources` 并补 `nyfed` 表格行；`test_cli.py` 改为 `14 sources`、`COUNT(*)=14`、源集合加 `nyfed`。测试断言是"锁定事实"，不是迁就文档。
+
+```text
+# 修复前
+FAILED tests/architecture/test_docs_consistency.py::test_readme_source_count_matches_default_sources
+  AssertionError: assert 'bootstrapped: 14 sources' in '# ChronoForge ...'
+FAILED tests/unit/test_cli.py::TestRegistryCommands::test_sync_bootstraps_all_sources_idempotent
+  AssertionError: assert '13 sources' in 'source_registry bootstrapped: 14 sources\n'
+FAILED tests/unit/test_cli.py::TestRegistryCommands::test_list_sources_json
+  AssertionError: assert {...} == {...}
+  Extra items in the left set:
+  'nyfed'
+
+# 修复后
+4 passed（含 canonical type 数量守卫）
+```
 
 **判定**：HIGH（门禁失败；也说明新增源没有走"加源即改契约"的流程）。
 
 ---
 
-### H-N7. G3 重新打开：`nyfed` 无 fixture、无 fetch→normalize 全链路测试 ✅ 已核实
+### H-N7. G3 重新打开：`nyfed` 无 fixture、无 fetch→normalize 全链路测试 ✅ 已核实 → ✅ 已修复（第 2 批）
 
 - `tests/` 下 grep `nyfed`：0 命中；
 - `tests/fixtures/` 下无 `nyfed/`；
@@ -719,7 +755,7 @@ nyfed.py:126: error: Argument 1 ... has incompatible type "dict[str, str]"; expe
 
 ---
 
-### H-N9. G7 红：README 源数与新增子系统文档缺失 ✅ 已核实
+### H-N9. G7 红：README 源数与新增子系统文档缺失 ✅ 已核实 → ⚠️ 部分修复（第 5 批：源数已修，设计文档仍缺）
 
 - [README.md#L81](file:///Users/horsenli/Works/ChronoForge/README.md#L81) `bootstrapped: 13 sources`，实际 `DEFAULT_SOURCES` 已含 `nyfed`（14）；
 - [README.md#L84](file:///Users/horsenli/Works/ChronoForge/README.md#L84) `13 pre-configured sources`；
@@ -854,7 +890,7 @@ if (!dom.clientWidth || !dom.clientHeight || !hasData) { ... }
 
 **判定**：MEDIUM。
 
-### M-N8. `nyfed` 的 `checkpoint_from` 以 raw 最大日期推进，即使 normalize 全部过滤 ✅ 已核实
+### M-N8. `nyfed` 的 `checkpoint_from` 以 raw 最大日期推进，即使 normalize 全部过滤 ✅ 已核实 → ✅ 已修复（第 2 批，第 4 批补齐发布时间过滤）
 
 **位置**：[nyfed.py#L451-L465](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/nyfed.py#L451-L465)
 
@@ -862,7 +898,7 @@ if (!dom.clientWidth || !dom.clientHeight || !hasData) { ... }
 
 **判定**：MEDIUM（与 C-N2 组合升级为 CRITICAL）。
 
-### M-N9. `_load_number_series` / `load_soma` 丢弃 `release_time`/`revision_time` ✅ 已核实
+### M-N9. `_load_number_series` / `load_soma` 丢弃 `release_time`/`revision_time` ✅ 已核实 → ✅ 已修复（第 3 批）
 
 **位置**：[reserve_forecast.py#L118-L128](file:///Users/horsenli/Works/ChronoForge/scripts/reserve_forecast.py#L118-L128)、[L142-L156](file:///Users/horsenli/Works/ChronoForge/scripts/reserve_forecast.py#L142-L156)
 
@@ -875,7 +911,7 @@ df = result.frame.select(["observation_time", "value"])
 
 **判定**：MEDIUM。
 
-### M-N10. `reserve_forecast.py` 文档/标注与 0.1.1 实现不符 ✅ 已核实
+### M-N10. `reserve_forecast.py` 文档/标注与 0.1.1 实现不符 ✅ 已核实 → ✅ 已修复（第 3 批，升级 0.1.2 并同步文档）
 
 **位置**：[reserve_forecast.py#L374-L428](file:///Users/horsenli/Works/ChronoForge/scripts/reserve_forecast.py#L374-L428)
 
@@ -902,13 +938,13 @@ df = result.frame.select(["observation_time", "value"])
 
 | 编号 | 位置 | 问题 |
 |---|---|---|
-| L-N1 | [nyfed.py#L23-L24](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/nyfed.py#L23-L24) | 模块注释承认 `release_time` 是"固定值而非墙钟"；与真实发布时间不一致（不影响 PIT，但影响审计追溯） |
-| L-N2 | [nyfed.py#L361-L378](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/nyfed.py#L361-L378) | `_normalize_soma` 中 `raw_value is None` 直接 `continue`，不计入 `skipped`；字段改名会静默少 9 个分项 |
+| L-N1 | [nyfed.py#L23-L24](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/nyfed.py#L23-L24) | 模块注释承认 `release_time` 是"固定值而非墙钟"；与真实发布时间不一致（不影响 PIT，但影响审计追溯）— ✅ 第 4 批已补"固定值保证重拉幂等 + 未公布行跳过"的语义说明 |
+| L-N2 | [nyfed.py#L361-L378](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/nyfed.py#L361-L378) | `_normalize_soma` 中 `raw_value is None` 直接 `continue`，不计入 `skipped`；字段改名会静默少 9 个分项 — ✅ 第 2 批改为 `source_missing_value` 结构化计数 |
 | L-N3 | [tga_backtest.py#L302-L304](file:///Users/horsenli/Works/ChronoForge/scripts/tga_backtest.py#L302-L304) | DM 的 HAC lag 只按样本量，不按 horizon 重叠（h=4 周频重叠时应至少 3）；当前经验值通常 ≥4，风险低 |
-| L-N4 | [visualization/export_data.py#L196-L197](file:///Users/horsenli/Works/ChronoForge/visualization/export_data.py#L196-L197) | docstring 仍写 `reserve-structural-0.1.0` |
+| L-N4 | [visualization/export_data.py#L196-L197](file:///Users/horsenli/Works/ChronoForge/visualization/export_data.py#L196-L197) | docstring 仍写 `reserve-structural-0.1.0`（现为 0.1.2） |
 | L-N5 | [reserve_forecast.py#L715](file:///Users/horsenli/Works/ChronoForge/scripts/reserve_forecast.py#L715) | `cutoff = origin + 1 day` 的命名/语义容易与 PIT cutoff 混淆，建议改名（仅可读性） |
-| L-N6 | [nyfed.py#L337-L344](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/nyfed.py#L337-L344) | skip 只写日志，未进入结构化指标，导致无法在 run_log 里审计 |
-| L-N7 | `nyfed.py` | 2 处 `E501`（长注释/长行） |
+| L-N6 | [nyfed.py#L337-L344](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/nyfed.py#L337-L344) | skip 只写日志，未进入结构化指标，导致无法在 run_log 里审计 — ✅ 第 2 批已改为 `note_skip` 结构化计数 |
+| L-N7 | `nyfed.py` | 2 处 `E501`（长注释/长行）— ✅ 第 5 批已修（含 `backfill_datasets.py:111`） |
 | L-N8 | `docs/review/2026-11-05-full-audit.md` | 内部测试数字不一致：1770 / 1862 / 1972 三处并存；本轮实测 1980 passed / 3 failed |
 | L-N9 | `pyproject.toml` / `.venv` | dev 依赖未安装，`uv run pytest` 直接收集失败；审计需临时 `--with pytest --with hypothesis` |
 
@@ -1070,7 +1106,21 @@ HIGH。不是"图表问题"而是"模型区间语义问题"；即使把 y 轴改
 
 ## 12. 门禁判定（G1–G7）
 
-> 下表为**审计时基线**（2026-11-07 修复前）。当前状态以 §0.3 与 §17 为准。
+### 12.1 当前状态（2026-11-07 第 5 批后，实测）
+
+| 门禁 | 结果 | 证据 | 结论 |
+|---|---|---|---|
+| **G1 静态质量** | ✅ | `uv run mypy src` → `Success: no issues found in 86 source files`；`uv run ruff check src scripts/backfill_datasets.py` → `All checks passed!` | 通过 |
+| **G2 测试** | ✅ | `uv run --with pytest --with pytest-asyncio --with hypothesis python -m pytest -q` → `2109 passed` | 通过 |
+| **G3 契约测试** | ✅ | nyfed 真实形状 fixture + fetch→normalize 全链路 + 负向用例（第 2 批） | 通过 |
+| **G4 静默丢失** | ✅ | 行单位连接器声明（方案 B）+ 注入门禁（第 2 批） | 通过 |
+| **G5 约束核验** | ⚠️ | PIT（H-N3）与发布时刻（H-N1/H-N2）已修；TGA 区间算法（H-N4）与"联合 90%"标注（M-N2）仍未修 | 部分通过 |
+| **G6 版本库** | ❌ | 第 4 批已提交 `afb4d28`；第 5 批改动未提交；`register_nyfed_datasets.py`/`visualization/`/`docs/USD_Liquidity/` 未跟踪；领先 origin 56 提交 | 不通过 |
+| **G7 文档一致** | ❌ | README 源数已对齐 14；新增连接器/模型/站点仍无设计文档；`visualization/README.md` 与站点互相矛盾（M-N5） | 不通过 |
+
+**当前判定：NOT READY。** 卡在 G6（版本库未收敛）与 G7（文档缺口），G5 的区间口径仍失效。G1/G2 已转绿，不能据此放宽——TGA 2027-02-04 的 ±6T 区间与图 5 硬编码轴仍是会误导使用者的实质缺陷。
+
+### 12.2 审计基线（2026-11-07 修复前，留档）
 
 | 门禁 | 结果 | 证据 | 结论 |
 |---|---|---|---|
@@ -1081,8 +1131,6 @@ HIGH。不是"图表问题"而是"模型区间语义问题"；即使把 y 轴改
 | **G5 约束核验** | ⚠️ | PIT、publish_time、区间口径三条在新增代码上无正确实现/证据 | 部分通过 |
 | **G6 版本库** | ❌ | 15 个工作区改动；5 个未跟踪目录/文件；落后 origin 52 提交 | 不通过 |
 | **G7 文档一致** | ❌ | README 13 vs 14；新增子系统文档缺失；站点 README 矛盾 | 不通过 |
-
-**最终判定：NOT READY。** 卡在 G1、G2、G3、G4、G6、G7 六道门禁；G5 部分失效。不能因为"上轮大多已修"而放松判定——本轮新增代码把其中至少四条重新打穿。
 
 ---
 
@@ -1197,12 +1245,15 @@ uv run python scripts/reserve_forecast.py check
 
 ## 16. 最终判定
 
-**NOT READY。**
+**NOT READY（截至第 5 批，2026-11-07）。**
 
-- **卡点**：G1、G2、G3、G4、G6、G7 六道门禁为红，G5 部分失效。
-- **最严重的事实**：SRF 生产数据已因 SVE 测试操作而错（10 倍量级）；`nyfed` 把上轮刚修好的 C1/A-8 静默丢失门禁重新绕开；准备金模型的 PIT 与 TGA 区间语义都与文档声称不一致；TGA 图 5 的硬编码 y 轴主动掩盖了 ±6T 的异常区间。
-- **与上轮的关系**：上轮关闭的 C2/C3/A-1/TGA-1/B-1 经复核确实已修；H1–H7、M1–M10 在旧路径上仍有效。但新增代码没有继承这些门禁，导致 G1–G4、G6–G7 重新变红。这不是"文档改口径"，是代码事实。
-- **建议**：先修 P0（SVE、nyfed 门禁、G1、提交），再补 P1（调度/PIT/区间/契约/文档），最后处理 P2/P3。在 P0 关闭前不应对外使用 `srf_usage`、TGA 预测区间或准备金预测。
+- **已关闭**：C-N1/C-N2（CRITICAL 全部）、H-N1/N2/N3/N5/N6/N7、M-N8/N9/N10、L-N1/N2/N6/N7。G1、G2、G3、G4 四道门禁转绿；全量 `2109 passed`，`mypy`/`ruff` 零错误。
+- **仍红**：
+  - **G6 版本库**：第 4 批已提交 `afb4d28`，第 5 批改动未提交，`register_nyfed_datasets.py`/`visualization/`/`docs/USD_Liquidity/` 仍未跟踪，分支领先 origin 56 个提交。
+  - **G7 文档一致**：README 源数已对齐 14，但 `nyfed` 连接器、`reserve-structural` 模型与 `visualization/` 站点仍无设计文档，站点 README 与实现互相矛盾（M-N5/M-N6）。
+  - **G5 约束核验（部分）**：TGA 区间在 2027-02-04 仍产生 −5.62T ~ +7.08T 的算法性发散（H-N4），图 5 硬编码 y 轴仍在掩盖；置信带仍标为"联合"但实为逐 horizon 边际分位（M-N2）。
+- **不能判 READY 的理由**：测试与静态检查转绿只说明门禁 G1/G2 恢复，不代表 G5/G6/G7 关闭。TGA 区间与"联合 90%"是会直接误导使用者解读的实质缺陷，版本库未收敛则当前工作区不可作为交付基线。
+- **下一步建议**：提交第 5 批并推送（G6）→ 修 H-N4/M-N2 区间算法与标注（G5）→ 补 `docs/architecture`/`docs/design` 与站点 README（G7）。在 H-N4/M-N2 关闭前，不应对外发布 TGA 预测区间或准备金"联合 90%"带宽。
 
 ---
 
@@ -1213,8 +1264,8 @@ uv run python scripts/reserve_forecast.py check
 | 第 1 批 | C-N1 SRF 口径 + 污染数据重采 | ✅ 完成（已提交 `4ab246a`） | G4 的 SRF 子项关闭 |
 | 第 2 批 | C-N2 nyfed 门禁 + 方案 B 行单位契约 + fixture + 注入验证 | ✅ 完成（已提交 `f688c3f`） | **G3 转绿；G4 转绿** |
 | 第 3 批 | H-N3 准备金 PIT | ✅ 完成（已提交 `2499eca`） | G5 部分恢复（PIT 子项关闭） |
-| 第 4 批 | H-N1 发布时刻 + H-N2 SRF 未公布占位 + nyfed 窗口 | ✅ 完成（2026-11-07，未提交） | G5 部分恢复（发布时刻子项关闭） |
-| 第 5 批 | H-N4 TGA 区间 + 图 5 轴 + 失败用例 + mypy/ruff + 文档 | 待开始 | 预计 G1/G2/G7 可转绿 |
+| 第 4 批 | H-N1 发布时刻 + H-N2 SRF 未公布占位 + nyfed 窗口 | ✅ 完成（已提交 `afb4d28`） | G5 部分恢复（发布时刻子项关闭） |
+| 第 5 批 | H-N5/H-N6 静态与测试红 + 文档/源数对齐 | ✅ 完成（2026-11-07，未提交） | **G1、G2 转绿** |
 
 ### 第 1 批改动清单（已提交 `4ab246a`）
 
@@ -1337,7 +1388,28 @@ uv run ruff check src/chronoforge/config/update_schedule.py src/chronoforge/conn
 
 **修复前实测**：见 H-N1/H-N2 各条的"验证"块（stash 本批源码改动后 15 failed / 38 passed；`test_update_schedule.py` 因缺少新符号整体导入失败）。
 
-**3 条全量失败**均为第 5 批 docs/CLI 漂移，与本批无关：`test_readme_source_count_matches_default_sources`（README `13 sources`）、`test_sync_bootstraps_all_sources_idempotent`（CLI `13 sources`）、`test_list_sources_json`（源列表缺 `nyfed`）。
+**3 条全量失败**均为 docs/CLI 漂移（第 5 批已修复）：`test_readme_source_count_matches_default_sources`（README `13 sources`）、`test_sync_bootstraps_all_sources_idempotent`（CLI `13 sources`）、`test_list_sources_json`（源列表缺 `nyfed`）。
+
+### 第 5 批改动清单（2026-11-07，未提交）
+
+| 文件/对象 | 类型 | 说明 |
+|---|---|---|
+| `src/chronoforge/connectors/nyfed.py` | 修改 | `health()` 补 `_ENDPOINT` 参数（按"最近一月 SRF 结果"的真实语义）；docstring 长 URL 折行 |
+| `scripts/backfill_datasets.py` | 修改 | `--intervals` help f-string 拆为隐式拼接（E501） |
+| `README.md` | 修改 | `13 → 14 sources`（两处），源表补 `nyfed` 行 |
+| `tests/unit/test_cli.py` | 修改 | `13 → 14 sources`、`COUNT(*)=14`、源集合补 `nyfed` |
+| `docs/review/2026-11-07-full-audit.md` | 修改 | §0 统计/门禁、H-N5/H-N6/H-N7/H-N9、M-N8/N9/N10、L-N1/N2/N6/N7 状态，§12/§16/§17 |
+
+**验证命令与结果**：
+
+```bash
+uv run ruff check src scripts/backfill_datasets.py            # All checks passed!
+uv run mypy src                                               # Success: no issues found in 86 source files
+uv run --with pytest --with pytest-asyncio --with hypothesis python -m pytest -q
+                                                              # 2109 passed, 10 warnings in 92.67s
+```
+
+**未做**：H-N4（TGA 区间算法）与 M-N2（"联合"标注）、M-N1/N3–N7、M-N9 之外的可视化/调度项、L-N3/N4/N5/N8/N9 均未改；`docs/architecture`/`docs/design` 缺文档未补。这些是真正的剩余缺口，不计入本批。
 
 ### G4 行单位覆盖表（✅ 17 个形状全部声明、15 个形状注入验证，第 2 批方案 B）
 
