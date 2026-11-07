@@ -1226,19 +1226,28 @@ HIGH。不是"图表问题"而是"模型区间语义问题"；即使把 y 轴改
 
 ## 12. 门禁判定（G1–G7）
 
-### 12.1 当前状态（2026-11-07 第 6 批后，实测）
+### 12.1 当前状态（2026-11-07 第 7 批后 + 推送，实测）
 
 | 门禁 | 结果 | 证据 | 结论 |
 |---|---|---|---|
-| **G1 静态质量** | ✅ | `uv run mypy src` → `Success: no issues found in 86 source files`；`uv run ruff check src scripts/backfill_datasets.py` → `All checks passed!` | 通过 |
-| **G2 测试** | ✅ | `uv run --with pytest --with pytest-asyncio --with hypothesis python -m pytest -q` → `2111 passed` | 通过 |
+| **G1 静态质量** | ✅ | `uv run mypy src` → `Success: no issues found in 86 source files`；`uv run ruff check src` → `All checks passed!` | 通过 |
+| **G2 测试** | ✅ | `uv run --with pytest --with pytest-asyncio --with hypothesis python -m pytest -q` → `2112 passed, 10 warnings in 92.22s` | 通过 |
 | **G3 契约测试** | ✅ | nyfed 真实形状 fixture + fetch→normalize 全链路 + 负向用例（第 2 批） | 通过 |
 | **G4 静默丢失** | ✅ | 行单位连接器声明（方案 B）+ 注入门禁（第 2 批） | 通过 |
-| **G5 约束核验** | ⚠️ | PIT（H-N3）、发布时刻（H-N1/H-N2）、TGA 区间口径（H-N4）已修；"联合 90%"标注（M-N2）仍未修 | 部分通过 |
-| **G6 版本库** | ❌ | 第 5 批已提交 `a9b9b95`；第 6 批改动未提交；`register_nyfed_datasets.py`/`visualization/`/`docs/USD_Liquidity/` 未跟踪；领先 origin 57 提交 | 不通过 |
+| **G5 约束核验** | ✅ | PIT（H-N3）、发布时刻（H-N1/H-N2）、TGA 区间口径（H-N4）、区间标注（M-N2）、恒等式覆盖度（M-N1）均已实现并有测试/实测。**保留说明**：TGA 残差校准与评估同源，属样本内覆盖，不能当独立 OOS | 通过（带一条已知限制） |
+| **G6 版本库** | ❌ | 第 6/7 批已推送（`4b25613..4521804`，59 个提交，`main...origin/main` 已同步、领先 0）；但工作区仍有 9 个非本任务改动 + 8 项未跟踪 | 不通过 |
 | **G7 文档一致** | ❌ | README 源数已对齐 14；新增连接器/模型/站点仍无设计文档；`visualization/README.md` 与站点互相矛盾（M-N5） | 不通过 |
 
-**当前判定：NOT READY。** 卡在 G6（版本库未收敛）与 G7（文档缺口），G5 的区间口径已修复但"联合 90%"标注仍不实（M-N2）。G1/G2 已转绿，不能据此放宽。
+**当前判定：NOT READY。** G1–G5 已全部通过；卡在 G6（工作区仍有未提交改动与未跟踪资产）与 G7（设计文档缺口）。
+
+**G6 剩余项明细**：
+
+| 类别 | 内容 | 是否应有之物 |
+|---|---|---|
+| 未跟踪（应有，需入库） | `visualization/README.md`、`visualization/data.js`、`visualization/data.json`、`visualization/refresh.sh`、`visualization/styles.css`、`visualization/vendor/`（1.0M，仅 echarts） | **是**，站点源码与离线依赖 |
+| 未跟踪（应有，需入库） | `scripts/register_nyfed_datasets.py` | **是**，nyfed 数据集注册入口 |
+| 未跟踪（应有，先拆分） | `docs/USD_Liquidity/`（1.7M） | **是**，但需先确认其中报告/截图是否属生成物 |
+| 已修改（非本任务） | `pyproject.toml`（+matplotlib）、`uv.lock`、`scripts/fdam_attention.py`、`scripts/plot_btc_etf_flow.py`、`scripts/plot_rates_2y_effr.py`、`scripts/symbols/z_manual_{fred,yahoo}_symbols.json`、`src/chronoforge/cli/_wiring.py`、`src/chronoforge/registry/service.py`（共 +619/−15） | 属另一条工作线，**未纳入本批提交**，需由其作者确认后单独提交 |
 
 ### 12.2 审计基线（2026-11-07 修复前，留档）
 
@@ -1352,7 +1361,7 @@ uv run python scripts/reserve_forecast.py check
 | P0 | C-N1 SRF SVE | 在 `_normalize_rp` 增加 SVE 过滤（`note` 含 `Small Value Exercise (SVE)` 或 `operationId` 规则），并回溯重算 `srf_usage` canonical |
 | P0 | C-N2 nyfed 门禁 | `_payload_units` 支持 `repo.operations` / `soma.summary`，或连接器接 `note_skip`；`checkpoint_from` 优先用 normalize 结果 |
 | P0 | H-N5/G1 | 修 `health()` 的 `_get_json` 调用；清 `E501` |
-| P0 | H-N8/G6 | 把 `nyfed`、`reserve_forecast`、`visualization`、`register_nyfed_datasets`、`docs/USD_Liquidity` 成套提交；推送 52 个提交 |
+| P0 | H-N8/G6 | 已推送 59 个提交（`4b25613..4521804`）；站点其余 6 项、`register_nyfed_datasets.py`、`docs/USD_Liquidity/` 与 9 个非本任务改动仍待入库 |
 | P1 | H-N1 调度 | `update_schedule` 增加 `nyfed` 的 SOMA 周四发布时刻与 SRF 操作后时刻 |
 | P1 | H-N3 PIT | `_load_number_series`/`load_soma` 读取 `release_time`，按 `release_time <= as_of` 截断 |
 | P1 | H-N4 TGA 区间 | ✅ 第 6 批已做：按 horizon 历史残差分位 + 下沿 0 截断；`chart5` 轴自适应 |
@@ -1365,15 +1374,15 @@ uv run python scripts/reserve_forecast.py check
 
 ## 16. 最终判定
 
-**NOT READY（截至第 6 批，2026-11-07）。**
+**NOT READY（截至第 7 批 + 推送，2026-11-07）。**
 
-- **已关闭**：C-N1/C-N2（CRITICAL 全部）、H-N1/N2/N3/N4/N5/N6/N7、M-N8/N9/N10、L-N1/N2/N6/N7。G1、G2、G3、G4 四道门禁转绿；全量 `2111 passed`，`mypy`/`ruff` 零错误。
+- **已关闭**：C-N1/C-N2（CRITICAL 全部）、H-N1/N2/N3/N4/N5/N6/N7、M-N1/N2/N8/N9/N10、L-N1/N2/N6/N7。G1–G5 五道门禁转绿；全量 `2112 passed`，`mypy src`/`ruff` 零错误；第 6/7 批已推送（59 个提交，`main` 与 `origin/main` 同步）。
 - **仍红**：
-  - **G6 版本库**：第 5 批已提交 `a9b9b95`，第 6 批改动未提交，`register_nyfed_datasets.py`/`visualization/`/`docs/USD_Liquidity/` 仍未跟踪，分支领先 origin 57 个提交。
+  - **G6 版本库**：分支已同步，但工作区仍有 8 项未跟踪（`visualization/` 其余 6 项含 1.0M vendor、`scripts/register_nyfed_datasets.py`、`docs/USD_Liquidity/` 1.7M）与 9 个非本任务的已修改文件（+619/−15）。这些属应有之物，需在下批按归属提交。
   - **G7 文档一致**：README 源数已对齐 14，但 `nyfed` 连接器、`reserve-structural` 模型与 `visualization/` 站点仍无设计文档，站点 README 与实现互相矛盾（M-N5/M-N6）。
-  - **G5 约束核验（部分）**：H-N4 已修（2027-02-04 区间 0.056T ~ 1.699T）；但置信带仍标为"联合 90%"，实为逐 horizon 边际分位（M-N2）。
-- **不能判 READY 的理由**：测试与静态检查转绿只说明门禁 G1/G2 恢复，不代表 G5/G6/G7 关闭。"联合 90%"标注不实仍会误导使用者；版本库未收敛则当前工作区不可作为交付基线。
-- **下一步建议**：确认并提交第 6 批 → 修 M-N2 区间标注（G5）→ 第 7 批 M-N1 恒等式冗余 → 补 `docs/architecture`/`docs/design` 与站点 README（G7）→ 推送（G6）。在 M-N2 关闭前，不应对外宣称准备金带宽是"联合 90%"。
+- **G5 的已知限制（不因此降级，但不得扩大宣传）**：TGA 区间分位与 `tga_backtest` 用同一批 walk-forward 残差，属**样本内**覆盖；准备金的边际带未做跨 horizon 同时覆盖校正，站点已如实标注。
+- **不能判 READY 的理由**：G6 工作区未收敛、G7 文档缺口，两项都会让"当前工作区可否作为交付基线"的答案成为否；测试与静态检查转绿不改变这一点。
+- **下一步建议**：按归属提交站点其余文件与 `register_nyfed_datasets.py`（G6）→ 补 `docs/architecture`/`docs/design` 与站点 README（G7）→ 剩余 M-N3–M-N7 与 L 级清理。在 G6/G7 关闭前不判 READY。
 
 ---
 
@@ -1387,7 +1396,7 @@ uv run python scripts/reserve_forecast.py check
 | 第 4 批 | H-N1 发布时刻 + H-N2 SRF 未公布占位 + nyfed 窗口 | ✅ 完成（已提交 `afb4d28`） | G5 部分恢复（发布时刻子项关闭） |
 | 第 5 批 | H-N5/H-N6 静态与测试红 + 文档/源数对齐 | ✅ 完成（已提交 `a9b9b95`） | **G1、G2 转绿** |
 | 第 6 批 | H-N4 TGA 区间口径 + 图 5 轴硬编码 | ✅ 完成（已提交 `82397f8`） | G5 的区间子项关闭 |
-| 第 7 批 | M-N1 恒等式冗余 + M-N2 `joint` 标注 | ✅ 完成（2026-11-07，已提交） | G5 关闭 |
+| 第 7 批 | M-N1 恒等式冗余 + M-N2 `joint` 标注 | ✅ 完成（已提交 `4521804` 并推送） | **G5 转绿**；G6 因未跟踪资产仍红 |
 
 ### 第 1 批改动清单（已提交 `4ab246a`）
 
