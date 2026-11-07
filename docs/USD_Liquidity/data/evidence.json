@@ -1,0 +1,40 @@
+{
+  "tag_definitions": [
+    {"tag": "[SOURCE]", "meaning": "原始 PDF 明确陈述", "usage": "凡 original_statement 直接摘自 PDF 的条目均带此标签"},
+    {"tag": "[OFFICIAL]", "meaning": "外部官方来源支持", "usage": "本知识库未引入未标注的外部事实；FRED/H.4.1 的制度性描述按 [SOURCE][DATA] 处理"},
+    {"tag": "[ACCOUNTING]", "meaning": "会计或定义关系", "usage": "恒等式、定义性关系，如 ΔR≈−ΔTGA"},
+    {"tag": "[MECHANISM]", "meaning": "理论机制解释", "usage": "走廊套利、发债抽水链等"},
+    {"tag": "[EMPIRICAL]", "meaning": "经验观察或统计结果", "usage": "作者给出的历史对应与阈值"},
+    {"tag": "[HYPOTHESIS]", "meaning": "尚待验证的假设", "usage": "BTC 与准备金相关、状态映射、择时推演"},
+    {"tag": "[STRATEGY]", "meaning": "策略设计", "usage": "Pattern 1/2、监测清单、五策略"},
+    {"tag": "[DATA]", "meaning": "数据与序列信息（知识库扩展标签）", "usage": "FRED 代码、发布节奏、数据口径等数据工程事实（howto 建议标签之外的扩展，已在此声明）"},
+    {"tag": "[CASE]", "meaning": "历史案例观察（知识库扩展标签）", "usage": "该条目本身构成一个案例记录或引用了案例（howto 建议标签之外的扩展，已在此声明）"},
+    {"tag": "[CAVEAT]", "meaning": "局限、例外或风险", "usage": "口径差异、一比一不成立、样本不足等"},
+    {"tag": "[UNKNOWN]", "meaning": "尚不明确", "usage": "推文链接内容、官方下限出处等，详见 open_questions.json"}
+  ],
+  "evidence_records": [
+    {"id": "EV_001", "claim": "TGA 上升通常对准备金有抽水效应，但并非所有情况一比一", "tags": ["[SOURCE]", "[ACCOUNTING]", "[CAVEAT]"], "basis": "DOC_TGA p1-2 恒等式+两个细节（ON RRP 缓冲、多因素同变）", "strength": "会计层面强；幅度需逐项核算", "kp_ids": ["KP_TGA_002", "KP_TGA_004", "KP_TGA_005"]},
+    {"id": "EV_002", "claim": "EFFR 结构性略低于 IORB", "tags": ["[SOURCE]", "[MECHANISM]"], "basis": "DOC_FED p3 四原因（GSE 压低/流动性过剩/信用风险低/加权平均）", "strength": "机制清晰，与充足准备金框架一致", "kp_ids": ["KP_FED_009"]},
+    {"id": "EV_003", "claim": "SOFR−EFFR 利差 >12bp 预警、>17bp 极端紧张", "tags": ["[SOURCE]", "[EMPIRICAL]", "[CAVEAT]"], "basis": "DOC_FED p5/p10 作者阈值，无统计依据附页", "strength": "弱（经验阈值）", "kp_ids": ["KP_FED_020"]},
+    {"id": "EV_004", "claim": "准备金 3 万亿市场红线 / 2.7 万亿官方安全下限", "tags": ["[SOURCE]", "[DATA]", "[CAVEAT]"], "basis": "DOC_FED p11；『官方安全下限』未附官方文件", "strength": "红线为作者经验；2.7 万亿出处待查", "kp_ids": ["KP_FED_022"]},
+    {"id": "EV_005", "claim": "2020 以来 BTC 与银行准备金高度相关、与全球 M2 关联弱", "tags": ["[SOURCE]", "[EMPIRICAL]", "[HYPOTHESIS]"], "basis": "DOC_LIQ p1 作者反复表述+推文；未给出相关系数与样本", "strength": "弱—中（需独立检验）", "kp_ids": ["KP_LIQ_004"]},
+    {"id": "EV_006", "claim": "准备金框架是大饼主框架、非美股主框架", "tags": ["[SOURCE]", "[CAVEAT]"], "basis": "DOC_LIQ p1/p2 作者 2026-10-02/2026-04-17 明确划界及推文", "strength": "作者本人声明的适用边界", "kp_ids": ["KP_LIQ_003", "KP_LIQ_009"]},
+    {"id": "EV_007", "claim": "2019-09 回购钱荒中标普/纳指约跌 6%，联储快速干预后未系统化", "tags": ["[SOURCE]", "[EMPIRICAL]"], "basis": "DOC_LIQ p2 作者转述，未附数据源", "strength": "弱（转述数字）", "kp_ids": ["KP_LIQ_010"]},
+    {"id": "EV_008", "claim": "『10月下旬是BTC最佳买点』证据不足", "tags": ["[SOURCE]", "[CAVEAT]"], "basis": "DOC_TGA p5 三层问题（多因素/预期定价/低点不同步）+p6 最终评价", "strength": "强（方法论论证完整）", "kp_ids": ["KP_TGA_013", "KP_TGA_017"]},
+    {"id": "EV_009", "claim": "2.85 万亿准备金预测为条件推算", "tags": ["[SOURCE]", "[ACCOUNTING]", "[CAVEAT]"], "basis": "DOC_TGA p3 算术核验+口径警示", "strength": "算术成立、预测未验证", "kp_ids": ["KP_TGA_009"]},
+    {"id": "EV_010", "claim": "Pattern 1『已验证』仅为两段单边样本", "tags": ["[SOURCE]", "[STRATEGY]", "[HYPOTHESIS]", "[CAVEAT]"], "basis": "DOC_FED p12 仅列 2025-10 与 2023-03 两例", "strength": "弱（样本不足+事后视角）", "kp_ids": ["KP_FED_024"]},
+    {"id": "EV_011", "claim": "四涨跌组合→四宏观状态映射", "tags": ["[SOURCE]", "[EMPIRICAL]", "[HYPOTHESIS]"], "basis": "DOC_DXY p1-8 作者归纳，无统计检验", "strength": "弱—中（启发式框架）", "kp_ids": ["KP_DXY_003", "KP_DXY_004", "KP_DXY_005", "KP_DXY_006", "KP_DXY_021"]},
+    {"id": "EV_012", "claim": "平衡通胀率=名义−TIPS 收益率，是市场定价的通胀预期", "tags": ["[SOURCE]", "[DATA]"], "basis": "DOC_TSY p3；『比调查更可靠』为原文判断", "strength": "定义可靠；可靠性表述需加溢价修正", "kp_ids": ["KP_TSY_010"]},
+    {"id": "EV_013", "claim": "FRED 序列与口径规则（WRESBAL/WTREGEN/RRPONTSYD/WALCL 等；周三值≠日均值；RRPONTSYD 非全部逆回购）", "tags": ["[SOURCE]", "[DATA]"], "basis": "DOC_TGA p8-10", "strength": "强（数据工程规范）", "kp_ids": ["KP_TGA_021", "KP_TGA_022", "KP_TGA_025"]},
+    {"id": "EV_014", "claim": "政府停摆短期推高 SOFR、长期不减少国债总供给", "tags": ["[SOURCE]", "[MECHANISM]", "[CAVEAT]"], "basis": "DOC_FED p6", "strength": "机制合理；时间维度区分明确", "kp_ids": ["KP_FED_028", "KP_FED_029"]},
+    {"id": "EV_015", "claim": "罗素2000=流动性晴雨表；跑赢标普则 Risk-on 真实", "tags": ["[SOURCE]", "[EMPIRICAL]", "[STRATEGY]"], "basis": "DOC_DXY p9 作者经验法则", "strength": "弱（经验规则）", "kp_ids": ["KP_DXY_016"]},
+    {"id": "EV_016", "claim": "BTC 定位=全球流动性β×高杠杆风险资产（非数字黄金/避险资产）", "tags": ["[SOURCE]", "[HYPOTHESIS]"], "basis": "DOC_DXY p9-10 作者观点", "strength": "弱（定位假设）", "kp_ids": ["KP_DXY_017"]},
+    {"id": "EV_017", "claim": "五份 PDF 间无直接数值冲突；存在口径差异（2.7 vs 2.8 万亿；12位理事表述）", "tags": ["[CAVEAT]", "[UNKNOWN]"], "basis": "本知识库交叉比对（见 conflicts_report.md）", "strength": "—", "kp_ids": ["KP_FED_022", "KP_LIQ_002", "KP_FED_001"]}
+  ],
+  "conflicts": [
+    {"id": "CONF_001", "topic": "准备金安全下限数值", "statement_a": "美联储官方安全下限 2.7 万亿美元（DOC_FED p11）", "statement_b": "过去三年低点约 2.8 万亿美元；跌破约 2.8–3 万亿接近紧张（DOC_LIQ p1）", "analysis": "两者口径不同：前者为原文声称的『官方』估计（未附出处），后者为作者观察的历史低点与个人门槛。另 DOC_TGA 强调 2.85 万亿只是条件推算值，不等于危险下限。", "resolution": "保留各自表述并标注来源；不建议混用。三者分别登记为 KP_FED_022 / KP_LIQ_002 / KP_TGA_011。"},
+    {"id": "CONF_002", "topic": "FOMC 投票成员构成", "statement_a": "『每次会议12位美联储理事将根据经济数据投票』（DOC_FED p1）", "statement_b": "外部制度常识：12 位投票成员=7 位理事+纽约联储主席+4 位轮换地区联储主席（非 12 位理事）", "analysis": "原文表述与公开制度描述不符，但『12 位投票成员』总数一致。", "resolution": "保留原文，登记 OPEN_QUESTION_FED_001；规范化表述中注明差异。"},
+    {"id": "CONF_003", "topic": "走廊中 EFFR 与 IORB 的关系表述", "statement_a": "正常关系 ON RRP < EFFR < IORB（DOC_FED p2）", "statement_b": "同页又写『EFFR（市场形成，可能高于IORB）』", "analysis": "两者不矛盾：常态低于、偏离时由套利修复（p4 数值示例），但并列呈现易误读。", "resolution": "知识库以『常态低于+套利修复机制』合并表述（KP_FED_006/007/008）。"},
+    {"id": "CONF_004", "topic": "2023-03 BTC 样本的双重使用", "statement_a": "DOC_FED Pattern 1 将 2023-03-01~08 下跌>7% 用作『准备金<3万亿→做空』的验证", "statement_b": "DOC_LIQ 将 2023 年初『准备金触底回升』用作看多 BTC 的对应", "analysis": "同一时间段在不同文档中支撑相反方向的操作叙事；可能反映 3 月初仍在红线附近波动、随后回升。", "resolution": "两处均保留并交叉标注（CASE_2023_RESERVE_BOTTOM.counter_evidence）；提示用连续周度数据复核触发时点。"}
+  ]
+}

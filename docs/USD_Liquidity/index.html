@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>美元流动性研究知识库 | Dollar Liquidity Research Knowledge Base</title>
+<meta name="description" content="基于五份 PDF 构建的美元流动性研究知识库：美联储利率体系、TGA 与准备金、国债体系、流动性与比特币、宏观状态识别。离线可用。">
+<link rel="stylesheet" href="assets/css/main.css">
+</head>
+<body>
+<a class="skip-link" href="#app">跳到主内容</a>
+<header class="topbar">
+  <button id="navToggle" class="nav-toggle" aria-label="打开导航" aria-expanded="false">☰</button>
+  <div class="brand">
+    <span class="brand-cn">美元流动性研究知识库</span>
+    <span class="brand-en">Dollar Liquidity Research Knowledge Base</span>
+  </div>
+  <div class="searchbox" role="search">
+    <input id="searchInput" type="search" placeholder="搜索知识点 / 概念 / 变量 / 案例 / 策略…" aria-label="全站搜索" autocomplete="off">
+    <div id="searchResults" class="search-results" hidden></div>
+  </div>
+  <div class="mode-switch" role="group" aria-label="阅读模式">
+    <button data-mode="beginner" class="mode-btn" aria-pressed="false">入门</button>
+    <button data-mode="advanced" class="mode-btn" aria-pressed="true">进阶</button>
+    <button data-mode="research" class="mode-btn" aria-pressed="false">研究</button>
+  </div>
+</header>
+<div class="layout">
+  <nav id="sidebar" class="sidebar" aria-label="主导航">
+    <div class="nav-group"><div class="nav-title">总览</div>
+      <a href="#/home" data-route="home">首页</a>
+    </div>
+    <div class="nav-group"><div class="nav-title">递进式知识体系</div>
+      <a href="#/ch/L1" data-route="ch:L1">第一层 · 宏观金融基础</a>
+      <a href="#/ch/L2" data-route="ch:L2">第二层 · 资产负债表与资金流</a>
+      <a href="#/ch/L3" data-route="ch:L3">第三层 · 流动性分析体系</a>
+      <a href="#/ch/L4" data-route="ch:L4">第四层 · 宏观状态识别</a>
+      <a href="#/ch/L5" data-route="ch:L5">第五层 · 历史案例</a>
+      <a href="#/ch/L6" data-route="ch:L6">第六层 · 策略与工作流</a>
+    </div>
+    <div class="nav-group"><div class="nav-title">工具与附录</div>
+      <a href="#/graph" data-route="graph">知识图谱</a>
+      <a href="#/dict" data-route="dict">指标数据字典</a>
+      <a href="#/cases" data-route="cases">案例库</a>
+      <a href="#/strategies" data-route="strategies">策略库</a>
+      <a href="#/templates" data-route="templates">Agent 任务模板</a>
+      <a href="#/sources" data-route="sources">来源与覆盖矩阵</a>
+      <a href="#/questions" data-route="questions">冲突与待核查</a>
+    </div>
+    <div class="nav-meta">
+      <div id="metaVersion">构建：—</div>
+      <div>离线运行 · file:// 可用</div>
+    </div>
+  </nav>
+  <main id="app" class="app" tabindex="-1">
+    <noscript>本知识库需要启用 JavaScript 才能渲染（全部数据与逻辑均为本地离线内容，无任何外部请求）。</noscript>
+  </main>
+</div>
+<script src="assets/js/data.js"></script>
+<script src="assets/js/diagrams.js"></script>
+<script src="assets/js/graph.js"></script>
+<script src="assets/js/main.js"></script>
+</body>
+</html>

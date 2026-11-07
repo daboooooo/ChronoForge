@@ -1,0 +1,45 @@
+{
+  "pattern_matching_engine": {
+    "purpose": "把当前宏观环境与历史案例库匹配，输出研究假设而非交易指令。",
+    "inputs": [
+      {"feature": "当前宏观指标状态", "detail": "DXY、UST2Y/10Y、TLT、VIX 最新读数与方向", "source_variables": ["VAR_DXY","VAR_UST2Y","VAR_UST10Y","VAR_TLT","VAR_VIX"]},
+      {"feature": "过去若干周变化趋势", "detail": "准备金/TGA/ON RRP 的 4 周与 13 周变化", "source_variables": ["VAR_BANK_RESERVES","VAR_TGA","VAR_ON_RRP"]},
+      {"feature": "TGA 预测路径", "detail": "三情景预测与官方目标偏差", "source_variables": ["VAR_TGA_TARGET"]},
+      {"feature": "准备金变化", "detail": "周度水平+连续周数方向", "source_variables": ["VAR_BANK_RESERVES"]},
+      {"feature": "DXY/收益率/TLT/VIX 组合", "detail": "四变量涨跌组合→状态A—D 映射", "source_variables": ["VAR_DXY","VAR_UST10Y","VAR_TLT","VAR_VIX"]},
+      {"feature": "BTC 趋势与资金流", "detail": "价格趋势、稳定币供给、ETF 净流入", "source_variables": ["VAR_BTC_PRICE","VAR_STABLECOIN_SUPPLY","VAR_BTC_ETF_FLOW"]}
+    ],
+    "steps": [
+      "为当前环境生成结构化特征向量（水平+变化率+连续周数）",
+      "从历史案例库检索相似环境（特征加权相似度）",
+      "列出最相似的历史案例（≥3个，不只取1个）",
+      "解释相似之处（哪些特征匹配）",
+      "解释关键差异（哪些特征不匹配/缺失）",
+      "比较当时与当前的政策背景（QT/QRA/停摆等制度环境）",
+      "标注样本不足或数据缺失",
+      "提供历史结果的分布（多案例区间），而不是单一案例结果",
+      "列出当前环境可能失效的条件",
+      "输出可供进一步验证的研究假设（含反证计划）"
+    ],
+    "hard_constraints": [
+      "不能只根据相似度最高的一个历史案例进行预测",
+      "必须避免把历史上的相关关系当作未来必然重复的规律",
+      "禁止使用在当时尚未公布的数据（前视偏差）",
+      "没有证据时不得编造时间滞后、概率、胜率"
+    ]
+  },
+  "quick_combos": [
+    {"id": "PAT_001", "combo": "DXY↑ + VIX↑", "reading": "全球风险厌恶", "notes": "需区分紧缩冲击与危机避险（看收益率方向）", "source_document_ids": ["DOC_DXY"], "source_pages": [5]},
+    {"id": "PAT_002", "combo": "收益率↑ + VIX↓", "reading": "通胀 / 增长交易", "notes": "须拆分收益率来源（实际利率/通胀预期/期限溢价）", "source_document_ids": ["DOC_DXY"], "source_pages": [5]},
+    {"id": "PAT_003", "combo": "TLT↑ + VIX↑", "reading": "真·避险", "notes": "美债与恐慌同向=危机模式特征", "source_document_ids": ["DOC_DXY"], "source_pages": [5]},
+    {"id": "PAT_004", "combo": "DXY↓ + VIX↓", "reading": "流动性释放", "notes": "与状态C/D 对应，需看收益率方向区分增长/宽松驱动", "source_document_ids": ["DOC_DXY"], "source_pages": [5]},
+    {"id": "PAT_005", "combo": "VIX↑ + 罗素2000跌", "reading": "行情危险", "notes": "盘前速判", "source_document_ids": ["DOC_DXY"], "source_pages": [10]},
+    {"id": "PAT_006", "combo": "纳指涨 + DXY涨", "reading": "反弹非牛市", "notes": "美元走强压制成长的组合", "source_document_ids": ["DOC_DXY"], "source_pages": [10]},
+    {"id": "PAT_007", "combo": "BTC领先新高", "reading": "流动性在改善", "notes": "BTC 作为流动性探针（假设）", "source_document_ids": ["DOC_DXY"], "source_pages": [10]},
+    {"id": "PAT_008", "combo": "TLT涨 + 股涨", "reading": "折现率行情", "notes": "状态D 特征", "source_document_ids": ["DOC_DXY"], "source_pages": [10]},
+    {"id": "PAT_009", "combo": "准备金连续2周<3万亿", "reading": "流动性红线触发（Pattern 1）", "notes": "作者经验规则，尚未统计验证", "source_document_ids": ["DOC_FED"], "source_pages": [12]},
+    {"id": "PAT_010", "combo": "准备金连续4周下跌", "reading": "趋势性收缩（Pattern 2）→降Beta", "notes": "风险管理信号非择时", "source_document_ids": ["DOC_FED"], "source_pages": [12]},
+    {"id": "PAT_011", "combo": "TGA↑+准备金↓+融资利率异常上行", "reading": "流动性压力确认（三因子情景②）", "notes": "短期风险上升", "source_document_ids": ["DOC_TGA"], "source_pages": [6]},
+    {"id": "PAT_012", "combo": "TGA↓+准备金↑+融资市场稳定", "reading": "流动性改善假设得到支持（情景③）", "notes": "潜在利好非买入保证", "source_document_ids": ["DOC_TGA"], "source_pages": [6]}
+  ]
+}

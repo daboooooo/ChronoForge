@@ -1,0 +1,47 @@
+[
+  {
+    "document_id": "10fe10a8-ae33-4d93-b34f-9026eaadab14",
+    "file_name": "10fe10a8-ae33-4d93-b34f-9026eaadab14_美联储利率体系与货币政策传导机制.pdf",
+    "file_size_bytes": 1633791,
+    "pages_extracted": 13,
+    "mdls_pages": "13",
+    "text_extraction": "success",
+    "output_dir": "sources/extraction_records/10fe10a8-ae33-4d93-b34f-9026eaadab14"
+  },
+  {
+    "document_id": "1bfb5ec2-c1ad-4981-a4db-7c94a81a72ff",
+    "file_name": "1bfb5ec2-c1ad-4981-a4db-7c94a81a72ff_美国财政部TGA账户对美联储准备金余额的影响与预判方法.pdf",
+    "file_size_bytes": 1386086,
+    "pages_extracted": 17,
+    "mdls_pages": "17",
+    "text_extraction": "success",
+    "output_dir": "sources/extraction_records/1bfb5ec2-c1ad-4981-a4db-7c94a81a72ff"
+  },
+  {
+    "document_id": "8c8daa18-3298-4913-888f-5b4487757568",
+    "file_name": "8c8daa18-3298-4913-888f-5b4487757568_美国国债体系：T-Bills（国库券）、T-Notes（国库票据）、T-Bonds（国库长期债券）、TIPS（通胀保护证券）.pdf",
+    "file_size_bytes": 917889,
+    "pages_extracted": 5,
+    "mdls_pages": "5",
+    "text_extraction": "success",
+    "output_dir": "sources/extraction_records/8c8daa18-3298-4913-888f-5b4487757568"
+  },
+  {
+    "document_id": "a5f0996a-9583-49ca-9ec9-6c3932a78854",
+    "file_name": "a5f0996a-9583-49ca-9ec9-6c3932a78854_美元流动性与大饼关联性的分析方法.pdf",
+    "file_size_bytes": 616376,
+    "pages_extracted": 3,
+    "mdls_pages": "3",
+    "text_extraction": "success",
+    "output_dir": "sources/extraction_records/a5f0996a-9583-49ca-9ec9-6c3932a78854"
+  },
+  {
+    "document_id": "ffc69830-0af2-4218-9254-c10f9fe6993f",
+    "file_name": "ffc69830-0af2-4218-9254-c10f9fe6993f_美元指数（DXY）美债收益率（UST）TLT（长债ETF）VIX_的涨跌组合.pdf",
+    "file_size_bytes": 1100922,
+    "pages_extracted": 11,
+    "mdls_pages": "11",
+    "text_extraction": "success",
+    "output_dir": "sources/extraction_records/ffc69830-0af2-4218-9254-c10f9fe6993f"
+  }
+]

@@ -1,0 +1,94 @@
+{
+  "page_number_convention": "五份 PDF 的文档印刷页脚页码与 PDF 物理页序一致（第1页页脚为1，依次递增）。本知识库统一采用该页码，即 source_page 同时等于物理页码与印刷页码。",
+  "extraction_tool": "pdftotext (poppler) -layout 模式，逐页拆分为 page_NNN.txt",
+  "extraction_date": "2026-10-27",
+  "documents": [
+    {
+      "document_id": "DOC_FED",
+      "uuid": "10fe10a8-ae33-4d93-b34f-9026eaadab14",
+      "file_name": "10fe10a8-ae33-4d93-b34f-9026eaadab14_美联储利率体系与货币政策传导机制.pdf",
+      "title": "美联储利率体系与货币政策传导机制",
+      "file_size_bytes": 1633791,
+      "pages": 13,
+      "text_extraction": "success",
+      "scanned_pages": false,
+      "special_content": [
+        "第6页包含 graph LR mermaid 流程图源码（美联储调整FFR目标的传导链）",
+        "第2、3、5、7、8、10、11页包含多张对比表格（利率一览、参与者、SOFR/EFFR/IORB对比、SRF抵押品、观察指标）",
+        "全篇使用 emoji 图标作章节符号，无位图图片（pdfimages 计数为0）",
+        "第11-13页包含两条已验证交易模式（Pattern 1/2）及历史验证数据"
+      ],
+      "unrecognizable_regions": [],
+      "notes": "文中『每次会议12位美联储理事将投票』与外部制度常识（12位投票成员=7理事+纽约联储主席+4位轮换地区联储主席）存在表述差异，已登记 OPEN_QUESTION_FED_001。"
+    },
+    {
+      "document_id": "DOC_TGA",
+      "uuid": "1bfb5ec2-c1ad-4981-a4db-7c94a81a72ff",
+      "file_name": "1bfb5ec2-c1ad-4981-a4db-7c94a81a72ff_美国财政部TGA账户对美联储准备金余额的影响与预判方法.pdf",
+      "title": "美国财政部TGA账户对美联储准备金余额的影响与预判方法",
+      "file_size_bytes": 1386086,
+      "pages": 17,
+      "text_extraction": "success",
+      "scanned_pages": false,
+      "special_content": [
+        "第1-3、9-10、12-13页含 LaTeX 源码公式（aligned 环境）：准备金恒等式、ΔTGA 分解、TGA 日度模型、会计分解与统计校准回归式",
+        "第2、4、8、10-11、14-16页含多张表格（论据检验表、FRED 序列表、频率统一表、情景表、回测指标表、周报结构）",
+        "第1部分（p1-6）为对某『10月下旬BTC最佳买点』论述的批判性检验；第2部分（p7-17）为准备金预测方案设计",
+        "无位图图片"
+      ],
+      "unrecognizable_regions": [],
+      "notes": "LaTeX 公式在文本提取中保留为源码形式，已人工转写为知识库公式条目。文中引用的 2.96万亿/9400多亿/1320亿/1.05万亿/2.85万亿 等数字均按原文登记为待核验输入，未做独立核实。"
+    },
+    {
+      "document_id": "DOC_TSY",
+      "uuid": "8c8daa18-3298-4913-888f-5b4487757568",
+      "file_name": "8c8daa18-3298-4913-888f-5b4487757568_美国国债体系：T-Bills（国库券）、T-Notes（国库票据）、T-Bonds（国库长期债券）、TIPS（通胀保护证券）.pdf",
+      "title": "美国国债体系：T-Bills、T-Notes、T-Bonds、TIPS",
+      "file_size_bytes": 917889,
+      "pages": 5,
+      "text_extraction": "success",
+      "scanned_pages": false,
+      "special_content": [
+        "第1-5页含多张 FRED Series ID 对照表（T-Bills、T-Notes、T-Bonds、TIPS、零息曲线、特殊类型总览）",
+        "第1-3页含 FRED API 示例 URL（DTB3、DGS10、DGS30、DFII10）",
+        "无位图图片"
+      ],
+      "unrecognizable_regions": [],
+      "notes": "API 示例中的 api_key=YOUR_KEY 为占位符。"
+    },
+    {
+      "document_id": "DOC_LIQ",
+      "uuid": "a5f0996a-9583-49ca-9ec9-6c3932a78854",
+      "file_name": "a5f0996a-9583-49ca-9ec9-6c3932a78854_美元流动性与大饼关联性的分析方法.pdf",
+      "title": "美元流动性与大饼关联性的分析方法",
+      "file_size_bytes": 616376,
+      "pages": 3,
+      "text_extraction": "success",
+      "scanned_pages": false,
+      "special_content": [
+        "第1-3页含大量 X（Twitter）推文 URL 引用（共12条独立链接）",
+        "第1页含美元流动性定义公式与准备金区间数字",
+        "无位图图片"
+      ],
+      "unrecognizable_regions": [],
+      "notes": "本文是对 @qinbafrank（Frank）公开推文观点的梳理，文末自注『不代表对其判断的背书』。所有观点按 [SOURCE][HYPOTHESIS] 登记而非既证事实。推文链接内容未逐条核验，见 OPEN_QUESTION_LIQ_001。文中日期（2024-09 至 2026-10）为原文引用的推文日期。"
+    },
+    {
+      "document_id": "DOC_DXY",
+      "uuid": "ffc69830-0af2-4218-9254-c10f9fe6993f",
+      "file_name": "ffc69830-0af2-4218-9254-c10f9fe6993f_美元指数（DXY）美债收益率（UST）TLT（长债ETF）VIX_的涨跌组合.pdf",
+      "title": "美元指数（DXY）—美债收益率（UST）—TLT（长债ETF）—VIX 的涨跌组合",
+      "file_size_bytes": 1100922,
+      "pages": 11,
+      "text_extraction": "success",
+      "scanned_pages": false,
+      "special_content": [
+        "第1-9页含四种核心组合、四种状态下的资产反应表、资产敏感度总览表、盘前速判表",
+        "使用 ❌/✅/⚠️/📌 等 emoji 作符号，无位图图片",
+        "第5、10-11页为与读者的对话式结尾（提出可继续的方向），无新增知识点"
+      ],
+      "unrecognizable_regions": [],
+      "notes": "四种涨跌组合与资产反应均为作者经验归纳，未附统计验证，全部按 [SOURCE][EMPIRICAL][HYPOTHESIS] 层级登记。"
+    }
+  ]
+}
