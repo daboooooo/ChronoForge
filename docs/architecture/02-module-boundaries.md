@@ -6,7 +6,7 @@
 
 | 模块 | Purpose / Responsibilities | 依赖（仅允许以下） | Public Interfaces |
 |---|---|---|---|
-| `connectors/` | 数据源接入：auth、请求、分页、限流、重试、原始响应返回 | `models`(协议), `config` | `DataConnector` 协议；按源子模块（binance/spot、binance/futures、deribit、ccxt、yahoo、fred、sec、cftc、bls、bea、federal_reserve、polymarket、gdelt、rss） |
+| `connectors/` | 数据源接入：auth、请求、分页、限流、重试、原始响应返回 | `models`(协议), `config` | `DataConnector` 协议；按源子模块（binance_spot、binance_futures、deribit、ccxt_bridge、yahoo、fred、sec_edgar、sosovalue、alternative、coinmetrics、coinmarketcap、treasury_fiscal、treasury_refunding、nyfed） |
 | `models/` | Canonical 数据模型：全部 Canonical Type 的 Pydantic schema、时间语义、provenance 字段 | 无（最底层） | 各 Canonical Type 类 + 校验器 |
 | `storage/` | raw/canonical/derived 三层读写、分区管理、元数据库访问 | `models` | `RawStore` / `CanonicalStore` / `DerivedStore` / `MetaStore` 协议 |
 | `quality/` | schema/时间戳/重复/缺口/null/范围校验；quality flag 生成 | `models` | `validate(records, canonical_type) -> QualityReport` |

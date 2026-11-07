@@ -28,6 +28,7 @@ fetch ──► raw append ──► validate ──► normalize ──► cano
 ## 3. Connector 接入规范（需求 §37/§38/§44）
 
 - 必须实现 `DataConnector` 协议 + `capabilities()` 声明实际能力
+- **必须实现 `row_units(raw) -> int | None`**：声明该批次可归一化的候选行数（产出 + 上报跳过），是行级丢弃门禁的唯一分母来源。未实现（`NotImplementedError`）→ runner 抛 `QualityError` 拒绝执行，不按 payload 形状猜测、不降级为 0；`0` 表示源端确实无数据；`None` 仅用于无行级粒度的单文档源。契约细节见 D04 §1.1，门禁算法见 D06 §3.1
 - **禁止**依据"交易所通常提供什么"假设 endpoint 存在；开发前核对官方 API 文档（需求 §44）
 - 新增源流程：验证官方文档 → 验证访问方式/类型/历史/频率 → 注册 source_registry → 实现 connector
 - capability detection 优先于静态假设（CCXT 场景，需求 §38）
@@ -66,3 +67,21 @@ WebSocket collector → 内存 buffer → 按周期/条数阈值 flush 为 raw J
 
 - collector 只负责接收与落盘，不做转换（crash-safe：重启后按 event_time 幂等去重续传）
 - event_time / ingest_time 分离保证 `market_event_latency` 可测量（需求 §29）
+
+## 8. 下游只读展示层（visualization/）
+
+```
+data/canonical/**  +  data/derived/**            （只读，不写回）
+          │
+          ▼
+visualization/export_data.py  ──►  data.js（window.CF_DATA）+ data.json
+                                          │
+                                          ▼
+                    index.html + app.js（ECharts 5.5.1，vendor 本地加载）
+```
+
+- **边界**：`export_data.py` 只读 `data/` 与元数据库，不写 `data/`、`meta/`，也不经过 pipeline 阶段；站点是 canonical/derived 的消费方，不是数据生产方。
+- **源文件（入库）**：`index.html`、`app.js`、`styles.css`、`export_data.py`、`refresh.sh`、`vendor/echarts.min.js`。
+- **生成物（忽略）**：`data.js`、`data.json`，由 `export_data.py` 再生，已在 `.gitignore` 排除。
+- 页面完全离线：`index.html` 依次加载 `vendor/echarts.min.js` → `data.js` → `app.js`，`app.js` 只读取 `window.CF_DATA`，不发起网络请求。
+- 数据口径、按图缺失项与刷新方式见 `visualization/README.md`；准备金模型的派生输出口径见 D11。
