@@ -26,6 +26,7 @@ from reserve_forecast import (  # noqa: E402
     add_derived_accounts,
     backtest,
     forecast_from_origin,
+    identity_checks,
 )
 
 _ONE_DAY = pd.Timedelta(days=1)
@@ -140,3 +141,24 @@ def test_late_revision_is_not_treated_as_archive_floor() -> None:
     assert avail.iloc[0] == pd.Timestamp("2013-04-18 23:59:59")
     assert avail.iloc[1] == pd.Timestamp("2025-09-18 23:59:59")
     assert avail.iloc[2] == pd.Timestamp("2025-09-18 23:59:59")
+
+
+def test_identity_checks_exposes_only_independent_relation() -> None:
+    """M-N1：存款/准备金两条恒等式是代数派生，不再作为独立校验出现。
+
+    派生证明：`other_dep` 定义为 WLO 残差，代回存款守恒后恒为 0；
+    `capital = WALCL − WLTLECL` 代回准备金重构式后 WALCL 抵消，得
+    reserve_implied = WRBWFRBL + L1，即旧 L3 ≡ −L1。两者对任意数据恒成立，
+    不能独立发现任何 L1 发现不了的问题，因此删除。
+    """
+    df = _frame().values
+    checks = identity_checks(df)
+
+    assert "liabilities_total" in checks
+    assert not {"L2_total_deposits", "L3_reserve_balances"} & set(checks)
+    assert "reserve_implied" not in df.columns
+
+    deposits = df["WLDLCL"] - (
+        df["WRBWFRBL"] + df["WDTGAL"] + df["TERMT"] + df["foreign_dep"] + df["other_dep"]
+    )
+    assert float(deposits.abs().max()) == 0.0

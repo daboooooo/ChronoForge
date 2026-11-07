@@ -749,7 +749,7 @@
     inst.setOption(
       base({
         grid: { left: 62, right: 28, top: 34, bottom: 34 },
-        legend: { data: ["实际 WRBWFRBL", "回测 h=1 预测", "预测中值", "90% 联合误差带"], top: 2, right: 6 },
+        legend: { data: ["实际 WRBWFRBL", "回测 h=1 预测", "预测中值", "90% 边际误差带"], top: 2, right: 6 },
         xAxis: xTime(),
         yAxis: yVal({ name: "万亿美元", min: 2.4, max: 3.7 }),
         tooltip: {
@@ -757,7 +757,7 @@
           backgroundColor: "rgba(13,18,26,.96)",
           borderColor: C.line,
           formatter: (p) => {
-            const rows = p.filter((x) => !["90% 区间下沿", "90% 联合误差带"].includes(x.seriesName));
+            const rows = p.filter((x) => !["90% 区间下沿", "90% 边际误差带"].includes(x.seriesName));
             return `${tipDay(p[0])}<br>` + rows.map((x) =>
               tipRow(x.color, x.seriesName, fmt(tipValue(x), 2) + "T")).join("");
           },
@@ -775,7 +775,7 @@
             z: 1,
           },
           {
-            name: "90% 联合误差带",
+            name: "90% 边际误差带",
             type: "line",
             data: bandW,
             stack: "rband",

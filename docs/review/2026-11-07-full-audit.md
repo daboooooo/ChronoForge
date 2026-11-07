@@ -25,15 +25,17 @@
 2. ~~**C1/A-8 门禁对 `nyfed` 完全失效**（C-N2）。~~ **已修复（2026-11-07 第 2 批，方案 B）**：删除 runner 的 `_payload_units` 形状猜测，改为连接器契约 `DataConnector.row_units(raw)`；未声明即拒绝执行（不降级为 0）。14 个连接器逐个声明行单位，含 deribit chart（`result.ticks`）、coinmarketcap（`data.quotes`）、yahoo（`chart.result[0].timestamp`）、sec_edgar（`filings.recent` 列式 / `facts` 四层嵌套）。nyfed 同时补齐 `note_skip`（合法/非法分离）与 `checkpoint_from` 对齐。注入验证覆盖全部连接器：取消声明 / 错误行数均触发 `QualityError` 且 checkpoint 不推进，合法空批不误报。
 3. ~~**准备金模型的"PIT 截断"只截 observation_time，不截 release_time**（H-N3）。~~ **已修复（2026-11-07 第 3 批）**：`AsOfFrame` 按 `max(observation_time, release_time, revision_time)` 截断；origin 周三收盘只看到上周三观测，FRED `release_time` 与 SOMA `revision_time` 两条链路都参与判断；回测同步按该时点截断，naive 基准也只用最近可知值。模型升级为 `reserve-structural-0.1.2`，回测数字如实变差（同一 703 个 origin：h=1 全样本 MAE 56,089 → 79,597，+41.9%；h=2 +12.8%；h=4 +14.0%）；对 naive / seasonal naive 仍全部显著，currency 消融的显著 horizon 由 h=2 移到 h=1。**TGA 区间发散是算法性的**（H-N4），并被图 5 的硬编码 y 轴裁切掩盖。**H-N4 已于第 6 批修复**：区间改为按 horizon 的历史残差分位（P5–P95），下沿按 0 截断，图 5 轴放开为自动缩放；2027-02-04 区间由 −5.62T ~ +7.08T 收敛为 0.06T ~ 1.70T。
 
+**准备金的"三类恒等式"只有一类独立**（M-N1），已于第 7 批删除两条代数派生校验；置信带的 `joint` 标签（M-N2）同步改为"逐 horizon 边际"。
+
 ### 0.2 严重级别统计
 
-| 级别 | 本次新增 | 已修复（第 1–6 批） | 现存 | 合计 |
+| 级别 | 本次新增 | 已修复（第 1–7 批） | 现存 | 合计 |
 |---|---|---|---|---|
 | CRITICAL | 2（C-N1、C-N2） | 2（C-N1、C-N2） | **0** | 2 |
 | HIGH | 9 条（H-N1–H-N9） | 7（H-N1、H-N2、H-N3、H-N4、H-N5、H-N6、H-N7） | **2（H-N8、H-N9）** | 9 |
-| MEDIUM | 10 | 3（M-N8、M-N9、M-N10） | **7** | 10 |
+| MEDIUM | 10 | 5（M-N1、M-N2、M-N8、M-N9、M-N10） | **5（M-N3–M-N7）** | 10 |
 | LOW | 9 | 4（L-N1、L-N2、L-N6、L-N7） | **5** | 9 |
-| 合计 | — | 16 | **14 条** | 30 |
+| 合计 | — | 18 | **12 条** | 30 |
 
 > 编号规则：`*-N*` 表示本轮新增（N = new）；`C1/A-1/H1/M1` 等沿用上轮编号。
 > 修复状态以 §17「修复进度」为准（每批完成后更新）。
@@ -66,7 +68,7 @@
 | G1/G2/G7 | 全绿 | nyfed + 文档漂移导致红 | **重新打开** |
 | G6 | 工作区干净 | 新一轮改动未提交、未推送 | **重新打开** |
 
-> **本轮新增项的修复状态**：C-N1、C-N2（第 1–2 批）、H-N7（第 2 批）、H-N3（第 3 批）、H-N1/H-N2（第 4 批）、H-N5/H-N6（第 5 批）、H-N4（第 6 批）已修复；M-N8/M-N9/M-N10 与 L-N1/L-N2/L-N6/L-N7 随之关闭。H-N8（版本库）、H-N9（文档）与其余 M/L 仍开放（M-N2 与 H-N4 同源，仍未修）。详见 §17。
+> **本轮新增项的修复状态**：C-N1、C-N2（第 1–2 批）、H-N7（第 2 批）、H-N3（第 3 批）、H-N1/H-N2（第 4 批）、H-N5/H-N6（第 5 批）、H-N4（第 6 批）、M-N1/M-N2（第 7 批）已修复；M-N8/M-N9/M-N10 与 L-N1/L-N2/L-N6/L-N7 随之关闭。H-N8（版本库）、H-N9（文档）与 M-N3–M-N7、其余 L 仍开放。详见 §17。
 
 > 上轮报告自身还有一处内部数字不一致：§0.1/§1.6 写 `1972 passed`，§2.1 写 `1862 passed`，§2 写 `1770 passed`。本轮实测 1980 passed / 3 failed。作为文档瑕疵记为 L-N8，不影响代码结论。
 
@@ -162,7 +164,7 @@ $ git status -sb
 | Lint | `uv run ruff check src` | ❌ **Found 2 errors**，均 `E501`，均在 `nyfed.py` |
 | 全量测试 | `uv run --with pytest --with pytest-asyncio --with hypothesis python -m pytest -q` | ❌ **3 failed, 1980 passed, 10 warnings in 89.84s** |
 | 脚本编译 | `uv run python -m py_compile scripts/fdam_attention.py` | ✅ 通过（B-1 关闭） |
-| 恒等式 | `uv run python scripts/reserve_forecast.py check` | 输出 `PASS（L1/L3 容差 3 USD 百万）`，但 L2/L3 为恒等式（见 M-N1） |
+| 恒等式 | `uv run python scripts/reserve_forecast.py check` | 输出 `PASS（负债侧总额，容差 3 USD 百万；独立校验数 1）`；L2/L3 已删（派生式，见 M-N1） |
 
 **3 条失败**：
 
@@ -543,7 +545,7 @@ observation_time 2026-10-28  release_time 2026-10-29 23:59:59
 |---|---|
 | PIT 是否真正截断 | **否**。只截 `observation_time`，未读/未比较 `release_time`。 |
 | 回测是否用了未来数据 | **是（1 天发布滞后）**。目标值本身在 origin 之后是正常的；问题是 origin 当期的 H.4.1/SOMA 在 origin 时点尚未发布。 |
-| 置信带口径 | **不一致**（见 M-N2）。 |
+| 置信带口径 | **一致**（逐 horizon 边际，第 7 批已改标签，见 M-N2）。 |
 | 消融与 DM | DM 算法基本正确（HAC + 双侧正态）；"消融"仅剩 TGA 一项且文档仍写 0.1.0 的 `pred_drop_*`（见 M-N10）。 |
 
 另外，canonical 单版本存储只保留最终修订，回测 `actual` 用最终修订值；`index.html` 已承认这一点，但 `reserve_forecast.py` 自身没有在输出中标记修订口径。
@@ -821,9 +823,9 @@ FAILED tests/unit/test_cli.py::TestRegistryCommands::test_list_sources_json
 
 ## 5. MEDIUM
 
-### M-N1. 准备金"三类恒等式"实际只有 L1 独立，L2 恒为 0、L3 ≡ −L1 ✅ 已核实
+### M-N1. 准备金"三类恒等式"实际只有 L1 独立，L2 恒为 0、L3 ≡ −L1 ✅ 已核实 → ✅ 已修复（2026-11-07 第 7 批）
 
-**位置**：[reserve_forecast.py#L159-L221](file:///Users/horsenli/Works/ChronoForge/scripts/reserve_forecast.py#L159-L221)
+**位置（修复前）**：`reserve_forecast.py` 的 `add_derived_accounts` + `identity_checks` + `cmd_check`。
 
 ```python
 df["other_dep"] = df["WLDLCL"] - (
@@ -836,36 +838,92 @@ l2 = df["WLDLCL"] - (
 l3 = df["WRBWFRBL"] - df["reserve_implied"]
 ```
 
-代数展开：
-- `L2 ≡ WLDLCL − (WLDLCL) = 0`，恒等式，不提供任何信息；
-- `reserve_implied = WRBWFRBL + L1`，所以 `L3 = WRBWFRBL − reserve_implied ≡ −L1`；
-- `cmd_check` 实际只 gate L1 与 L3（[L649-L652](file:///Users/horsenli/Works/ChronoForge/scripts/reserve_forecast.py#L649-L652)），L3 是 L1 的镜像，等于同一个校验做两遍。
+#### 推导证明（代数，逐项代入）
 
-**独立复算**（canonical，1247 周）：`L1 max_abs=2.000M USD、mean_abs=0.499M`。即 L1 逐周并不严格为 0，但在 3M 容差内；`L2=0`、`L3=−L1`。
+**(1) 旧 L2 ≡ 0。** `other_dep` 是 WLO 的残差桶，定义即
 
-**判定**：MEDIUM。用户问的"`WRBWFRBL` 重构恒等式是否逐周成立"——答案是：L1 近似成立（最大 2M，约 0.07%），L2/L3 是恒等式，不构成独立校验。
+```
+other_dep = WLDLCL − (WRBWFRBL + WDTGAL + TERMT + foreign_dep)
+```
 
-### M-N2. 置信带是逐 horizon 边际分位，标签却写 `joint` / "联合 90%" ✅ 已核实
+代回旧 L2：
 
-**位置**：
-- [reserve_forecast.py#L431-L455](file:///Users/horsenli/Works/ChronoForge/scripts/reserve_forecast.py#L431-L455)
-- [reserve_forecast.py#L611-L613](file:///Users/horsenli/Works/ChronoForge/scripts/reserve_forecast.py#L611-L613)
-- [reserve_forecast.py#L676-L677](file:///Users/horsenli/Works/ChronoForge/scripts/reserve_forecast.py#L676-L677)
-- [index.html#L359](file:///Users/horsenli/Works/ChronoForge/visualization/index.html#L359)
+```
+L2 = WLDLCL − (WRBWFRBL + WDTGAL + TERMT + foreign_dep + other_dep)
+   = WLDLCL − [ (WRBWFRBL + WDTGAL + TERMT + foreign_dep)
+                + (WLDLCL − (WRBWFRBL + WDTGAL + TERMT + foreign_dep)) ]
+   = WLDLCL − WLDLCL
+   = 0
+```
+
+对**任意数据**恒成立，不含任何观测信息。
+
+**(2) 旧 L3 ≡ −L1。** `capital` 定义为差分 `capital = WALCL − WLTLECL`，代回
+
+```
+reserve_implied = WALCL − capital − WLFN − WLRRAL − WDTGAL − TERMT
+                  − foreign_dep − other_dep − WLDACLC − WLAD − TCCF
+                = WLTLECL − WLFN − WLRRAL − WDTGAL − TERMT
+                  − foreign_dep − other_dep − WLDACLC − WLAD − TCCF
+```
+
+于是
+
+```
+L1 + (WRBWFRBL − reserve_implied)
+  = WLTLECL − WLFN − WLRRAL − WLDLCL − WLDACLC − WLAD − TCCF
+    + WRBWFRBL − WLTLECL + WLFN + WLRRAL + WDTGAL + TERMT
+    + foreign_dep + other_dep + WLDACLC + WLAD + TCCF
+  = WRBWFRBL + WDTGAL + TERMT + foreign_dep + other_dep − WLDLCL
+  = −L2 = 0
+```
+
+即 `L3 = −L1`。同一个数算两遍，覆盖度被虚报为 3 倍。
+
+#### 数据验证（canonical 全样本 1247 周）
+
+| 量 | 实测 |
+|---|---|
+| `L2` 绝对值最大 | **0.0**（非零周数 0） |
+| `L3 + L1` 绝对值最大 | **0.0**（非零周数 0） |
+| `L1` 绝对值最大 | 2.000M USD（mean_abs 0.499M，容差 3M 内） |
+
+结论：两条派生式在任何一周都不偏离，**无法独立发现 L1 发现不了的问题**（包括数据录入错误——任何一处录入错误会同时进入 L1 与 L3，差额仍为 0；`other_dep` 作为残差会把存款侧的不一致全部吸收）。按"证明不了就删"的规则处理。
+
+#### 修复：删除，而不是标注派生
+
+- 删除 `identity_checks` 中的 L2、L3，输出键只保留 `liabilities_total`；
+- 删除 `reserve_implied` 及其 availability 推导（除 L3 外无使用者，属死代码）；
+- `cmd_check` 的判定只 gate 这一条，输出显式写明"独立校验数 1"，不再出现"L1/L3"字样；
+- 文件头与函数 docstring 保留完整代数推导，并写明**覆盖度边界**：资产侧 `WALCL = WSHOSHO + 非SOMA资产 + other_assets` 也是定义式（`other_assets` 为残差桶），不构成第二条独立校验——**因此准备金的独立恒等式校验只有 1 条**。
+
+**验证**：`2112 passed`（新增 `test_identity_checks_exposes_only_independent_relation`，锁定输出结构并断言 `other_dep` 残差性质）；`ruff` 与 `mypy src` 零错误。
+
+**判定**：MEDIUM → 已修复。用户问的"`WRBWFRBL` 重构恒等式是否逐周成立"——真实答案是：唯一可校验的负债侧等式逐周成立（最大 2M，约 0.07%），另外两条是代数派生，已从校验集中移除。
+
+### M-N2. 置信带是逐 horizon 边际分位，标签却写 `joint` / "联合 90%" ✅ 已核实 → ✅ 已修复（2026-11-07 第 7 批）
+
+**位置（修复前）**：
+- [reserve_forecast.py](file:///Users/horsenli/Works/ChronoForge/scripts/reserve_forecast.py) `_config` 的 `"type": "empirical_error_quantile_joint"`
+- 同文件文件头"这是'联合'口径"
+- [index.html#L359](file:///Users/horsenli/Works/ChronoForge/visualization/index.html#L359) 与 §3.3 表格"联合 90% 带"
+- [app.js](file:///Users/horsenli/Works/ChronoForge/visualization/app.js) 图 16 的 legend/series 名"90% 联合误差带"
 
 ```python
 for h in sorted(...):
     e = recent[recent["horizon"] == h]["error"].dropna()
     "q05": round(float(e.quantile(0.05)), 1),
     "q95": round(float(e.quantile(0.95)), 1),
-...
-lo = fc["predicted_reserve"] + st.get("q05", 0.0)
-hi = fc["predicted_reserve"] + st.get("q95", 0.0)
 ```
 
-这是"对每个 horizon 分别取误差的 5%/95% 分位"，即**边际区间**。`_config` 的 `"type": "empirical_error_quantile_joint"` 与 `index.html` 的"联合 90% 带"都不成立：联合区间要么用每个 origin 的跨 horizon 最大绝对误差，要么做 Bonferroni/同时置信带，宽度应更宽。
+这是"对每个 horizon 分别取误差的 5%/95% 分位"，即**边际区间**；联合区间应用每个 origin 的跨 horizon 最大绝对误差，或做 Bonferroni/同时置信带，宽度会明显更宽。
 
-**判定**：MEDIUM。口径名不副实，会误导使用者对带宽的解读。
+**修复**：
+- `_config().band.type` → `empirical_error_quantile_per_horizon`；
+- 文件头改为"逐 horizon 边际（每个 h 单独取分位，未对多 horizon 做同时覆盖校正），但残差来自完整模型，不是只继承 TGA 模型误差"；
+- 站点两处表格 + 图 16 legend/series/提示框统一改为"逐 horizon 边际 90% 带"，并补一句"不能读作三个 horizon 同时落入区间的联合概率"。
+
+**判定**：MEDIUM → 已修复。标签现在与算法一致，不再暗示联合覆盖。
 
 ### M-N3. `_atomic_write` 重演 H6 崩溃窗口，且失败时删除旧分区 ✅ 已核实
 
@@ -1299,7 +1357,7 @@ uv run python scripts/reserve_forecast.py check
 | P1 | H-N3 PIT | `_load_number_series`/`load_soma` 读取 `release_time`，按 `release_time <= as_of` 截断 |
 | P1 | H-N4 TGA 区间 | ✅ 第 6 批已做：按 horizon 历史残差分位 + 下沿 0 截断；`chart5` 轴自适应 |
 | P1 | H-N6/H-N7/H-N9 | 更新 CLI/README 到 14 源；补 nyfed fixture + fetch→normalize 契约测试；补新增子系统文档 |
-| P2 | M-N1–M-N4 | 修恒等式命名/口径、联合区间、原子写、renderer try/catch |
+| P2 | M-N1–M-N4 | ✅ M-N1/M-N2 已做（第 7 批：删除两条派生恒等式 + `joint` 改边际标注）；M-N3 原子写、M-N4 renderer try/catch 待做 |
 | P2 | M-N5–M-N10 | 同步站点 README/index 方法学声明；接入调度；补测试 |
 | P3 | L-N1–L-N9 | 清理注释、docstring、dev 依赖 |
 
@@ -1328,7 +1386,8 @@ uv run python scripts/reserve_forecast.py check
 | 第 3 批 | H-N3 准备金 PIT | ✅ 完成（已提交 `2499eca`） | G5 部分恢复（PIT 子项关闭） |
 | 第 4 批 | H-N1 发布时刻 + H-N2 SRF 未公布占位 + nyfed 窗口 | ✅ 完成（已提交 `afb4d28`） | G5 部分恢复（发布时刻子项关闭） |
 | 第 5 批 | H-N5/H-N6 静态与测试红 + 文档/源数对齐 | ✅ 完成（已提交 `a9b9b95`） | **G1、G2 转绿** |
-| 第 6 批 | H-N4 TGA 区间口径 + 图 5 轴硬编码 | ✅ 完成（2026-11-07，未提交） | G5 的区间子项关闭 |
+| 第 6 批 | H-N4 TGA 区间口径 + 图 5 轴硬编码 | ✅ 完成（已提交 `82397f8`） | G5 的区间子项关闭 |
+| 第 7 批 | M-N1 恒等式冗余 + M-N2 `joint` 标注 | ✅ 完成（2026-11-07，已提交） | G5 关闭 |
 
 ### 第 1 批改动清单（已提交 `4ab246a`）
 
@@ -1495,7 +1554,22 @@ uv run ruff check src scripts/tga_forecast.py tests/unit/test_tga_forecast.py
 uv run mypy src                                  # Success: no issues found in 86 source files
 ```
 
-**未做**：M-N2（"联合 90%"标注）未动；未重跑 `tga_backtest`（pinball/coverage 需单独评估）；未提交、未推送。
+**未做**：M-N2（"联合 90%"标注）留给第 7 批（已完成）；未重跑 `tga_backtest`（pinball/coverage 需单独评估）。本批提交 `82397f8`。
+
+### 第 7 批改动清单（2026-11-07，已提交）
+
+| 文件/对象 | 类型 | 说明 |
+|---|---|---|
+| `scripts/reserve_forecast.py` | 修改 | `identity_checks` 删除 L2/L3，只保留负债侧总额一条独立校验；删除 `reserve_implied` 及其 availability；`cmd_check` 只 gate 这一条并写明"独立校验数 1"；文件头/`identity_checks` docstring 写入完整代数推导与覆盖度边界 |
+| `scripts/reserve_forecast.py` | 修改 | `_config().band.type` → `empirical_error_quantile_per_horizon`；文件头"联合"→"逐 horizon 边际"（M-N2） |
+| `visualization/index.html` | 修改 | 资产表 §3.3 与图 16 说明两处"联合 90% 带"→"逐 horizon 边际 90% 带"，并注明不能读作跨 horizon 同时覆盖 |
+| `visualization/app.js` | 修改 | 图 16 legend / series / 提示框过滤统一改为"90% 边际误差带" |
+| `tests/unit/test_reserve_forecast_pit.py` | 扩充 | `test_identity_checks_exposes_only_independent_relation`：锁定只输出一条独立校验、`reserve_implied` 已移除、`other_dep` 残差性质 |
+| `docs/review/2026-11-07-full-audit.md` | 修改 | M-N1（代数推导 + 1247 周实测 + 删除理由）、M-N2（标注修正）、§0/§3/§6/§12/§15/§16/§17 |
+
+**数据证据**（canonical 1247 周）：`L2` 绝对最大值 0.0（非零周 0）；`L3 + L1` 绝对最大值 0.0（非零周 0）；`L1` 最大 2.000M USD、mean_abs 0.499M。
+
+**验证**：`2112 passed, 10 warnings`；`ruff` 零错误；`mypy src` Success（86 files）。
 
 ### G4 行单位覆盖表（✅ 17 个形状全部声明、15 个形状注入验证，第 2 批方案 B）
 

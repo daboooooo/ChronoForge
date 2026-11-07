@@ -4,13 +4,14 @@
 口径（统一周三水平，USD 百万美元）：
 - 观测量：WRBWFRBL（准备金余额，周三）、WDTGAL（TGA，周三）、
   WCICL（流通中货币，周三）、WLRRAL（逆回购，周三）。
-- 结构恒等式（H.4.1 Table 1，逐周校验见 `check`）：
-    WLTLECL = WLFN + WLRRAL + WLDLCL + WLDACLC + WLAD + TCCF
+- 结构恒等式（H.4.1 Table 1）：
+    WLTLECL = WLFN + WLRRAL + WLDLCL + WLDACLC + WLAD + TCCF   ← 唯一独立可校验项
     WLDLCL  = WRBWFRBL + WDTGAL + TERMT + 外国官方存款(ΣD*WLFOL) + 其他存款(WLO)
     WALCL   = WSHOSHO + 非SOMA资产 + 其他资产(残差桶)
     capital = WALCL − WLTLECL
-  ⇒ WRBWFRBL = WALCL − capital − WLFN − WLRRAL − WDTGAL − TERMT
-               − 外国官方存款 − 其他存款 − WLDACLC − WLAD − TCCF
+  后三条不是独立校验：`other_dep`/`other_assets` 是残差桶、`capital` 是差分，
+  代回后对任意数据恒成立（M-N1 已删掉这两条伪校验，代数证明见
+  `identity_checks` docstring）。`check` 只对第一条做逐周容差判定。
 
 预测方法（逐项，全部锚定在 origin 的观测水平上，不重新估水平）：
 - SOMA 证券（WSHOSHO）：持有不变。无前瞻购债/缩表计划输入，短horizon 内
@@ -28,8 +29,9 @@
   + WLAD + TCCF）：持有不变。
 
 误差带：对每个 horizon 做扩张窗口回测（每个 origin 仅用该时点之前的数据），
-取 h 步外推残差的经验分位数（5%/95%）作为 90% 带；这是“联合”口径——
-准备金水平的整体外推误差，不是只继承 TGA 模型误差。回测同时报告 MAE/RMSE。
+取 h 步外推残差的经验分位数（5%/95%）作为 90% 带。口径是**逐 horizon 边际**
+（每个 h 单独取分位，未对多 horizon 做同时覆盖校正），但残差来自完整模型的
+外推误差，不是只继承 TGA 模型误差。回测同时报告 MAE/RMSE。
 
 模型定位：只回答短期（1/2/4 周）准备金路径。回测确认的增量来源是 TGA
 季节项，其余科目按结构性持平处理；这不是完整的逐项结构预测，也不外推
@@ -252,20 +254,6 @@ def add_derived_accounts(frame: AsOfFrame) -> AsOfFrame:
     df["capital"] = df["WALCL"] - df["WLTLECL"]
     df["currency_gap"] = df["WLFN"] - df["WCICL"]
     df["other_liabilities"] = df[list(_OTHER_LIAB_COLUMNS)].sum(axis=1)
-    # 恒等式重构的准备金（应与 WRBWFRBL 一致）
-    df["reserve_implied"] = (
-        df["WALCL"]
-        - df["capital"]
-        - df["WLFN"]
-        - df["WLRRAL"]
-        - df["WDTGAL"]
-        - df["TERMT"]
-        - df["foreign_dep"]
-        - df["other_dep"]
-        - df["WLDACLC"]
-        - df["WLAD"]
-        - df["TCCF"]
-    )
 
     # 派生科目的可得时刻 = 构成项可得时刻的最大值（最晚可得者决定整行可用）
     avail = frame.available.copy()
@@ -285,10 +273,6 @@ def add_derived_accounts(frame: AsOfFrame) -> AsOfFrame:
     avail["capital"] = _latest_times(avail[["WALCL", "WLTLECL"]])
     avail["currency_gap"] = _latest_times(avail[["WLFN", "WCICL"]])
     avail["other_liabilities"] = _latest_times(avail[list(_OTHER_LIAB_COLUMNS)])
-    avail["reserve_implied"] = _latest_times(
-        avail[["WALCL", "capital", "WLFN", "WLRRAL", "WDTGAL", "TERMT",
-               "foreign_dep", "other_dep", "WLDACLC", "WLAD", "TCCF"]]
-    )
     return AsOfFrame(df, avail)
 
 
@@ -310,19 +294,37 @@ def _err_stats(values: pd.Series) -> dict[str, Any]:
 
 
 def identity_checks(df: pd.DataFrame) -> dict[str, Any]:
-    """三类恒等式 + SOMA 交叉校验。"""
-    l1 = (
+    """唯一一条独立恒等式（H.4.1 Table 1 负债侧）+ 派生科目诊断。
+
+    独立性证明（M-N1；两条派生式已删除，不再计入覆盖度）：
+
+    1. 存款恒等式恒为 0。`other_dep` 定义为 WLO 残差
+           other_dep = WLDLCL − (WRBWFRBL + WDTGAL + TERMT + foreign_dep)
+       代回旧 L2
+           L2 = WLDLCL − (WRBWFRBL + WDTGAL + TERMT + foreign_dep + other_dep)
+              = WLDLCL − WLDLCL = 0
+       对任意数据恒成立，不含任何观测信息。
+    2. 准备金重构式是 L1 的镜像。`capital = WALCL − WLTLECL`，代回
+           reserve_implied = WALCL − capital − WLFN − WLRRAL − WDTGAL − TERMT
+                             − foreign_dep − other_dep − WLDACLC − WLAD − TCCF
+                            = WLTLECL − WLFN − WLRRAL − WDTGAL − TERMT
+                              − foreign_dep − other_dep − WLDACLC − WLAD − TCCF
+       而 L1 = WLTLECL − (WLFN + WLRRAL + WLDLCL + WLDACLC + WLAD + TCCF)，
+       两者相减并用 other_dep 定义消去 WDTGAL/TERMT/foreign_dep：
+           L1 + (WRBWFRBL − reserve_implied)
+             = WRBWFRBL + WDTGAL + TERMT + foreign_dep + other_dep − WLDLCL = 0
+       即旧 L3 ≡ −L1。同样的数据同一个校验做两遍，必须删。
+
+    覆盖度边界（如实说明）：本函数只校验负债侧总额；资产侧的
+    `WALCL = WSHOSHO + 非SOMA资产 + other_assets` 也是定义式（`other_assets`
+    为残差桶），不可能失败，因此不构成第二条独立校验。
+    """
+    liabilities = (
         df["WLTLECL"]
         - (df["WLFN"] + df["WLRRAL"] + df["WLDLCL"] + df["WLDACLC"] + df["WLAD"] + df["TCCF"])
     )
-    l2 = df["WLDLCL"] - (
-        df["WRBWFRBL"] + df["WDTGAL"] + df["TERMT"] + df["foreign_dep"] + df["other_dep"]
-    )
-    l3 = df["WRBWFRBL"] - df["reserve_implied"]
     return {
-        "L1_total_liabilities": _err_stats(l1),
-        "L2_total_deposits": _err_stats(l2),
-        "L3_reserve_balances": _err_stats(l3),
+        "liabilities_total": _err_stats(liabilities),
         "other_assets": {
             "last": round(float(df["other_assets"].iloc[-1]), 1),
             "min": round(float(df["other_assets"].min()), 1),
@@ -781,7 +783,7 @@ def _config() -> dict[str, Any]:
             "truncate_by": ["release_time", "revision_time"],
         },
         "band": {
-            "type": "empirical_error_quantile_joint",
+            "type": "empirical_error_quantile_per_horizon",
             "window_years": _BAND_WINDOW_YEARS,
             "quantiles": list(_QUANTILES),
         },
@@ -831,11 +833,9 @@ def cmd_check() -> int:
     finally:
         meta.close()
     print(json.dumps(result, indent=2, ensure_ascii=False))
-    ok = (
-        result["identities"]["L1_total_liabilities"]["max_abs"] <= 3.0
-        and result["identities"]["L3_reserve_balances"]["max_abs"] <= 3.0
-    )
-    print(f"\n恒等式校验：{'PASS' if ok else 'FAIL'}（L1/L3 容差 3 USD 百万）")
+    # 只有负债侧总额是独立校验（存款/准备金两条为代数派生，已删除，见 §M-N1）
+    ok = result["identities"]["liabilities_total"]["max_abs"] <= 3.0
+    print(f"\n恒等式校验：{'PASS' if ok else 'FAIL'}（负债侧总额，容差 3 USD 百万；独立校验数 1）")
     return 0 if ok else 2
 
 

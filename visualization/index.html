@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>USD 流动性 · 数据可视化</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="brand-line"><span class="dot"></span> CHRONOFORGE · USD LIQUIDITY · READ-ONLY DATA</div>
+    <div class="title-row">
+      <h1>美元流动性 <span>·</span> 数据可视化</h1>
+      <div class="header-meta">
+        数据截止 <strong id="dataCutoff">—</strong><br>
+        导出时间 <span id="generatedAt">—</span> · 本地离线
+      </div>
+    </div>
+
+    <div class="status-grid">
+      <div class="stat" id="statReserveCard">
+        <div class="stat-label">准备金水位 <span>WRESBAL</span></div>
+        <div class="stat-value" id="statReserve">—</div>
+        <div class="stat-sub" id="statReserveSub">—</div>
+      </div>
+      <div class="stat" id="statMacroCard">
+        <div class="stat-label">宏观状态匹配 <span>4/4 变量</span></div>
+        <div class="stat-value" id="statMacro">—</div>
+        <div class="stat-sub" id="statMacroSub">—</div>
+      </div>
+      <div class="stat" id="statCorridorCard">
+        <div class="stat-label">利率走廊 <span>SOFR − EFFR</span></div>
+        <div class="stat-value" id="statCorridor">—</div>
+        <div class="stat-sub" id="statCorridorSub">—</div>
+      </div>
+      <div class="stat" id="statCorrCard">
+        <div class="stat-label">BTC × 准备金 <span>13 周滚动</span></div>
+        <div class="stat-value" id="statCorr">—</div>
+        <div class="stat-sub" id="statCorrSub">—</div>
+      </div>
+    </div>
+  </div>
+
+  <nav class="tabs">
+    <button class="tab active" data-pane="overview">总览</button>
+    <button class="tab" data-pane="d1"><span class="no">01</span>流动性实时监控</button>
+    <button class="tab" data-pane="d2"><span class="no">02</span>宏观状态识别</button>
+    <button class="tab" data-pane="d3"><span class="no">03</span>资产与加密联动</button>
+  </nav>
+</header>
+
+<main>
+  <!-- ══════════════════ 总览 ══════════════════ -->
+  <section class="pane active" id="pane-overview">
+    <div class="hero">
+      <div>
+        <h2>18 张图 · 3 张 Dashboard</h2>
+        <p>按《可视化分析报告》第八节组织。所有序列只读本地 ChronoForge 库，缺失项明确标注“数据待补充”，不做估算、不用占位数值。</p>
+        <div class="legend-inline">
+          <span><i style="background:var(--green)"></i>可画 15</span>
+          <span><i style="background:var(--yellow)"></i>部分可画 2</span>
+          <span><i style="background:var(--red)"></i>缺数据 1</span>
+          <span><i style="background:var(--blue)"></i>数据来源：canonical Parquet / QueryService / derived TGA</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="dash-grid">
+      <div class="dash-card" data-go="d1" data-anchor="c1">
+        <div class="dash-no">DASHBOARD 01 · 每日</div>
+        <h3>流动性实时监控</h3>
+        <p>准备金水位、周度变化、三池联动、瀑布分解、TGA 路径与利率走廊。</p>
+        <ul><li>准备金</li><li>TGA</li><li>ON RRP</li><li>走廊</li><li>SOFR 利差</li></ul>
+        <div class="count">7 张图 · 7 可画</div>
+      </div>
+      <div class="dash-card" data-go="d2" data-anchor="c8">
+        <div class="dash-no">DASHBOARD 02 · 每周</div>
+        <h3>宏观状态识别</h3>
+        <p>四变量标准化、状态匹配度、收益率来源拆分、曲线快照与小盘相对强弱。</p>
+        <ul><li>DXY</li><li>UST10Y</li><li>VIX</li><li>收益率曲线</li></ul>
+        <div class="count">5 张图 · 2 可画 · 3 部分</div>
+      </div>
+      <div class="dash-card" data-go="d3" data-anchor="c13">
+        <div class="dash-no">DASHBOARD 03 · 实时 + 周度</div>
+        <h3>资产与加密联动</h3>
+        <p>BTC × 准备金核心假设、敏感度热力图、滚动相关、三层框架，以及 2Y/EFFR 政策传导与 ETF 资金流。</p>
+        <ul><li>BTC</li><li>稳定币</li><li>ETF flow</li><li>资产敏感度</li></ul>
+        <div class="count">7 张图 · 6 可画 · 1 缺数据</div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>#</th><th>图表</th><th>所需序列 / 实体</th><th>本地数据与跨度</th><th>结论</th><th>缺失 / 口径说明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="mono">01</td><td>准备金趋势 + 水位阈值</td><td class="mono">WRESBAL</td><td class="mono">2002-12-18 → 2026-11-04 · 周频</td><td class="ok">可画</td><td class="small">水位线 3.0T / 3.2T；WRESBAL 真实非空起点 2002-12-18</td></tr>
+          <tr><td class="mono">02</td><td>准备金周变化 + 连续下跌</td><td class="mono">ΔWRESBAL</td><td class="mono">派生 · 截止 2026-11-04</td><td class="ok">可画</td><td class="small">Pattern 1/2：2 周 / 4 周</td></tr>
+          <tr><td class="mono">03</td><td>TGA / ON RRP / 准备金堆叠</td><td class="mono">WRESBAL · WTREGEN · RRPONTSYD</td><td class="mono">2003 → 2026-11-05</td><td class="ok">可画</td><td class="small">RRP 由十亿→百万换算</td></tr>
+          <tr><td class="mono">04</td><td>准备金变动瀑布</td><td class="mono">WALCL · WTREGEN · RRPONTSYD · WCURCIR</td><td class="mono">2002 → 2026-11-04</td><td class="ok">可画</td><td class="small">其他项 = 残差，包含未列示负债</td></tr>
+          <tr><td class="mono">05</td><td>TGA 日度 + 三情景预测</td><td class="mono">DTS OCB · tga_forecast · QRA</td><td class="mono">2005 → 2026-11-02；预测至 2027-02-04</td><td class="ok">可画</td><td class="small">QRA 假设 8500 亿 / 1 万亿</td></tr>
+          <tr><td class="mono">06</td><td>利率走廊实时位置</td><td class="mono">IORB · EFFR · SOFR · RRPONTSYAWARD</td><td class="mono">2021-07 → 2026-11-04</td><td class="ok">可画</td><td class="small">窗口受 IORB 起点限制</td></tr>
+          <tr><td class="mono">07</td><td>SRF 用量 + SOFR 利差</td><td class="mono">SRF_USAGE · SOFR−EFFR</td><td class="mono">SRF 2021-07-29 → 2026-11-06 · 日频；SOFR−EFFR 2019 →</td><td class="ok">可画</td><td class="small">SRF 为隔夜操作接受金额日汇总（NY Fed）</td></tr>
+          <tr><td class="mono">08</td><td>DXY × UST10Y × TLT × VIX</td><td class="mono">DX-Y.NYB · DGS10 · TLT · VIXCLS</td><td class="mono">TLT 2020-12 → 2026-11-04 · DGS10/VIX 1996 →</td><td class="ok">可画</td><td class="small">4/4 变量；TLT 为 ETF 价格，↑ = 长端利率下行</td></tr>
+          <tr><td class="mono">09</td><td>收益率来源拆分</td><td class="mono">DGS10 · DFII10 · T10YIE</td><td class="mono">1996 / 2003 → 2026-11-04</td><td class="part">部分</td><td class="small">期限溢价残差需 TLT</td></tr>
+          <tr><td class="mono">10</td><td>收益率曲线快照 / 动画</td><td class="mono">4W/6M/1Y/2Y/10Y/20Y/30Y + TIPS10</td><td class="mono">2019-01 → 2026-11-04 · 月度快照</td><td class="part">部分</td><td class="small">缺 DGS5，用 20Y 补位</td></tr>
+          <tr><td class="mono">11</td><td>资产敏感度热力图</td><td class="mono">知识库 KP_DXY_011–015</td><td class="mono">作者口径</td><td class="ok">可画</td><td class="small">历史回测缺罗素2000 / TLT</td></tr>
+          <tr><td class="mono">12</td><td>罗素2000 / 标普相对强弱</td><td class="mono">^RUT / IWM · ^GSPC</td><td class="mono">^RUT 2020-12 → 2026-11-04（指数 1987 起可用）</td><td class="ok">可画</td><td class="small">RUT/SPX 首日归一为 100；VIX 叠加</td></tr>
+          <tr><td class="mono">13</td><td>BTC + 准备金双轴</td><td class="mono">BTCUSDT · WRESBAL</td><td class="mono">2021-01 → 2026-11-05</td><td class="ok">可画</td><td class="small">BTC 对数坐标 · REL_011</td></tr>
+          <tr><td class="mono">14</td><td>BTC × 准备金滚动相关</td><td class="mono">派生 · 周频</td><td class="mono">13 / 26 周滚动</td><td class="ok">可画</td><td class="small">样本量有限，仅作观察</td></tr>
+          <tr><td class="mono">15</td><td>BTC 三层框架仪表盘</td><td class="mono">准备金 · 走廊 · SRF · DXY · 实际利率 · VIX · 稳定币 · ETF · BTC</td><td class="mono">SRF 2021-07-29 → 2026-11-06 · ETF flow 2024-01 →</td><td class="ok">可画</td><td class="small">10 项指标全部来自真实序列</td></tr>
+          <tr><td class="mono">16</td><td>准备金预测 fan chart</td><td class="mono">reserve-structural-0.1.1 · WRBWFRBL</td><td class="mono">2002-12-18 → 2026-11-04 · 周频</td><td class="ok">可画</td><td class="small">短期路径；增量仅 TGA；残差桶=其他资产；逐 horizon 边际 90% 带</td></tr>
+          <tr><td class="mono">17</td><td>2Y 美债 × EFFR × BTC 政策传导</td><td class="mono">DGS2 · EFFR · BTCUSDT</td><td class="mono">利率 2019-01 → 2026-11-04 · BTC 2021-01 →</td><td class="ok">可画</td><td class="small">DGS2−EFFR 利差下轨；|ΔEFFR|≥20bp 标注政策动作；BTC 前段不补齐</td></tr>
+          <tr><td class="mono">18</td><td>BTC × ETF 日净流入 / 累计净流入</td><td class="mono">BTCUSDT · sosovalue ETF 净流入</td><td class="mono">BTC 2021-01 → 2026-11-05 · ETF 2024-01-11 →</td><td class="ok">可画</td><td class="small">BTC 对数轴覆盖完整历史；ETF 未覆盖区间标「无数据」灰带，不补零；极端流入/流出日 5 天色带高亮</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-head">
+        <div>
+          <h3 class="card-title">数据口径与边界</h3>
+          <p class="card-src">只读本地库 · 不写 meta / data · 缺失不估算</p>
+        </div>
+      </div>
+      <div class="note" style="border-top:none;margin-top:0">
+        <b>读取方式：</b>OHLCV 直读 canonical parquet；NUMBER / FLOW 经只读 QueryService，按 <span class="mono">revision_time</span> 去重保留最新版本；TGA 日度与预测读取既有 <span class="mono">data/derived</span> 分区。<br>
+        <b>缺失清单：</b><span class="danger">DGS5</span>。页面只标注缺口，不提供替代序列。<br>
+        <b>刷新：</b>在仓库根目录执行 <span class="mono">bash visualization/refresh.sh</span>（重新导出 data.js 并打开本页）。
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ Dashboard 1 ══════════════════ -->
+  <section class="pane" id="pane-d1">
+    <div class="grid">
+      <div class="card span-2" id="c1">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title"><span class="num">01</span>银行准备金历史趋势与流动性水位</h3>
+            <p class="card-src">FRED WRESBAL · canonical NUMBER · 周频 · 截止 2026-11-04</p>
+          </div>
+          <span class="chip ok">可画</span>
+        </div>
+        <div class="chart tall" id="chart1"></div>
+        <div class="note">三条水位线来自报告 KP_FED_022：<b>紧张区 &lt; 3.0T</b>、<b>预警区 3.0–3.2T</b>、<b>充裕区 &gt; 3.2T</b>。竖线为报告中的历史案例月份，仅作事件标注，不参与计算。<br><span class="mono">WRESBAL</span> 真实非空起点为 <b>2002-12-18</b>（canonical 中 1996–2002 仅为空值行，不参与绘制）。</div>
+      </div>
+
+      <div class="card" id="c6">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title"><span class="num">06</span>利率走廊实时位置</h3>
+            <p class="card-src">IORB / EFFR / SOFR / RRPONTSYAWARD · FRED · 截止 2026-11-04</p>
+          </div>
+          <span class="chip ok">可画</span>
+        </div>
+        <div class="chart" id="chart6"></div>
+        <div class="note">正常关系：<b>ON RRP &lt; EFFR &lt; IORB</b>。当前 EFFR 3.88%，ON RRP 3.75%，IORB 3.90%。</div>
+      </div>
+
+      <div class="card" id="c7">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title"><span class="num">07</span>SOFR 利差 + SRF 用量</h3>
+            <p class="card-src">SOFR − EFFR · SRF 用量（NY Fed 隔夜操作日汇总）· 日频 · 截止 2026-11-06 / 11-04</p>
+          </div>
+          <span class="chip ok">可画</span>
+        </div>
+        <div class="chart" id="chart7"></div>
+        <div class="note">SRF 用量为 NY Fed Markets API 中隔夜回购操作的接受金额按日汇总（2021-07-29 首次操作起），左轴利差、右轴 SRF（十亿美元）。</div>
+      </div>
+
+      <div class="card span-2" id="c3">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title"><span class="num">03</span>TGA / ON RRP / 准备金 三池堆叠</h3>
+            <p class="card-src">WRESBAL · WTREGEN · RRPONTSYD · 周度对齐 · 截止 2026-11-04 / 11-05</p>
+          </div>
+          <span class="chip ok">可画</span>
+        </div>
+        <div class="chart tall" id="chart3"></div>
+        <div class="note">三者相加是报告所述“近似美联储负债端私人部门占用”的概念展示，并非严格会计恒等式；RRPONTSYD 原始单位为十亿美元，已换算为万亿美元。</div>
+      </div>
+
+      <div class="card" id="c4">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title"><span class="num">04</span>准备金变动完整分解（瀑布）</h3>
+            <p class="card-src">WALCL / WTREGEN / RRPONTSYD / WCURCIR · 周度 · 单位 $B</p>
+          </div>
+          <span class="chip ok">可画</span>
+        </div>
+        <div class="ctrl">
+          <select id="wfSelect"></select>
+          <span class="ctrl-meta">选择周度区间</span>
+        </div>
+        <div class="chart" id="chart4" style="height:300px"></div>
+        <div class="note">其他项 = ΔR − (ΔA − ΔTGA − ΔONRRP − ΔC)，包含数据源未单列的负债；不是估算值。</div>
+      </div>
+
+      <div class="card" id="c2">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title"><span class="num">02</span>准备金周变化 + 连续下跌周数</h3>
+            <p class="card-src">ΔWRESBAL · 周度一阶差分（派生）· 截止 2026-11-04</p>
+          </div>
+          <span class="chip ok">可画</span>
+        </div>
+        <div class="chart" id="chart2"></div>
+        <div class="note">绿柱=周度增加，红柱=周度减少；折线为连续下跌周数。虚线对应 Pattern 1（连续 2 周）与 Pattern 2（连续 4 周）触发线。</div>
+      </div>
+
+      <div class="card span-2" id="c5">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title"><span class="num">05</span>TGA 日度余额 + 三情景预测 + QRA 目标</h3>
+            <p class="card-src">DTS OCB（derived/tga_daily_balance）· tga_forecast run 2026-11-06 · QRA 2026-11-02</p>
+          </div>
+          <span class="chip ok">可画</span>
+        </div>
+        <div class="chart tall" id="chart5"></div>
+        <div class="note">预测为本地 <span class="mono">tga-forecast</span> 最新运行的三情景（基线 / 宽松 / 收紧），阴影为基线区间；横线为 QRA 公告的现金余额假设 <b>8500 亿 / 1 万亿</b>。历史值截止 2026-11-02。</div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ══════════════════ Dashboard 2 ══════════════════ -->
+  <section class="pane" id="pane-d2">
+    <div class="grid">
+      <div class="card span-2" id="c8">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title"><span class="num">08</span>DXY × UST10Y × TLT × VIX 标准化与状态匹配</h3>
+            <p class="card-src">DX-Y.NYB / DGS10 / TLT / VIXCLS · 日频 Z-Score · 4/4 变量 · 截止 2026-11-05 / 11-04</p>
+          </div>
+          <span class="chip ok">可画</span>
+        </div>
+        <div class="chart" id="chart8" style="height:340px"></div>
+        <div class="chart mini" id="chart8b"></div>
+        <div class="note"><b>4/4 变量</b>匹配（DXY / UST10Y / TLT / VIX，最近 20 个观测方向）。TLT 为 20+ 年美债 ETF 价格，价格上涨等价于长端利率下行；A–D 状态表已按 TLT 方向完整判定。</div>
+        <div class="table-wrap" style="margin-top:8px;border:none;background:transparent">
+          <table class="state-table" id="stateTable"></table>
+        </div>
+      </div>
+
+      <div class="card" id="c9">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title"><span class="num">09</span>收益率来源拆分</h3>
+            <p class="card-src">DGS10 / DFII10 / T10YIE · 日频 · 截止 2026-11-04</p>
+          </div>
+          <span class="chip partial">部分可画</span>
+        </div>
+        <div class="chart" id="chart9"></div>
+        <div class="note">名义 10Y = 实际利率（DFII10）+ 盈亏平衡通胀（DGS10−DFII10）。<span class="warn">期限溢价残差需 TLT，未估算</span>。</div>
+      </div>
+
+      <div class="card" id="c10">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title"><span class="num">10</span>收益率曲线快照 / 动画</h3>
+            <p class="card-src">4W / 6M / 1Y / 2Y / 10Y / 20Y / 30Y + TIPS10 · 月度快照 · 截止 2026-11-04</p>
+          </div>
+          <span class="chip partial">部分可画</span>
+        </div>
+        <div class="ctrl">
+          <select id="curveDate"></select>
+          <button class="btn play" id="curvePlay">播放</button>
+          <span class="ctrl-meta" id="curveMeta"></span>
+        </div>
+        <div class="chart" id="chart10" style="height:320px"></div>
+        <div class="note"><span class="warn">DGS5 缺失</span>，曲线用 20Y 补位；TIPS10 为独立散点。倒挂读数按 10Y − 2Y 计算。</div>
+      </div>
+
+      <div class="card span-2" id="c12">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title"><span class="num">12</span>罗素2000 / 标普500 相对强弱</h3>
+            <p class="card-src">^RUT × ^GSPC · 日频 · 首日归一 100 · VIX 叠加 · 截止 2026-11-04</p>
+          </div>
+          <span class="chip ok">可画</span>
+        </div>
+        <div class="chart" id="chart12" style="height:340px"></div>
+        <div class="note">比值为罗素 2000 收盘价 / 标普 500 收盘价，按首个共同交易日归一为 100；右轴叠加 VIX。数据直读 canonical OHLCV（<span class="mono">YAHOO:^RUT:SPOT</span> / <span class="mono">YAHOO:^GSPC:SPOT</span>），不做估算。</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ Dashboard 3 ══════════════════ -->
+  <section class="pane" id="pane-d3">
+    <div class="grid">
+      <div class="card span-2" id="c13">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title"><span class="num">13</span>BTC 价格 × 银行准备金（核心假设验证）</h3>
+            <p class="card-src">BTCUSDT 日线 · WRESBAL 周频 as-of 对齐 · 截止 2026-11-05 / 11-04</p>
+          </div>
+          <span class="chip ok">可画</span>
+        </div>
+        <div class="chart tall" id="chart13"></div>
+        <div class="note">BTC 对数坐标（左轴），准备金万亿美元（右轴）。竖线为报告中的案例月份，用于观察准备金顶/底与 BTC 顶/底的经验对应关系（REL_011，仍属假设）。</div>
+      </div>
+
+      <div class="card span-2" id="c14">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title"><span class="num">14</span>BTC × 准备金滚动相关</h3>
+            <p class="card-src">BTC 周收益率 × 准备金周变化 · 滚动 13 / 26 周</p>
+          </div>
+          <span class="chip ok">可画</span>
+        </div>
+        <div class="chart" id="chart14"></div>
+        <div class="note">相关性随时间变化，不代表因果关系；样本从 2021 年起，周频样本量有限。</div>
+      </div>
+
+      <div class="card span-2" id="c11">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title"><span class="num">11</span>资产敏感度热力图 × 四状态矩阵</h3>
+            <p class="card-src">知识库 KP_DXY_011–015（作者口径）· 历史回测缺罗素2000 / TLT</p>
+          </div>
+          <span class="chip ok">可画</span>
+        </div>
+        <div class="chart" id="chart11" style="height:360px"></div>
+        <div class="note">此表为知识库作者口径，<b>不是历史回测结果</b>。真实收益回测需罗素2000 与 TLT，当前缺失，因此未展示任何回测数值。</div>
+      </div>
+
+      <div class="card span-2" id="c15">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title"><span class="num">15</span>BTC 框架三层实时仪表盘</h3>
+            <p class="card-src">流动性层 / 传导层 / 加密层 · SRF 已接入 · 截止 2026-11-06</p>
+          </div>
+          <span class="chip ok">可画</span>
+        </div>
+        <div class="layers" id="framework"></div>
+        <div class="note">全部 10 项指标来自真实序列；SRF 用量为 NY Fed 隔夜回购操作接受金额日汇总，副标注 30 日峰值与数据截止日。</div>
+      </div>
+
+      <div class="card span-2" id="c16">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title"><span class="num">16</span>准备金预测路径 fan chart</h3>
+            <p class="card-src">reserve-structural-0.1.1 · 周频 h=1/2/4 周 · 周三水平口径 WRBWFRBL</p>
+          </div>
+          <span class="chip ok">可画</span>
+        </div>
+        <div class="chart tall" id="chart16"></div>
+        <div class="note">
+          <span id="rfStats"></span><br>
+          <span id="rfBench"></span><br>
+          模型定位：只回答<b>短期（1/2/4 周）准备金路径</b>，<b>不是</b>完整的逐项结构预测。增量来源是 <b>TGA 季节项</b>，其余科目按结构性持平处理。结构恒等式 R = WALCL − 资本 − 现金 − RRP − TGA − 其他负债；SOMA 证券、非 SOMA 资产、RRP（0 下限）、其他负债<b>持有不变</b>；仅 TGA 用<b>季节中位数</b>（同 ISO 周历史周变化，仅用 origin 之前数据）；流通中货币在 0.1.1 改为<b>持有不变</b>（0.1.0 季节项经消融证实为负增量）。<br>
+          残差桶：<b>其他资产</b>（WALCL − SOMA 证券 − 非 SOMA 已列示资产），当前约 63B，<b>不可拆项</b>，单独标注并持有不变。<br>
+          置信带：<b>逐 horizon 边际</b>口径——每个 h 单独取近 5 年外推残差的 5–95 分位，未做跨 horizon 同时覆盖校正（不能读作"三个 horizon 同时落入区间"的联合概率）；残差来自完整模型，<b>不是</b>只继承 TGA 模型误差；灰色虚线为 h=1 回测预测，与蓝线实际值事后对照。回测为扩张窗口，每个 origin 只用该时点之前的数据；canonical 单版本存储，回测为最终修订值口径（H.4.1 周频修订极少）。
+        </div>
+      </div>
+
+      <div class="card span-2" id="c17">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title"><span class="num">17</span>2Y 美债 × EFFR × BTC · 政策传导</h3>
+            <p class="card-src">DGS2 / EFFR 日频 · BTCUSDT 日线 · 政策动作标注 · 截止 2026-11-04 / 11-05</p>
+          </div>
+          <span class="chip ok">可画</span>
+        </div>
+        <div class="chart" id="chart17" style="height:400px"></div>
+        <div class="note" id="rate2yStats"></div>
+        <div class="note">上图：2Y 美债（白，左轴）、EFFR（蓝，左轴）、BTC（橙，右轴对数）。虚线为 EFFR 单日变动 ≥ 20bp 的政策动作（红=加息，绿=降息）。下图：DGS2−EFFR 利差。BTC 自 2021-01 才有数据，2021 年前不画、不补齐；概率列为启发式读数，不是市场定价。</div>
+      </div>
+
+      <div class="card span-2" id="c18">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title"><span class="num">18</span>BTC × ETF 日净流入 / 累计净流入</h3>
+            <p class="card-src">BTCUSDT 2021-01 → 2026-11-05 · sosovalue 美国 BTC 现货 ETF 日净流入 2024-01-11 → 2026-11-05</p>
+          </div>
+          <span class="chip ok">可画</span>
+        </div>
+        <div class="chart" id="chart18" style="height:480px"></div>
+        <div class="note" id="etfFlowStats"></div>
+        <div class="note">上：BTC 价格（对数轴，横轴从其完整历史 2021-01 起）；中：ETF 日净流入（绿正红负）；下：累计净流入。ETF 数据起点（2024-01-11）之前为灰色「无 ETF 净流入数据」区，柱与累计线均不画、不补零、不插值。极端日色带：黄 = 净流入 &gt; +$0.9B，红 = 净流出 &lt; −$0.6B，仅覆盖当日（单侧 0.5 天、合计 1 个交易日，像素下限 1px），边框不透明度 0.90 / 1px，填充不透明度黄 0.30、红 0.26；色带绘制在数据层之下（z=1），柱子为不透明实色（#22c55e / #ef4444），不遮挡相邻交易日的柱与线。</div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="foot">
+  ChronoForge · USD Liquidity visualization · 数据只读 · 缺失项不做估算 · ECharts 5.5.1 本地引入（vendor/echarts.min.js）
+</div>
+
+<script src="vendor/echarts.min.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
