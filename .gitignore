@@ -62,6 +62,10 @@ reports/
 visualization/data.js
 visualization/data.json
 
+# 知识库源数据：`data/` 规则本意是仓库根运行时数据，这里需显式放行
+!docs/USD_Liquidity/data/
+!docs/USD_Liquidity/data/*.json
+
 # 美元流动性知识库构建产物（scripts/build_knowledge_base.py 可再生）
 docs/USD_Liquidity/assets/js/data.js
 docs/USD_Liquidity/data/knowledge_points.json
