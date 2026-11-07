@@ -879,8 +879,22 @@ C_CUT = "#6bc0ff"
 C_NEUTRAL = "#8a9ab0"
 
 # 字体
-plt.rcParams["font.sans-serif"] = ["PingFang SC", "Heiti SC", "Hiragino Sans GB",
-                                    "Arial Unicode MS", "STHeiti"]
+# 探测可用中文字体：PingFang SC 仅到 Semibold(600)，无 Bold(700)，
+# 需用 fontweight=600 取代 "bold" 以避免 findfont 告警。
+_cjk_candidates = ["PingFang SC", "Heiti SC", "Songti SC",
+                   "Arial Unicode MS", "DejaVu Sans"]
+_chosen_font = "DejaVu Sans"
+for _fname in _cjk_candidates:
+    try:
+        matplotlib.font_manager.findfont(
+            matplotlib.font_manager.FontProperties(family=_fname),
+            fallback_to_default=False,
+        )
+        _chosen_font = _fname
+        break
+    except Exception:
+        continue
+plt.rcParams["font.family"] = _chosen_font
 plt.rcParams["axes.unicode_minus"] = False
 
 

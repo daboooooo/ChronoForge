@@ -245,9 +245,22 @@ def next_meeting_probabilities(frame: pd.DataFrame, moves: pd.DataFrame) -> dict
 
 # ── 绘图 ─────────────────────────────────────────────────────────────
 def plot(frame: pd.DataFrame, moves: pd.DataFrame, probs: dict, output: Path) -> None:
-    plt.rcParams["font.sans-serif"] = [
-        "PingFang SC", "Heiti SC", "Arial Unicode MS", "DejaVu Sans",
-    ]
+    # 探测可用中文字体：PingFang SC 仅到 Semibold(600)，无 Bold(700)，
+    # 故下文统一用 fontweight=600 取代 "bold"，避免 findfont 告警。
+    _cjk_candidates = ["PingFang SC", "Heiti SC", "Songti SC",
+                       "Arial Unicode MS", "DejaVu Sans"]
+    _chosen_font = "DejaVu Sans"
+    for _fname in _cjk_candidates:
+        try:
+            matplotlib.font_manager.findfont(
+                matplotlib.font_manager.FontProperties(family=_fname),
+                fallback_to_default=False,
+            )
+            _chosen_font = _fname
+            break
+        except Exception:
+            continue
+    plt.rcParams["font.family"] = _chosen_font
     plt.rcParams["axes.unicode_minus"] = False
 
     fig, (ax, axb) = plt.subplots(
@@ -293,16 +306,16 @@ def plot(frame: pd.DataFrame, moves: pd.DataFrame, probs: dict, output: Path) ->
     for col, color in (("dgs2", WHITE), ("effr", BLUE)):
         ax.annotate(f"{frame[col].iloc[-1]:.2f}%", xy=(last_d, frame[col].iloc[-1]),
                     xytext=(8, 0), textcoords="offset points", color=color,
-                    fontsize=11, va="center", fontweight="bold")
+                    fontsize=11, va="center", fontweight=600)
     ax2.annotate(f"${frame['btc'].iloc[-1]:,.0f}",
                  xy=(last_d, frame["btc"].iloc[-1]),
                  xytext=(8, 0), textcoords="offset points", color=ORANGE,
-                 fontsize=11, va="center", fontweight="bold")
+                 fontsize=11, va="center", fontweight=600)
 
     title = (f"下次议息概率  按兵不动 {probs['hold']:.0%} │ "
              f"加息 {probs['hike']:.0%} │ 降息 {probs['cut']:.0%}")
     ax.set_title("2年期美债收益率 vs 美联储隔夜利率 vs 比特币", color=TEXT,
-                 fontsize=15, pad=28, fontweight="bold")
+                 fontsize=15, pad=28, fontweight=600)
     ax.text(0.5, 1.02, title, transform=ax.transAxes, ha="center",
             color=TEXT, fontsize=11)
     ax.set_ylabel("利率 %", color=TEXT, fontsize=11)
