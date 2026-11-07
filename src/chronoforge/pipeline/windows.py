@@ -165,6 +165,14 @@ WINDOW_CONFIG: dict[str, dict[str, int | str]] = {
         "overlap_seconds": "full_window",
         "chunk_size_seconds": "full_window",
     },
+    # NY Fed（SOMA / SRF）：单请求全窗口，但保留 1 天回看。
+    # SRF 操作日晚间才定稿，且连接器按 release_time 跳过未公布行；
+    # 若 cursor 已越过操作日 00:00（次日凌晨的补跑），无回看会整段漏掉
+    # 前一日定稿值。1 天回看与 release_time 截断互补而不是互相抵消。
+    "nyfed_series": {
+        "overlap_seconds": 86400,
+        "chunk_size_seconds": "full_window",
+    },
     # SEC：filing-recent 增量
     "sec_submissions": {
         "overlap_seconds": 86400,
@@ -260,6 +268,9 @@ def _get_config(dataset_id: str) -> dict[str, int | str]:
         # （同 fred_series；API 仅回看最近 1 个月，全窗口重拉 +
         # natural key upsert 幂等收敛 T+1 结算修正）
         return WINDOW_CONFIG["fred_series"]
+    if dataset_id.startswith("nyfed_"):
+        # NY Fed Markets API（SOMA / SRF）：日期区间单请求全窗口 + 1 天回看
+        return WINDOW_CONFIG["nyfed_series"]
     if dataset_id.startswith("alternative_"):
         # Alternative.me F&G（alternative_fng_btc）：全窗口 diff
         # （limit=0 单请求全历史 + T+1 冻结行回退 1 天重采）

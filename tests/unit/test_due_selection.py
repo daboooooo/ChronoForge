@@ -160,6 +160,84 @@ class TestSelectDueDatasetsPublishAlignment:
         assert [d["dataset_id"] for d in due] == ["YAHOO:AAPL:OHLCV:1d"]
 
 
+class TestNyfedPublishAlignment:
+    """nyfed 发布时刻：SOMA 周四 23:00 UTC / SRF 操作日 22:00 UTC。
+
+    修复前 update_schedule 无 nyfed 条目 → 落到默认 16:00 UTC（北京次日
+    00:00），SOMA 周四 16:00–23:00 之间（源尚未发布）会被判定到期并抓取
+    上一周的旧快照，推进 last_success_time 后整周滞后一天；SRF 在 16:00
+    就会抓到操作尚未执行的占位行。两档发布时刻都必须按 dataset_id 生效。
+    """
+
+    def test_nyfed_source_fallback_is_2200_not_default_1600(self):
+        """未配置数据集级覆盖时，nyfed 源级回退 22:00 UTC（不是默认 16:00）。"""
+        last = datetime(2026, 9, 29, 15, 23)
+        assert _next_due_at(last, 86400, "nyfed") == datetime(2026, 9, 29, 22, 0)
+
+    def test_soma_same_day_before_release_waits_for_thursday_2300(self):
+        """SOMA 周频：周四 16:00 已跑过（发布前）→ 当天 23:00 再到期。"""
+        last = datetime(2026, 9, 24, 16, 0)  # 周四，SOMA 尚未发布
+        assert _next_due_at(last, 604800, "nyfed", "nyfed_soma_holdings") == datetime(
+            2026, 9, 24, 23, 0
+        )
+
+    def test_soma_after_release_rolls_to_next_thursday(self):
+        """SOMA 周频：上周四 23:30 已抓到 → 下周四 23:00。"""
+        last = datetime(2026, 9, 17, 23, 30)
+        assert _next_due_at(last, 604800, "nyfed", "nyfed_soma_holdings") == datetime(
+            2026, 9, 24, 23, 0
+        )
+
+    @pytest.mark.parametrize(
+        "last",
+        [datetime(2026, 9, 24, 23, 0), datetime(2026, 9, 24, 23, 30)],
+    )
+    def test_soma_at_or_after_release_rolls_to_next_week(self, last: datetime):
+        """发布时刻当刻及之后成功 → 下一个周四 23:00（同日对齐只补一次）。"""
+        assert _next_due_at(last, 604800, "nyfed", "nyfed_soma_holdings") == datetime(
+            2026, 10, 1, 23, 0
+        )
+
+    def test_srf_same_day_before_release_waits_for_2200(self):
+        """SRF 日频：15:23（操作已执行但未公布）→ 当天 22:00 才到期。"""
+        last = datetime(2026, 9, 29, 15, 23)
+        assert _next_due_at(last, 86400, "nyfed", "nyfed_repo_srf_usage") == datetime(
+            2026, 9, 29, 22, 0
+        )
+
+    def test_srf_after_release_rolls_to_next_day(self):
+        """SRF 日频：22:05 已抓到当日定稿值 → 次日 22:00。"""
+        last = datetime(2026, 9, 29, 22, 5)
+        assert _next_due_at(last, 86400, "nyfed", "nyfed_repo_srf_usage") == datetime(
+            2026, 9, 30, 22, 0
+        )
+
+    def test_soma_not_due_between_1600_and_2300(self):
+        """周四 20:00：默认 16:00 会误判到期，SOMA 23:00 语义应跳过。"""
+        due, skipped = select_due_datasets(
+            [_ds("nyfed_soma_holdings", "1W", "nyfed")],
+            {"nyfed_soma_holdings": "2026-09-17 23:30:00"},
+            now=datetime(2026, 9, 24, 20, 0),
+        )
+        assert due == []
+        assert skipped[0]["next_due_at"] == datetime(2026, 9, 24, 23, 0)
+
+    def test_srf_not_due_before_release_but_due_after(self):
+        """SRF 15:23 成功：21:30 未到期、22:10 到期（当日定稿值）。"""
+        datasets = [_ds("nyfed_repo_srf_usage", "1d", "nyfed")]
+        success = {"nyfed_repo_srf_usage": "2026-09-29 15:23:00"}
+        due, skipped = select_due_datasets(
+            datasets, success, now=datetime(2026, 9, 29, 21, 30)
+        )
+        assert due == []
+        assert skipped[0]["next_due_at"] == datetime(2026, 9, 29, 22, 0)
+
+        due_after, _ = select_due_datasets(
+            datasets, success, now=datetime(2026, 9, 29, 22, 10)
+        )
+        assert [d["dataset_id"] for d in due_after] == ["nyfed_repo_srf_usage"]
+
+
 class TestSelectDueDatasets:
     """到期划分主逻辑。"""
 

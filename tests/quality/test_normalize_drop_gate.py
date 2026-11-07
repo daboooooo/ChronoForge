@@ -164,4 +164,5 @@ def test_legit_skip_reasons_whitelist_is_locked() -> None:
         "duplicate_observation",
         "sve_test_operation",
         "non_overnight_operation",
+        "not_yet_published",
     })

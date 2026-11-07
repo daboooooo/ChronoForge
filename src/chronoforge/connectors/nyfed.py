@@ -27,8 +27,11 @@ SVE 不是真实 SRF 用量，必须按 note 排除；`operationId` 尾号不具
 
 时间语义：
 - observation_time = operationDate 00:00（操作日）
-- release_time = revision_time = 操作日 22:00（收盘后公布，固定值而非墙钟，
-  保证 full-window 重拉时同一观测只产生一个 revision）
+- release_time = revision_time = 操作日 22:00 UTC（操作 13:30 ET 执行、当晚公布；
+  固定值而非墙钟，保证 full-window 重拉时同一观测只产生一个 revision）
+- 早于该发布时刻抓取时，源可能返回尚未执行操作的行（totalAmtAccepted=0）。
+  这类行按 `not_yet_published` 跳过，不写 canonical；否则占位 0 会在 22:00
+  被当成已发布值，污染 PIT（H-N2）。
 - value 为源币种 USD 原值；单位标注 USD
 
 continuity_model: TRADING_CALENDAR（仅营业日有操作结果）。
@@ -71,9 +74,24 @@ _OLDEST_DATE = date(2021, 7, 29)  # SRF 首次操作日（FRED SRFTSYD 起点一
 _SOMA_OLDEST_DATE = date(2003, 7, 9)  # SOMA summary 实测最早快照
 _SERIES_ID = "srf_usage"
 _UNITS = "USD"
+# SRF 结果公布时刻：操作日 22:00 UTC（13:30 ET 执行、当晚公布）
+_SRF_RELEASE_HOUR_UTC = 22
 _SEASONAL_ADJUSTMENT = "NOT_SEASONALLY_ADJUSTED"
 # 真实响应中 SVE 测试操作的 note 标记（不区分大小写子串匹配）
 _SVE_MARKER = "small value exercise"
+
+
+def _utc_now() -> datetime:
+    """当前 UTC（naive）；独立成函数便于测试冻结时间。"""
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _srf_release_time(obs_date: date) -> datetime:
+    """SRF 操作日的发布时刻（固定值，保证重拉幂等）。"""
+    return datetime.combine(obs_date, datetime.min.time()).replace(
+        hour=_SRF_RELEASE_HOUR_UTC
+    )
+
 
 # SOMA summary JSON 字段 → canonical entity（9 个分项，USD 原值）
 _SOMA_FIELDS: dict[str, str] = {
@@ -349,7 +367,7 @@ class NYFedConnector(DataConnector):
         if not isinstance(rows, list):
             return []
 
-        now = datetime.now(UTC).replace(tzinfo=None)
+        now = _utc_now()
         by_date: dict[date, float] = {}
         skipped: dict[str, int] = {}
 
@@ -360,12 +378,18 @@ class NYFedConnector(DataConnector):
                 note_skip(outcome)
                 continue
             obs_date, amount = outcome
+            # 公布时刻之前源会返回"操作尚未执行"的行（totalAmtAccepted=0）。
+            # 不写占位 0：否则该行会在 22:00 被当成已发布值进入 PIT。
+            if _srf_release_time(obs_date) > now:
+                skipped["not_yet_published"] = skipped.get("not_yet_published", 0) + 1
+                note_skip("not_yet_published")
+                continue
             by_date[obs_date] = by_date.get(obs_date, 0.0) + amount
 
         records: list[BaseRecord] = []
         for obs_date in sorted(by_date):
             observation_time = datetime.combine(obs_date, datetime.min.time())
-            release_time = observation_time.replace(hour=22)  # 当日收盘后公布
+            release_time = _srf_release_time(obs_date)
             records.append(
                 NUMBER(
                     schema_version="1.0",
@@ -539,10 +563,11 @@ class NYFedConnector(DataConnector):
             rows = payload.get("repo", {}).get("operations")
             if not isinstance(rows, list):
                 return None
+            now = _utc_now()
             srf_dates: list[date] = []
             for row in rows:
                 outcome = _classify_srf_row(row)
-                if not isinstance(outcome, str):
+                if not isinstance(outcome, str) and _srf_release_time(outcome[0]) <= now:
                     srf_dates.append(outcome[0])
             return max(srf_dates).isoformat() if srf_dates else None
         if isinstance(raw, list):

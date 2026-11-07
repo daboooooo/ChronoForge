@@ -27,13 +27,13 @@
 
 ### 0.2 严重级别统计
 
-| 级别 | 本次新增 | 已修复（第 1–3 批） | 现存 | 合计 |
+| 级别 | 本次新增 | 已修复（第 1–4 批） | 现存 | 合计 |
 |---|---|---|---|---|
 | CRITICAL | 2（C-N1、C-N2） | 2（C-N1、C-N2） | **0** | 2 |
-| HIGH | 5 组（H-N1–H-N4、H-N5–H-N9） | 1 组（H-N3） | **4 组** | 5 组 |
+| HIGH | 5 组（H-N1–H-N4、H-N5–H-N9） | 2 组（H-N1、H-N3） | **3 组** | 5 组 |
 | MEDIUM | 10 | 0 | **10** | 10 |
 | LOW | 8 | 0 | **8** | 8 |
-| 合计 | — | 3 | **23 条 / 4 组** | 29 |
+| 合计 | — | 4 | **22 条 / 3 组** | 29 |
 
 > 编号规则：`*-N*` 表示本轮新增（N = new）；`C1/A-1/H1/M1` 等沿用上轮编号。
 > 修复状态以 §17「修复进度」为准（每批完成后更新）。
@@ -43,11 +43,11 @@
 | 门禁 | 结果 | 直接原因 |
 |---|---|---|
 | G1 静态质量 | ❌ 红 | `mypy src` 2 errors、`ruff check src` 1 error（均仍在 `nyfed.py`；第 5 批处理） |
-| G2 测试 | ❌ 红 | `3 failed, 2086 passed`：docs 一致性 1 条 + CLI 源数/源列表 2 条（第 2–3 批新增用例全绿） |
+| G2 测试 | ❌ 红 | `3 failed, 2106 passed`：docs 一致性 1 条 + CLI 源数/源列表 2 条（第 2–4 批新增用例全绿） |
 | G3 契约测试 | ✅ 绿（第 2 批关闭） | nyfed 已补真实形状 fixture + fetch→normalize 全链路 + 负向用例 |
 | G4 静默丢失 | ✅ 绿（第 2 批方案 B 关闭） | 行单位改为连接器声明，14 个连接器逐一覆盖；取消声明即拒绝执行；错误声明触发门禁；合法空批不误报 |
-| G5 约束核验 | ⚠️ 部分恢复 | 准备金 PIT 已在第 3 批修复并有回归测试（6 条）；发布时刻（H-N1）与区间口径（H-N4/M-N2）仍开放 |
-| G6 版本库 | ❌ 红 | 16 项工作区改动；`reserve_forecast.py`/PIT 测试/`visualization/`/`docs/USD_Liquidity/`/`register_nyfed_datasets.py` 未跟踪；领先 origin 54 个提交 |
+| G5 约束核验 | ⚠️ 部分恢复 | 准备金 PIT（H-N3，第 3 批，6 条回归）与发布时刻（H-N1，第 4 批：SOMA 23:00 / SRF 22:00 + 未公布行跳过）已修复；区间口径（H-N4/M-N2）仍开放 |
+| G6 版本库 | ❌ 红 | 19 项工作区改动；`register_nyfed_datasets.py`/`visualization/`/`docs/USD_Liquidity/` 未跟踪；领先 origin 55 个提交 |
 | G7 文档一致 | ❌ 红 | README `13 sources` vs 实际 14；新增连接器/模型/站点无有效文档；站点 README 仍写 16 张图、准备金"未实现" |
 
 ### 0.4 相对上一次审计的变化
@@ -66,7 +66,7 @@
 | G1/G2/G7 | 全绿 | nyfed + 文档漂移导致红 | **重新打开** |
 | G6 | 工作区干净 | 新一轮改动未提交、未推送 | **重新打开** |
 
-> **本轮新增项的修复状态**：C-N1、C-N2 均已修复（第 1–2 批）；全部 H/M/L 仍开放。详见 §17。
+> **本轮新增项的修复状态**：C-N1、C-N2 已修复（第 1–2 批）；H-N3（第 3 批）、H-N1（第 4 批）已修复；其余 H/M/L 仍开放。详见 §17。
 
 > 上轮报告自身还有一处内部数字不一致：§0.1/§1.6 写 `1972 passed`，§2.1 写 `1862 passed`，§2 写 `1770 passed`。本轮实测 1980 passed / 3 failed。作为文档瑕疵记为 L-N8，不影响代码结论。
 
@@ -411,7 +411,7 @@ assert _payload_units({"soma": {"summary": [{"asOfDate": "2026-11-04"}]}}) == 0
 
 ## 4. HIGH
 
-### H-N1. `nyfed` 没有发布时刻配置 → SOMA 恒定约 1 周滞后、SRF 约 1 天滞后 ✅ 已核实
+### H-N1. `nyfed` 没有发布时刻配置 → SOMA 恒定约 1 周滞后、SRF 约 1 天滞后 ✅ 已核实 → ✅ 已修复（2026-11-07 第 4 批）
 
 **位置**：[update_schedule.py#L24-L51](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/config/update_schedule.py#L24-L51)
 
@@ -439,9 +439,34 @@ uv run python -c "from chronoforge.config.update_schedule import publish_time_ut
 
 **判定**：HIGH（数据可用性/时效性约束违反，且会长期存在）。
 
+**修复（第 4 批）**：
+- `update_schedule` 改为两级发布时刻：新增 `DATASET_PUBLISH_TIME_UTC`，`publish_time_utc(source_id, dataset_id)` 先查 dataset 级、再查 source 级、最后落到默认 16:00。`nyfed` 源级回退 22:00；`nyfed_soma_holdings` 覆盖为 **周四 23:00 UTC**（北京周五 07:00），`nyfed_repo_srf_usage` 为 **操作日 22:00 UTC**（北京次日 06:00）。
+- `_next_due_at(last, cadence, source_id, dataset_id)` 透传 dataset_id；长周期（≥2 天）新增"同日发布时刻尚未过 → 先对齐当天发布时刻"，避免上周四抓取后因发布时刻改为 23:00 而整周漏取。
+- **各源实际触发时刻（UTC）**：SOMA 周四 23:00；SRF 每日 22:00；`nyfed` 未配置数据集 22:00；FRED 08:10；Binance 系列 00:00；Alternative/CoinMetrics/CoinMarketCap 00:10；Treasury DTS 21:00；Quarterly Refunding 15:15；其余默认 16:00。
+- **默认 16:00 的后果**：SOMA 周四 16:00–23:00 之间（源尚未发布）会被判定到期，抓到上一周三的旧快照并推进 `last_success_time`，下一轮要再等 7 天 → 恒定滞后一周；SRF 16:00 抓取时当日操作尚未发生，直接写入占位 0。
+
+**验证**（`tests/unit/test_due_selection.py::TestNyfedPublishAlignment` 8 条 + `tests/unit/test_update_schedule.py::TestDatasetPublishTime` 4 条）：
+
+```text
+# 修复前（stash 掉本批源码改动）
+FAILED ...test_nyfed_source_fallback_is_2200_not_default_1600
+  AssertionError: assert datetime.datetime(2026, 9, 29, 16, 0) == datetime.datetime(2026, 9, 29, 22, 0)
+FAILED ...test_soma_same_day_before_release_waits_for_thursday_2300
+  TypeError: _next_due_at() takes 3 positional arguments but 4 were given
+FAILED ...test_soma_not_due_between_1600_and_2300
+  AssertionError: assert [{'dataset_id': 'nyfed_soma_holdings', ...}] == []
+FAILED ...test_srf_not_due_before_release_but_due_after
+  AssertionError: assert [{'dataset_id': 'nyfed_repo_srf_usage', ...}] == []
+ERROR tests/unit/test_update_schedule.py
+  ImportError: cannot import name 'DATASET_PUBLISH_TIME_UTC'
+
+# 修复后
+158 passed（四文件定向：due_selection / windows / update_schedule / nyfed 集成）
+```
+
 ---
 
-### H-N2. SRF 在操作发生前把当日写为 0，并把 `release_time` 标为当日 22:00 ✅ 已核实
+### H-N2. SRF 在操作发生前把当日写为 0，并把 `release_time` 标为当日 22:00 ✅ 已核实 → ✅ 已修复（2026-11-07 第 4 批）
 
 **位置**：[nyfed.py#L313-L335](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/connectors/nyfed.py#L313-L335)
 
@@ -464,6 +489,34 @@ revision_time=release_time,
 **缓解**：`_get_config` 对 `nyfed_` 走 `full_window`（[windows.py#L263-L265](file:///Users/horsenli/Works/ChronoForge/src/chronoforge/pipeline/windows.py#L263-L265)），下一次成功运行会从 `job.start` 全窗口重拉并 upsert，通常会纠正前一日。因此这是**最终一致但存在窗口期**的问题，不是永久错误。
 
 **判定**：HIGH（发布前可见的错误占位 + 依赖后续重拉；调度中断即永久化）。
+
+**修复（第 4 批）**：
+- 连接器侧：`_srf_release_time(obs_date)` 固定为操作日 22:00 UTC（重拉幂等），`_utc_now()` 独立成函数便于冻结测试。`normalize` 对 `release_time > now` 的行按 `not_yet_published` 跳过——**不写占位 0**；`checkpoint_from` 同样只把已公布日期纳入 cursor，避免 cursor 越过尚未定稿的操作日。
+- 白名单：`LEGIT_SKIP_REASONS` 增加 `not_yet_published`（冻结集合，锁定测试同步）。
+- 窗口侧：`nyfed_` 前缀不再复用 `fred_series`（无回看），改为新配置 `nyfed_series`（1 天回看 + 单请求全窗口），与发布时刻截断**互补而非抵消**：回看只扩大请求窗口（`request.start.date()` 保证覆盖前一日操作日），是否入 canonical 仍由连接器 `release_time` 判定；若 cursor 已过操作日 00:00（次日凌晨补跑），无回看会漏掉前一日定稿值。
+- **SRF 在 TGA/准备金模型的可见时刻**：`AsOfFrame` 取 `max(observation_time, release_time, revision_time)`。SRF 观测日 T、发布 T 22:00 → 在 origin（周三 23:59:59）可见 T 日及以前的定稿值；修复前 16:00 调度写入的占位 0 也带 `release_time=T 22:00`，22:00 一过就被当成"已发布 0"，模型在周三 origin 读到错误的当日零值（真实用量需等重拉）。
+
+**验证**（`tests/integration/test_nyfed.py` 新增 4 条 + `tests/unit/test_windows.py` 新增 2 条）：
+
+```text
+# 修复前（stash 掉本批源码改动）
+FAILED test_srf_before_release_skips_unpublished_day
+  AttributeError: 'module' object at chronoforge.connectors.nyfed has no attribute '_utc_now'
+FAILED test_srf_before_release_checkpoint_stops_at_previous_day
+  AttributeError: ...
+FAILED test_srf_placeholder_zero_is_never_published
+  AttributeError: ...
+FAILED test_incremental_mode_creates_chunks[nyfed_series-86400-full_window]
+  ValueError: unknown dataset_id: 'nyfed_series'
+FAILED test_nyfed_full_window_with_one_day_lookback
+  ValueError: unknown dataset_id: 'nyfed_repo_srf_usage'
+（共 15 failed / 38 passed，含 due_selection 的 8 条）
+
+# 修复后
+158 passed（due_selection / windows / update_schedule / nyfed 集成 + 白名单锁）
+```
+
+> 修复后实测的可见时刻：冻结墙钟 2025-11-05 15:23 UTC 时，当日行全部跳过（含占位 0），只输出 2025-11-04（`release_time=2025-11-04 22:00`），`checkpoint_from` 停在 `2025-11-04`；冻结到 22:30 后当日行可见、`release_time` 仍为 22:00。
 
 ---
 
@@ -1159,9 +1212,9 @@ uv run python scripts/reserve_forecast.py check
 |---|---|---|---|
 | 第 1 批 | C-N1 SRF 口径 + 污染数据重采 | ✅ 完成（已提交 `4ab246a`） | G4 的 SRF 子项关闭 |
 | 第 2 批 | C-N2 nyfed 门禁 + 方案 B 行单位契约 + fixture + 注入验证 | ✅ 完成（已提交 `f688c3f`） | **G3 转绿；G4 转绿** |
-| 第 3 批 | H-N3 准备金 PIT | ✅ 完成（2026-11-07，未提交） | G5 部分恢复（PIT 子项关闭） |
-| 第 4 批 | H-N4 TGA 区间 + 图 5 轴 | 待开始 | G5 部分恢复 |
-| 第 5 批 | 失败用例 + mypy/ruff + 文档 | 待开始 | 预计 G1/G2/G7 可转绿 |
+| 第 3 批 | H-N3 准备金 PIT | ✅ 完成（已提交 `2499eca`） | G5 部分恢复（PIT 子项关闭） |
+| 第 4 批 | H-N1 发布时刻 + H-N2 SRF 未公布占位 + nyfed 窗口 | ✅ 完成（2026-11-07，未提交） | G5 部分恢复（发布时刻子项关闭） |
+| 第 5 批 | H-N4 TGA 区间 + 图 5 轴 + 失败用例 + mypy/ruff + 文档 | 待开始 | 预计 G1/G2/G7 可转绿 |
 
 ### 第 1 批改动清单（已提交 `4ab246a`）
 
@@ -1222,7 +1275,7 @@ uv run mypy src                                                                 
 
 3 条失败均为 docs/CLI 漂移（README `13 sources`、CLI `13 sources`、源列表缺 `nyfed`），属第 5 批范围；本批新增用例全绿。
 
-### 第 3 批改动清单（2026-11-07，未提交）
+### 第 3 批改动清单（2026-11-07，已提交 `2499eca`）
 
 | 文件/对象 | 类型 | 说明 |
 |---|---|---|
@@ -1249,6 +1302,42 @@ uv run python scripts/reserve_forecast.py check                   # PASS；asof=
 uv run python scripts/reserve_forecast.py run                     # fc=3 comp=24 eval=2109
 uv run python visualization/export_data.py                        # data.js 刷新
 ```
+
+### 第 4 批改动清单（2026-11-07，未提交）
+
+| 文件/对象 | 类型 | 说明 |
+|---|---|---|
+| `src/chronoforge/config/update_schedule.py` | 修改 | 新增 `DATASET_PUBLISH_TIME_UTC`（SOMA 23:00 / SRF 22:00）；`publish_time_utc(source_id, dataset_id)` 两级覆盖；`nyfed` 源级回退 22:00 |
+| `scripts/backfill_datasets.py` | 修改 | `_next_due_at` 接收 `dataset_id`；长周期新增"同日发布时刻未过先对齐当天"；调用处透传 dataset_id |
+| `src/chronoforge/connectors/nyfed.py` | 修改 | `_utc_now()` / `_srf_release_time()`；SRF 未公布行按 `not_yet_published` 跳过（不写占位 0）；`checkpoint_from` 只统计已公布日期 |
+| `src/chronoforge/connectors/normalize_stats.py` | 修改 | 白名单新增 `not_yet_published` |
+| `src/chronoforge/pipeline/windows.py` | 修改 | 新增 `nyfed_series`（1 天回看 + 单请求全窗口），`nyfed_` 前缀不再复用 `fred_series` |
+| `tests/unit/test_update_schedule.py` | 扩充 | `TestDatasetPublishTime` 4 条 + `nyfed` 北京时刻 |
+| `tests/unit/test_due_selection.py` | 扩充 | `TestNyfedPublishAlignment` 8 条（同日对齐/跨周/到期窗口） |
+| `tests/unit/test_windows.py` | 扩充 | `nyfed_series` 快照 + 1 天回看交互 1 条 |
+| `tests/integration/test_nyfed.py` | 扩充 | 4 条：冻结墙钟的未发布跳过 / checkpoint 不推进 / 22:00 后可见 / 纯占位 0 不产出 |
+| `tests/quality/test_normalize_drop_gate.py` | 修改 | 白名单锁同步 `not_yet_published` |
+| `docs/review/2026-11-07-full-audit.md` | 修改 | H-N1/H-N2 修复记录、§0 统计/门禁、本节 |
+
+**验证命令与结果**：
+
+```bash
+uv run --with pytest --with pytest-asyncio --with hypothesis \
+  python -m pytest tests/unit/test_due_selection.py tests/unit/test_windows.py \
+  tests/unit/test_update_schedule.py tests/integration/test_nyfed.py \
+  tests/quality/test_normalize_drop_gate.py -q               # 158 passed
+uv run --with pytest --with pytest-asyncio --with hypothesis python -m pytest -q
+                                                             # 3 failed, 2106 passed
+uv run ruff check src/chronoforge/config/update_schedule.py src/chronoforge/connectors/nyfed.py \
+  src/chronoforge/connectors/normalize_stats.py src/chronoforge/pipeline/windows.py \
+  scripts/backfill_datasets.py tests/unit/test_update_schedule.py \
+  tests/unit/test_due_selection.py tests/unit/test_windows.py \
+  tests/integration/test_nyfed.py                            # 2 errors（均为既有，第 5 批）
+```
+
+**修复前实测**：见 H-N1/H-N2 各条的"验证"块（stash 本批源码改动后 15 failed / 38 passed；`test_update_schedule.py` 因缺少新符号整体导入失败）。
+
+**3 条全量失败**均为第 5 批 docs/CLI 漂移，与本批无关：`test_readme_source_count_matches_default_sources`（README `13 sources`）、`test_sync_bootstraps_all_sources_idempotent`（CLI `13 sources`）、`test_list_sources_json`（源列表缺 `nyfed`）。
 
 ### G4 行单位覆盖表（✅ 17 个形状全部声明、15 个形状注入验证，第 2 批方案 B）
 

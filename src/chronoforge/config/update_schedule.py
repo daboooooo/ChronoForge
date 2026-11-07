@@ -26,6 +26,7 @@ from datetime import time
 #   ccxt            Binance 桥接源，同上
 #   Alternative/Coin Metrics/CoinMarketCap 日频值 00:00 UTC
 #                   滚动、次日冻结 → 00:10 UTC 采集（北京 08:10），对齐 T+1 结算
+#   NY Fed          SOMA 周四发布、SRF 操作日当晚公布 → 见 DATASET_PUBLISH_TIME_UTC
 SOURCE_PUBLISH_TIME_UTC: dict[str, tuple[int, int]] = {
     "fred": (8, 10),
     "binance_spot": (0, 0),
@@ -39,6 +40,20 @@ SOURCE_PUBLISH_TIME_UTC: dict[str, tuple[int, int]] = {
     "treasury_fiscal": (21, 0),
     # Quarterly Refunding：公告通常于再融资日（2/5/8/11 月初）约 10:15 ET 发布
     "treasury_refunding": (15, 15),
+    # NY Fed Markets API 源级回退：SRF 操作日 13:30 ET 执行、当晚公布。
+    # 具体数据集用 DATASET_PUBLISH_TIME_UTC 覆盖（SOMA 周四更晚）。
+    "nyfed": (22, 0),
+}
+
+# 数据集级发布时刻覆盖（dataset_id → (hour, minute) UTC），优先于 source 级。
+# 同一 source 下不同数据集的发布节奏不同时使用。
+DATASET_PUBLISH_TIME_UTC: dict[str, tuple[int, int]] = {
+    # SOMA：NY Fed 周四发布（约 16:00 ET = 20:00/21:00 UTC），与连接器
+    # release_time（周四 23:59:59）对齐，保守取 23:00 UTC（北京次日 07:00）。
+    "nyfed_soma_holdings": (23, 0),
+    # SRF：操作日 13:30 ET 执行、当晚公布；与连接器 release_time 22:00 UTC
+    # 对齐（北京次日 06:00）。早于该时刻抓取只会拿到未执行操作的占位 0。
+    "nyfed_repo_srf_usage": (22, 0),
 }
 
 # 未显式配置的数据源默认发布时刻（UTC）：北京时间 00:00 → 16:00 UTC
@@ -46,7 +61,13 @@ SOURCE_PUBLISH_TIME_UTC: dict[str, tuple[int, int]] = {
 DEFAULT_PUBLISH_TIME_UTC: tuple[int, int] = (16, 0)
 
 
-def publish_time_utc(source_id: str | None) -> time:
-    """返回 source_id 的日内发布时刻（UTC）；未配置的数据源取默认值。"""
-    hour, minute = SOURCE_PUBLISH_TIME_UTC.get(str(source_id or ""), DEFAULT_PUBLISH_TIME_UTC)
+def publish_time_utc(source_id: str | None, dataset_id: str | None = None) -> time:
+    """返回数据集的日内发布时刻（UTC）。
+
+    判定顺序：dataset_id 级覆盖 > source_id 级配置 > 默认值。
+    """
+    hour, minute = DATASET_PUBLISH_TIME_UTC.get(
+        str(dataset_id or ""),
+        SOURCE_PUBLISH_TIME_UTC.get(str(source_id or ""), DEFAULT_PUBLISH_TIME_UTC),
+    )
     return time(hour, minute)

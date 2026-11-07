@@ -248,18 +248,21 @@ def load_last_success_times(meta: Any) -> dict[str, str | None]:
     return {str(r[0]): (r[1] if r[1] else None) for r in rows}
 
 
-def _next_due_at(last: datetime, cadence: int, source_id: str | None) -> datetime:
+def _next_due_at(
+    last: datetime, cadence: int, source_id: str | None, dataset_id: str | None = None
+) -> datetime:
     """计算下次到期时刻（UTC）。
 
     - cadence < 1 天（1m/1h/4h 等）：对齐到以 UTC 00:00 为原点的周期网格，
       取严格晚于 last 的下一个网格点——1h 每小时整点、4h 每 4 小时
       （00/04/08/12/16/20 时）。若按"last + cadence"滚动，成功时刻会被
       上一轮的秒级耗时带偏，与整点调度错位后变成隔轮才触发；
-    - cadence ≥ 1 天（1d/1W/1M/1Q/1Y）：对齐到数据源发布时刻
-      （config.update_schedule，日频/长周期一律按发布时刻的时:分）。
+    - cadence ≥ 1 天（1d/1W/1M/1Q/1Y）：对齐到数据集发布时刻
+      （config.update_schedule，dataset_id 级覆盖优先于 source_id 级）。
       日频取"严格晚于 last 的下一个发布时刻"，故在发布时刻前抓取的轮次
-      当天仍会再抓一次，不会漏掉当日新数据；更长周期取 last 日期 + N 天
-      的发布时刻（N = 周期天数，30/91/365 为近似值）。
+      当天仍会再抓一次，不会漏掉当日新数据；更长周期同一天若发布时刻
+      仍在 last 之后（发布时刻调整、或当天早于发布时刻已跑过一次），
+      也先对齐到当天发布时刻，避免整周期漏取。
     """
     if cadence < _DAY_SECONDS:
         # 网格原点 = epoch 0 = UTC 00:00（本函数内 last 为 UTC naive）
@@ -267,13 +270,16 @@ def _next_due_at(last: datetime, cadence: int, source_id: str | None) -> datetim
         base = (secs_of_day // cadence + 1) * cadence
         day_start = last.replace(hour=0, minute=0, second=0, microsecond=0)
         return day_start + timedelta(seconds=base)
-    pub = publish_time_utc(source_id)
+    pub = publish_time_utc(source_id, dataset_id)
     days = cadence // _DAY_SECONDS
     if days <= 1:
         candidate = datetime.combine(last.date(), pub)
         if candidate <= last:
             candidate = datetime.combine(last.date() + timedelta(days=1), pub)
         return candidate
+    same_day = datetime.combine(last.date(), pub)
+    if same_day > last:
+        return same_day
     return datetime.combine(last.date() + timedelta(days=days), pub)
 
 
@@ -304,7 +310,7 @@ def select_due_datasets(
         if cadence is None or last is None:
             due.append(ds)
             continue
-        next_due = _next_due_at(last, cadence, ds.get("source_id"))
+        next_due = _next_due_at(last, cadence, ds.get("source_id"), ds.get("dataset_id"))
         if now >= next_due:
             due.append(ds)
         else:

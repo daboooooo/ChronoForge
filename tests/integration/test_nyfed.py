@@ -261,6 +261,82 @@ def test_soma_checkpoint_from_skips_rows_without_values() -> None:
     assert connector.checkpoint_from(raw) is None
 
 
+# ── 发布时刻（PIT）────────────────────────────────────────────────────
+
+
+def _freeze_now(monkeypatch: Any, now: datetime) -> None:
+    """冻结连接器墙钟（22:00 UTC 发布判定依赖它）。"""
+    monkeypatch.setattr("chronoforge.connectors.nyfed._utc_now", lambda: now)
+
+
+def test_srf_before_release_skips_unpublished_day(monkeypatch: Any) -> None:
+    """操作日 15:23 UTC（13:30 ET 已执行、尚未公布）→ 当日不产出记录。
+
+    修复前：占位 0 与真实金额都被写成 release_time=22:00 的可发布值，
+    22:00 一到即被视为已发布，污染 PIT（H-N2）。
+    """
+    _freeze_now(monkeypatch, datetime(2025, 11, 5, 15, 23))
+    token = begin_normalize()
+    records = _normalize(
+        [
+            # 当日：占位 0 + 真实 3M（均未公布）
+            _srf_operation("RP 110525 3", operation_date="2025-11-05", amount=3_000_000),
+            _srf_operation("RP 110525 0", operation_date="2025-11-05", amount=0),
+            # 前一日：已过发布时刻
+            _srf_operation("RP 110425 3", operation_date="2025-11-04", amount=5_000_000),
+        ]
+    )
+    skips = end_normalize(token)
+
+    assert [r.observation_time for r in records] == [datetime(2025, 11, 4)]
+    assert records[0].release_time == datetime(2025, 11, 4, 22, 0)
+    assert skips["not_yet_published"] == 2
+
+
+def test_srf_before_release_checkpoint_stops_at_previous_day(monkeypatch: Any) -> None:
+    """checkpoint_from 不得推进到尚未公布的日期（否则 cursor 越过定稿值）。"""
+    _freeze_now(monkeypatch, datetime(2025, 11, 5, 15, 23))
+    connector = NYFedConnector.__new__(NYFedConnector)
+    raw = _batch(
+        [
+            _srf_operation("RP 110525 3", operation_date="2025-11-05", amount=3_000_000),
+            _srf_operation("RP 110425 3", operation_date="2025-11-04", amount=5_000_000),
+        ]
+    )
+    assert connector.checkpoint_from(raw) == "2025-11-04"
+
+
+def test_srf_after_release_publishes_same_day(monkeypatch: Any) -> None:
+    """22:00 之后：当日定稿值可见，release_time 固定为 22:00（重拉幂等）。"""
+    _freeze_now(monkeypatch, datetime(2025, 11, 5, 22, 30))
+    token = begin_normalize()
+    records = _normalize(
+        [_srf_operation("RP 110525 3", operation_date="2025-11-05", amount=3_000_000)]
+    )
+    skips = end_normalize(token)
+    connector = NYFedConnector.__new__(NYFedConnector)
+    raw = _batch(
+        [_srf_operation("RP 110525 3", operation_date="2025-11-05", amount=3_000_000)]
+    )
+
+    assert len(records) == 1
+    assert records[0].release_time == datetime(2025, 11, 5, 22, 0)
+    assert records[0].revision_time == datetime(2025, 11, 5, 22, 0)
+    assert skips == {}
+    assert connector.checkpoint_from(raw) == "2025-11-05"
+
+
+def test_srf_placeholder_zero_is_never_published(monkeypatch: Any) -> None:
+    """纯占位 0 的当日（尚未公布）不得产出 0 记录（否则写死"零用量"）。"""
+    _freeze_now(monkeypatch, datetime(2025, 11, 5, 13, 30))
+    assert _normalize(
+        [_srf_operation("RP 110525 0", operation_date="2025-11-05", amount=0)]
+    ) == []
+    assert NYFedConnector.__new__(NYFedConnector).checkpoint_from(
+        _batch([_srf_operation("RP 110525 0", operation_date="2025-11-05", amount=0)])
+    ) is None
+
+
 # ── fetch → normalize 全链路（真实 fixture 形状） ────────────────────
 
 

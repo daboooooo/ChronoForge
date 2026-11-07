@@ -193,6 +193,8 @@ class TestSixDatasetsTwoModes:
         ("ccxt_trades", 60, 3600),
         ("ccxt_ticker", 0, 86400),
         ("fred_series", "full_window", "full_window"),
+        # NY Fed：单请求全窗口 + 1 天回看（SRF 操作日当晚才定稿）
+        ("nyfed_series", 86400, "full_window"),
         ("sec_submissions", 86400, "full_window"),
         ("yahoo_chart", 3600, 86400),
         # 用户自定义数据集（klines 语义）
@@ -333,6 +335,21 @@ class TestSixDatasetsTwoModes:
             job_inc, "2025-12-31T00:00:00", datetime(2026, 1, 15)
         )
         assert len(chunks_inc) == 1
+
+    def test_nyfed_full_window_with_one_day_lookback(self) -> None:
+        """nyfed：单请求全窗口 + 1 天回看，跨过操作日 00:00 的补跑仍覆盖前一日。
+
+        cursor = chunk end（运行时刻，如次日 02:00）；SRF 操作日当晚 22:00
+        才定稿，若此时才补跑而窗口从 cursor 起算，date-only 的 startDate
+        会漏掉前一日操作。1 天回看使 startDate 恒为前一日（与连接器
+        release_time 截断互补：回看只扩大请求窗口，不绕过发布时刻判断）。
+        """
+        job = AcquisitionJob(dataset_id="nyfed_repo_srf_usage", mode="incremental")
+        chunks = plan_chunks(job, "2026-01-16T02:00:00", datetime(2026, 1, 16, 2, 0))
+        assert len(chunks) == 1
+        assert chunks[0].start == datetime(2026, 1, 15, 2, 0)
+        # 连接器 fetch 以 request.start.date() 作为 startDate → 覆盖 01-15
+        assert chunks[0].request.start.date() == datetime(2026, 1, 15).date()
 
     def test_sec_full_window_no_split(self) -> None:
         """SEC filing-recent：全窗口不拆分。"""
