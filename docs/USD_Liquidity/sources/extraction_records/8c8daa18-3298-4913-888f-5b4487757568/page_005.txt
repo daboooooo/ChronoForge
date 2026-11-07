@@ -1,0 +1,24 @@
+        名称                        FRED ID
+        10-Year Zero Coupon Yield GS10ZC
+        30-Year Zero Coupon Yield GS30ZC
+
+
+       📊 补充总结：FRED 可获取的美国国债系列分类
+        类别                   代表ID（示例）              是否通胀调整   是否浮动   期限范围     可获取性
+        T-Bills              DTB3、DTB6、DTB1YR      ❌        ❌      ≤1年      ✅
+        T-Notes              DGS2–DGS10            ❌        ❌      2–10年    ✅
+        T-Bonds              DGS20、DGS30           ❌        ❌      20–30年   ✅
+        TIPS                 DFII5、DFII10、DFII30   ✅        ❌      5–30年    ✅
+                             GS1ZC、GS5ZC、
+        STRIPS
+                             GS10ZC、GS30ZC
+                                                   ❌        ❌      1–30年    ⚠️
+        FRNs                 —                     ❌        ✅      2年       ⚠️
+        SLGS / CMBs / Savings
+        Bonds
+                              —                    视情况      部分     不定期      ❌
+
+
+
+
+美国国债体系：T-Bills（国库券）、T-Notes（国库票据）、T-Bonds（国库长期债券）、TIPS（通胀保护证券）                     5

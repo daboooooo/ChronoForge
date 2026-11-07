@@ -1,0 +1,40 @@
+       💵
+       美国国债体系：T-Bills（国库券）、T-Notes
+       （国库票据）、T-Bonds（国库长期债券）、
+       TIPS（通胀保护证券）
+       你已经在进入美国国债体系的核心结构了——这四种工具是分析美国货币环境、收益率曲线（Yield Curve）、通胀预期
+       的基础。
+       下面我按类别系统讲解每一种证券的定义、期限、收益特征、在FRED中的可用性和获取方式。
+       🧾 一、T-Bills（Treasury Bills，国库券）
+       🔹定义：
+         期限最短（1年以内）的美国政府债务工具。
+         无票息（zero-coupon），按折价（discount）发行，到期以面值偿还。
+         收益来自「买入价与面值的差额」。
+       🔹常见期限： 4周、8周、13周、17周、26周、52周（约1个月到1年）。
+       🔹用途： 主要用于短期融资和货币市场投资，是流动性最强的政府证券。
+       🔹FRED数据可获取：
+        期限                Series ID         名称
+        4周                DTB4WK            4-Week Treasury Bill Secondary Market Rate, Discount Basis
+        3月                DTB3 / TB3MS      3-Month Treasury Bill Secondary Market Rate, Discount Basis
+        6月                DTB6              6-Month Treasury Bill Secondary Market Rate, Discount Basis
+        1年                DTB1YR            1-Year Treasury Bill Secondary Market Rate, Discount Basis
+       🔹获取方式：
+           在 FRED API 或网站查询：
+           👉 https://fred.stlouisfed.org/series/DTB3
+           API示例：
+
+         https://api.stlouisfed.org/fred/series/observations?series_id=DTB3&api_key=YOUR_KEY&file_type=json
+
+
+
+
+       🧾 二、T-Notes（Treasury Notes，国库票据）
+       🔹定义：
+         中期美国国债证券，期限1至10年。
+         有固定票息（coupon），每半年支付一次利息。
+         到期偿还本金。
+       🔹常见期限： 2年、3年、5年、7年、10年。
+       🔹用途： 是收益率曲线中部的重要组成，用于判断中期利率预期。
+       🔹FRED数据可获取（Constant Maturity Yield）：
+
+美国国债体系：T-Bills（国库券）、T-Notes（国库票据）、T-Bonds（国库长期债券）、TIPS（通胀保护证券）                                                1

@@ -1,0 +1,52 @@
+       银行融资成本（贷款、债券）
+         ↓
+       实体经济（消费、投资、通胀）
+
+
+
+
+      🏦 二、主要利率与机制
+      名称           全称                        角色定位                特征
+                   Interest on Reserve                           “无风险收益地板”，控
+      IORB
+                   Balances
+                                             银行在美联储的准备金利率        制上限
+                   Effective Federal Funds
+      EFFR / FFR
+                   Rate
+                                             银行间无担保隔夜拆借利率        美联储的政策利率目标
+      ON RRP       Overnight Reverse Repo
+                                             非银行机构（货币基金、GSE）把钱   市场利率下限
+                                             借给美联储的利率
+                   Secured Overnight
+      SOFR
+                   Financing Rate
+                                             以国债作抵押的回购市场利率       有抵押的短端市场基准
+      SRF          Standing Repo Facility
+                                             常备回购便利，银行向美联储借钱     稳定短端流动性
+                                             （抵押国债）
+      T-bill       Treasury Bill             美国财政部短期借债利率         政府短期融资成本基准
+
+      ⚙️ 三、利率走廊体系（Interest Rate Corridor System）
+      美联储通过设定三个关键利率，形成一个“走廊”：
+       上限：IORB ≈ 联邦基金目标区间上限【天花板】
+       中间：EFFR（市场形成，可能高于IORB）
+       下限：ON RRP 【地板】
+
+
+
+
+      ✅ 正常关系：
+       ON RRP < EFFR < IORB
+      运行机制：
+         若 EFFR > IORB → 银行套利，从美联储取出准备金，在联邦基金市场中借出资金 → EFFR 回落
+         若 EFFR < ON RRP → 资金流向美联储逆回购 → EFFR 上升
+      → 自动维持市场稳定。
+
+      ⚠️ 惩罚性:
+      上限代表着惩罚性，体现为：贴现窗口利率【惩罚银行】，常备回购便利利率【惩罚一级交易商】。
+      惩罚它们没有管理好自己的头寸，遇到危机时刻要敲美联储的大门。
+      💰 四、谁在联邦基金市场上借钱、为什么借？
+      主要参与者：
+
+美联储利率体系与货币政策传导机制                                                               2

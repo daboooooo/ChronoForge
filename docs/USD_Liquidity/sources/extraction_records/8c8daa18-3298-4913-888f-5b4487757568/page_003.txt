@@ -1,0 +1,58 @@
+        期限                Series ID         名称
+        10 年              DFII10            Market Yield on U.S. Treasury Inflation-Indexed Securities at 10-Year Constant Maturity
+        30 年              DFII30            Market Yield on U.S. Treasury Inflation-Indexed Securities at 30-Year Constant Maturity
+       🔹获取方式：
+         https://api.stlouisfed.org/fred/series/observations?series_id=DFII10&api_key=YOUR_KEY&file_type=json
+
+
+
+
+       📊 一览表（对比总览）
+        类别                中文名称              期限范围              是否付息              是否通胀调整            FRED示例ID       适用分析
+        T-Bills           国库券               ≤1年               否（贴现发行）           否                 DTB3, DTB6,    短期流动性、资
+                                                                                                  DTB1YR         金面
+        T-Notes           国库票据              2 – 10 年          是（半年）             否                 DGS2 – DGS10 中期利率预期
+
+        T-Bonds           国库长期债券            20 – 30 年         是（半年）             否                 DGS20, DGS30
+                                                                                                                 长期资金成本、
+                                                                                                                 期限溢价
+        TIPS              通胀保护证券            5 – 30 年          是（半年）             ✅是                DFII5 – DFII30
+                                                                                                                 实际收益、通胀
+                                                                                                                 预期
+
+
+       除了常见的 T-Bills（国库券）、T-Notes（中期票据）、T-Bonds（长期债券）、TIPS（通胀保护债券） 这“四大家族”
+       外，美国财政部（U.S. Treasury）还发行和管理若干特殊类型的国债证券（Treasury Securities）。这些在不同市场、
+       不同目的下使用，有些也能在 FRED 找到对应数据。
+       🇺🇸 美国国债的主要类型总览
+        类别                中文名称                            期限                付息方式         可从FRED获取                 用途/特征
+        T-Bills           国库券                             ≤1年               无息（贴现发行） ✅                            短期融资、货币市
+                                                                                                                  场
+        T-Notes           国库票据                            2–10 年            固定票息         ✅                        中期资金成本
+        T-Bonds           国库长期债券                          20–30 年           固定票息         ✅                        长期利率基准
+        TIPS              通胀保护债券                          5–30 年
+                                                                            固定票息、通胀调 ✅                            抵御通胀风险
+                                                                            整本金
+                          Floating Rate Notes（浮动利率                          利率随13周T-Bill ⚠️部分可查
+        FRNs                                              2年                                                      降低利率风险
+                          国债）                                               调整
+        SLGS
+                          State and Local Government
+                                                          1–30 年            固定或浮动   ❌                             供地方政府管理债
+                          Series                                                                                  务使用
+                          Cash Management Bills（现金                                                                临时融资（税收时
+        CMBs
+                      管理券）                                几天到几个月            无息、贴现发行 ⚠️不常公开                        差）
+        Savings Bonds 储蓄债券（EE、I系列）                        最长30年             固定/复利   ❌                             面向个人投资者，
+                                                                                                                  不可交易
+                          Separate Trading of
+        STRIPS
+                          Registered Interest and
+                          Principal of Securities（剥离
+                                                          2–30 年            无息（零息债券） ⚠️部分估值数据 将票息与本金分开
+                                                                                              交易
+                          债券）
+
+       🧾 各类特殊债券详细说明
+       1️⃣ FRNs — Floating Rate Notes（浮动利率国债）
+美国国债体系：T-Bills（国库券）、T-Notes（国库票据）、T-Bonds（国库长期债券）、TIPS（通胀保护证券）                                                                        3

@@ -1,0 +1,41 @@
+          首次发行：2014年起
+          期限：2年
+          每周根据**13周国库券收益率（DTB3）**调整利率
+          利率 = 指标利率 + 固定利差（spread）
+          对利率上升敏感度较低，因此在加息周期中较受欢迎
+       是否可从 FRED 获取：
+       FRED 未直接提供 FRN 收益率，但可通过美国财政部官网或 Bloomberg/Refinitiv 获取。
+       👉 官方说明：https://home.treasury.gov
+       2️⃣ SLGS — State and Local Government Series
+         面向地方政府（非公众）发行
+         用于地方债务再融资或投资超额资金
+         不在公开市场交易
+         通常具有与市场国债相似的利率结构，但不可转售
+       是否可从 FRED 获取： ❌ 否
+       3️⃣ CMBs — Cash Management Bills（现金管理券）
+          *短期（几天到几个月）**债务工具
+         与T-Bills类似，为应对财政收支短期缺口（如税收季节）发行
+         不定期发行，收益率略高于常规T-Bills
+         常用于临时性国库资金调度
+       是否可从 FRED 获取： ⚠️ 否，发行数据可在 TreasuryDirect 网站查看。
+       4️⃣ Savings Bonds — 储蓄债券（Series EE & I）
+         面向个人投资者（非机构）
+         EE系列：固定利率；I系列：与CPI通胀挂钩
+         持有期限最长30年
+         不可在二级市场交易
+       是否可从 FRED 获取： ❌ 否，但历史利率数据可从 Treasury.gov 获取。
+       5️⃣ STRIPS — 剥离国债（Zero-Coupon Treasury STRIPS）
+         将标准T-Notes/T-Bonds的**本金（principal）与每期利息（coupon）**剥离，单独作为零息债券交易。
+         提供多种期限（通常2–30年）
+         由于无票息，收益完全来自贴现价格与到期偿付的差额。
+         常被机构用于匹配长期负债（如养老金）。
+       是否可从 FRED 获取：
+       部分可通过 FRED 的“Zero Coupon Yield Curve”获取：
+        名称                         FRED ID
+        1-Year Zero Coupon Yield   GS1ZC
+        5-Year Zero Coupon Yield   GS5ZC
+
+
+
+
+美国国债体系：T-Bills（国库券）、T-Notes（国库票据）、T-Bonds（国库长期债券）、TIPS（通胀保护证券）             4

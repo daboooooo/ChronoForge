@@ -66,6 +66,14 @@ visualization/data.json
 !docs/USD_Liquidity/data/
 !docs/USD_Liquidity/data/*.json
 
+# 知识库溯源文本：`*.txt` 规则针对运行时数据，逐页提取记录是知识库的分层溯源证据，
+# 必须随库发布（不依赖 `git add -f`，否则新增页面文本会被静默挡掉）
+!docs/USD_Liquidity/sources/extraction_records/**/*.txt
+
+# 知识库报告：全局 `reports/` 规则针对运行时生成物，这里是随库发布的报告快照
+!docs/USD_Liquidity/reports/
+!docs/USD_Liquidity/reports/*.md
+
 # 美元流动性知识库构建产物（scripts/build_knowledge_base.py 可再生）
 docs/USD_Liquidity/assets/js/data.js
 docs/USD_Liquidity/data/knowledge_points.json

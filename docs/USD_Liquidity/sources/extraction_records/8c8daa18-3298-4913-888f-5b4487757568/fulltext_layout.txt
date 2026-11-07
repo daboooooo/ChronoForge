@@ -1,0 +1,213 @@
+       💵
+       美国国债体系：T-Bills（国库券）、T-Notes
+       （国库票据）、T-Bonds（国库长期债券）、
+       TIPS（通胀保护证券）
+       你已经在进入美国国债体系的核心结构了——这四种工具是分析美国货币环境、收益率曲线（Yield Curve）、通胀预期
+       的基础。
+       下面我按类别系统讲解每一种证券的定义、期限、收益特征、在FRED中的可用性和获取方式。
+       🧾 一、T-Bills（Treasury Bills，国库券）
+       🔹定义：
+         期限最短（1年以内）的美国政府债务工具。
+         无票息（zero-coupon），按折价（discount）发行，到期以面值偿还。
+         收益来自「买入价与面值的差额」。
+       🔹常见期限： 4周、8周、13周、17周、26周、52周（约1个月到1年）。
+       🔹用途： 主要用于短期融资和货币市场投资，是流动性最强的政府证券。
+       🔹FRED数据可获取：
+        期限                Series ID         名称
+        4周                DTB4WK            4-Week Treasury Bill Secondary Market Rate, Discount Basis
+        3月                DTB3 / TB3MS      3-Month Treasury Bill Secondary Market Rate, Discount Basis
+        6月                DTB6              6-Month Treasury Bill Secondary Market Rate, Discount Basis
+        1年                DTB1YR            1-Year Treasury Bill Secondary Market Rate, Discount Basis
+       🔹获取方式：
+           在 FRED API 或网站查询：
+           👉 https://fred.stlouisfed.org/series/DTB3
+           API示例：
+
+         https://api.stlouisfed.org/fred/series/observations?series_id=DTB3&api_key=YOUR_KEY&file_type=json
+
+
+
+
+       🧾 二、T-Notes（Treasury Notes，国库票据）
+       🔹定义：
+         中期美国国债证券，期限1至10年。
+         有固定票息（coupon），每半年支付一次利息。
+         到期偿还本金。
+       🔹常见期限： 2年、3年、5年、7年、10年。
+       🔹用途： 是收益率曲线中部的重要组成，用于判断中期利率预期。
+       🔹FRED数据可获取（Constant Maturity Yield）：
+
+美国国债体系：T-Bills（国库券）、T-Notes（国库票据）、T-Bonds（国库长期债券）、TIPS（通胀保护证券）                                                1
+        期限                Series ID         名称
+        2年                DGS2              Market Yield on U.S. Treasury Securities at 2-Year Constant Maturity
+        3年                DGS3              Market Yield on U.S. Treasury Securities at 3-Year Constant Maturity
+        5年                DGS5              Market Yield on U.S. Treasury Securities at 5-Year Constant Maturity
+        7年                DGS7              Market Yield on U.S. Treasury Securities at 7-Year Constant Maturity
+        10 年              DGS10             Market Yield on U.S. Treasury Securities at 10-Year Constant Maturity
+       🔹获取方式：
+         https://api.stlouisfed.org/fred/series/observations?series_id=DGS10&api_key=YOUR_KEY&file_type=json
+
+
+
+
+       🧾 三、T-Bonds（Treasury Bonds，长期国债）
+       🔹定义：
+         长期国债，期限10年以上（一般20年或30年）。
+         与T-Notes类似，半年付息，到期还本。
+         对利率变动最敏感，常被视为长期资金成本基准。
+       🔹常见期限： 20年、30年。
+       🔹用途： 衡量长期利率、长期通胀预期、资产定价基准。
+       🔹FRED数据可获取：
+        期限                Series ID         名称
+        20 年              DGS20             Market Yield on U.S. Treasury Securities at 20-Year Constant Maturity
+        30 年              DGS30             Market Yield on U.S. Treasury Securities at 30-Year Constant Maturity
+       🔹获取方式：
+         https://api.stlouisfed.org/fred/series/observations?series_id=DGS30&api_key=YOUR_KEY&file_type=json
+
+
+
+
+       🧾 四、TIPS（Treasury Inflation-Protected Securities，通胀保护证券）
+       🔹定义：
+         一种与通胀挂钩的国债，本金会随CPI调整。
+         每半年支付利息（coupon基于调整后的本金）。
+         可抵御通胀风险，实际收益更稳定。
+       🔹常见期限： 5年、10年、30年。
+       🔹用途： 衡量通胀预期；计算“同期国债名义收益率 − 同期TIPS收益率 = 平衡通胀率（breakeven inflation rate，平
+       衡通胀率）”。
+        平衡通胀率的意义：反映了市场对未来通胀的预期。如果盈亏平衡通胀率上升，意味着市场预期通胀会走高；反之，
+        如果下降，则意味着市场预期通胀会走低。
+        平衡通胀率的可靠性: 由于它是市场参与者（投资者）通过买卖债券直接定价的指标，因此被认为是比调查统计更可
+        靠的通胀预期衡量方式
+       🔹FRED数据可获取：
+        期限                Series ID         名称
+        5年                DFII5             Market Yield on U.S. Treasury Inflation-Indexed Securities at 5-Year Constant Maturity
+
+
+
+
+美国国债体系：T-Bills（国库券）、T-Notes（国库票据）、T-Bonds（国库长期债券）、TIPS（通胀保护证券）                                                                       2
+        期限                Series ID         名称
+        10 年              DFII10            Market Yield on U.S. Treasury Inflation-Indexed Securities at 10-Year Constant Maturity
+        30 年              DFII30            Market Yield on U.S. Treasury Inflation-Indexed Securities at 30-Year Constant Maturity
+       🔹获取方式：
+         https://api.stlouisfed.org/fred/series/observations?series_id=DFII10&api_key=YOUR_KEY&file_type=json
+
+
+
+
+       📊 一览表（对比总览）
+        类别                中文名称              期限范围              是否付息              是否通胀调整            FRED示例ID       适用分析
+        T-Bills           国库券               ≤1年               否（贴现发行）           否                 DTB3, DTB6,    短期流动性、资
+                                                                                                  DTB1YR         金面
+        T-Notes           国库票据              2 – 10 年          是（半年）             否                 DGS2 – DGS10 中期利率预期
+
+        T-Bonds           国库长期债券            20 – 30 年         是（半年）             否                 DGS20, DGS30
+                                                                                                                 长期资金成本、
+                                                                                                                 期限溢价
+        TIPS              通胀保护证券            5 – 30 年          是（半年）             ✅是                DFII5 – DFII30
+                                                                                                                 实际收益、通胀
+                                                                                                                 预期
+
+
+       除了常见的 T-Bills（国库券）、T-Notes（中期票据）、T-Bonds（长期债券）、TIPS（通胀保护债券） 这“四大家族”
+       外，美国财政部（U.S. Treasury）还发行和管理若干特殊类型的国债证券（Treasury Securities）。这些在不同市场、
+       不同目的下使用，有些也能在 FRED 找到对应数据。
+       🇺🇸 美国国债的主要类型总览
+        类别                中文名称                            期限                付息方式         可从FRED获取                 用途/特征
+        T-Bills           国库券                             ≤1年               无息（贴现发行） ✅                            短期融资、货币市
+                                                                                                                  场
+        T-Notes           国库票据                            2–10 年            固定票息         ✅                        中期资金成本
+        T-Bonds           国库长期债券                          20–30 年           固定票息         ✅                        长期利率基准
+        TIPS              通胀保护债券                          5–30 年
+                                                                            固定票息、通胀调 ✅                            抵御通胀风险
+                                                                            整本金
+                          Floating Rate Notes（浮动利率                          利率随13周T-Bill ⚠️部分可查
+        FRNs                                              2年                                                      降低利率风险
+                          国债）                                               调整
+        SLGS
+                          State and Local Government
+                                                          1–30 年            固定或浮动   ❌                             供地方政府管理债
+                          Series                                                                                  务使用
+                          Cash Management Bills（现金                                                                临时融资（税收时
+        CMBs
+                      管理券）                                几天到几个月            无息、贴现发行 ⚠️不常公开                        差）
+        Savings Bonds 储蓄债券（EE、I系列）                        最长30年             固定/复利   ❌                             面向个人投资者，
+                                                                                                                  不可交易
+                          Separate Trading of
+        STRIPS
+                          Registered Interest and
+                          Principal of Securities（剥离
+                                                          2–30 年            无息（零息债券） ⚠️部分估值数据 将票息与本金分开
+                                                                                              交易
+                          债券）
+
+       🧾 各类特殊债券详细说明
+       1️⃣ FRNs — Floating Rate Notes（浮动利率国债）
+美国国债体系：T-Bills（国库券）、T-Notes（国库票据）、T-Bonds（国库长期债券）、TIPS（通胀保护证券）                                                                        3
+          首次发行：2014年起
+          期限：2年
+          每周根据**13周国库券收益率（DTB3）**调整利率
+          利率 = 指标利率 + 固定利差（spread）
+          对利率上升敏感度较低，因此在加息周期中较受欢迎
+       是否可从 FRED 获取：
+       FRED 未直接提供 FRN 收益率，但可通过美国财政部官网或 Bloomberg/Refinitiv 获取。
+       👉 官方说明：https://home.treasury.gov
+       2️⃣ SLGS — State and Local Government Series
+         面向地方政府（非公众）发行
+         用于地方债务再融资或投资超额资金
+         不在公开市场交易
+         通常具有与市场国债相似的利率结构，但不可转售
+       是否可从 FRED 获取： ❌ 否
+       3️⃣ CMBs — Cash Management Bills（现金管理券）
+          *短期（几天到几个月）**债务工具
+         与T-Bills类似，为应对财政收支短期缺口（如税收季节）发行
+         不定期发行，收益率略高于常规T-Bills
+         常用于临时性国库资金调度
+       是否可从 FRED 获取： ⚠️ 否，发行数据可在 TreasuryDirect 网站查看。
+       4️⃣ Savings Bonds — 储蓄债券（Series EE & I）
+         面向个人投资者（非机构）
+         EE系列：固定利率；I系列：与CPI通胀挂钩
+         持有期限最长30年
+         不可在二级市场交易
+       是否可从 FRED 获取： ❌ 否，但历史利率数据可从 Treasury.gov 获取。
+       5️⃣ STRIPS — 剥离国债（Zero-Coupon Treasury STRIPS）
+         将标准T-Notes/T-Bonds的**本金（principal）与每期利息（coupon）**剥离，单独作为零息债券交易。
+         提供多种期限（通常2–30年）
+         由于无票息，收益完全来自贴现价格与到期偿付的差额。
+         常被机构用于匹配长期负债（如养老金）。
+       是否可从 FRED 获取：
+       部分可通过 FRED 的“Zero Coupon Yield Curve”获取：
+        名称                         FRED ID
+        1-Year Zero Coupon Yield   GS1ZC
+        5-Year Zero Coupon Yield   GS5ZC
+
+
+
+
+美国国债体系：T-Bills（国库券）、T-Notes（国库票据）、T-Bonds（国库长期债券）、TIPS（通胀保护证券）             4
+        名称                        FRED ID
+        10-Year Zero Coupon Yield GS10ZC
+        30-Year Zero Coupon Yield GS30ZC
+
+
+       📊 补充总结：FRED 可获取的美国国债系列分类
+        类别                   代表ID（示例）              是否通胀调整   是否浮动   期限范围     可获取性
+        T-Bills              DTB3、DTB6、DTB1YR      ❌        ❌      ≤1年      ✅
+        T-Notes              DGS2–DGS10            ❌        ❌      2–10年    ✅
+        T-Bonds              DGS20、DGS30           ❌        ❌      20–30年   ✅
+        TIPS                 DFII5、DFII10、DFII30   ✅        ❌      5–30年    ✅
+                             GS1ZC、GS5ZC、
+        STRIPS
+                             GS10ZC、GS30ZC
+                                                   ❌        ❌      1–30年    ⚠️
+        FRNs                 —                     ❌        ✅      2年       ⚠️
+        SLGS / CMBs / Savings
+        Bonds
+                              —                    视情况      部分     不定期      ❌
+
+
+
+
+美国国债体系：T-Bills（国库券）、T-Notes（国库票据）、T-Bonds（国库长期债券）、TIPS（通胀保护证券）                     5
+

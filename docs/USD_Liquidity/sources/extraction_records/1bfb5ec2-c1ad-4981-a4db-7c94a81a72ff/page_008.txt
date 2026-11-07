@@ -1,0 +1,32 @@
+         Public Debt Transactions：公共债务发行、偿还等交易。
+         Tax receipts、refunds：观察税收流入和退税流出。
+      DTS 通常在下一个工作日下午发布。
+      B. Quarterly Refunding 与 Treasury Auction Results
+      官方入口： ⁠美国财政部融资公告
+      重点收集：
+          Bills、Notes、Bonds、TIPS、FRNs 的发行安排。
+          每次拍卖的发行金额、结算日和到期偿还额。
+          现金管理券（Cash Management Bills，CMBs）的临时融资安排。
+          季度再融资声明中的未来季度净融资预测。
+          财政部对季度末 TGA 余额的估计。
+      注意：拍卖公告金额不是准备金的直接变动额，必须转换为结算日现金流。
+      C. Monthly Treasury Statement（MTS）
+      官方入口： ⁠Receipts &amp; Outlays
+      重点收集：
+          月度财政收入、支出和赤字。
+          利息支出、社保等大额支出的周期。
+          月度融资与现金余额变化。
+      MTS 用来建立财政收支的基线模型，而不是替代日频 DTS。
+
+      2. FRED：追踪准备金及美联储其他负债
+      官方入口： ⁠FRED
+      以下是建议优先纳入的序列。
+       FRED 代码       指标                   频率              模型用途
+       WRESBAL       银行准备金余额              周               预测目标
+       WTREGEN       TGA 余额               周               校验财政部现金流预测
+                     国内隔夜逆回购操作余           日               识别 TGA 融资对准备金的抵
+       RRPONTSYD
+                     额                                    消程度
+
+
+美国财政部TGA账户对美联储准备金余额的影响与预判方法                                                 8

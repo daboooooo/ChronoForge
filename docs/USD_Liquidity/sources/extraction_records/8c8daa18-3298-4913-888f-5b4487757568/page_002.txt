@@ -1,0 +1,49 @@
+        期限                Series ID         名称
+        2年                DGS2              Market Yield on U.S. Treasury Securities at 2-Year Constant Maturity
+        3年                DGS3              Market Yield on U.S. Treasury Securities at 3-Year Constant Maturity
+        5年                DGS5              Market Yield on U.S. Treasury Securities at 5-Year Constant Maturity
+        7年                DGS7              Market Yield on U.S. Treasury Securities at 7-Year Constant Maturity
+        10 年              DGS10             Market Yield on U.S. Treasury Securities at 10-Year Constant Maturity
+       🔹获取方式：
+         https://api.stlouisfed.org/fred/series/observations?series_id=DGS10&api_key=YOUR_KEY&file_type=json
+
+
+
+
+       🧾 三、T-Bonds（Treasury Bonds，长期国债）
+       🔹定义：
+         长期国债，期限10年以上（一般20年或30年）。
+         与T-Notes类似，半年付息，到期还本。
+         对利率变动最敏感，常被视为长期资金成本基准。
+       🔹常见期限： 20年、30年。
+       🔹用途： 衡量长期利率、长期通胀预期、资产定价基准。
+       🔹FRED数据可获取：
+        期限                Series ID         名称
+        20 年              DGS20             Market Yield on U.S. Treasury Securities at 20-Year Constant Maturity
+        30 年              DGS30             Market Yield on U.S. Treasury Securities at 30-Year Constant Maturity
+       🔹获取方式：
+         https://api.stlouisfed.org/fred/series/observations?series_id=DGS30&api_key=YOUR_KEY&file_type=json
+
+
+
+
+       🧾 四、TIPS（Treasury Inflation-Protected Securities，通胀保护证券）
+       🔹定义：
+         一种与通胀挂钩的国债，本金会随CPI调整。
+         每半年支付利息（coupon基于调整后的本金）。
+         可抵御通胀风险，实际收益更稳定。
+       🔹常见期限： 5年、10年、30年。
+       🔹用途： 衡量通胀预期；计算“同期国债名义收益率 − 同期TIPS收益率 = 平衡通胀率（breakeven inflation rate，平
+       衡通胀率）”。
+        平衡通胀率的意义：反映了市场对未来通胀的预期。如果盈亏平衡通胀率上升，意味着市场预期通胀会走高；反之，
+        如果下降，则意味着市场预期通胀会走低。
+        平衡通胀率的可靠性: 由于它是市场参与者（投资者）通过买卖债券直接定价的指标，因此被认为是比调查统计更可
+        靠的通胀预期衡量方式
+       🔹FRED数据可获取：
+        期限                Series ID         名称
+        5年                DFII5             Market Yield on U.S. Treasury Inflation-Indexed Securities at 5-Year Constant Maturity
+
+
+
+
+美国国债体系：T-Bills（国库券）、T-Notes（国库票据）、T-Bonds（国库长期债券）、TIPS（通胀保护证券）                                                                       2
