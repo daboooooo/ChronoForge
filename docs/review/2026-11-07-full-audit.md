@@ -23,17 +23,17 @@
 
 1. ~~**SRF 口径把美联储的 SVE 测试操作当成真实用量写入 canonical**（C-N1）。~~ **已修复（2026-11-07 第 1 批）**：按 `note` 排除 SVE，4 条测试先红后绿，重采 2021-07-29 至今，11 个被污染日期全部纠正（2025-11-05 → 3M，2026-05-27 → 11M）。
 2. ~~**C1/A-8 门禁对 `nyfed` 完全失效**（C-N2）。~~ **已修复（2026-11-07 第 2 批，方案 B）**：删除 runner 的 `_payload_units` 形状猜测，改为连接器契约 `DataConnector.row_units(raw)`；未声明即拒绝执行（不降级为 0）。14 个连接器逐个声明行单位，含 deribit chart（`result.ticks`）、coinmarketcap（`data.quotes`）、yahoo（`chart.result[0].timestamp`）、sec_edgar（`filings.recent` 列式 / `facts` 四层嵌套）。nyfed 同时补齐 `note_skip`（合法/非法分离）与 `checkpoint_from` 对齐。注入验证覆盖全部连接器：取消声明 / 错误行数均触发 `QualityError` 且 checkpoint 不推进，合法空批不误报。
-3. **准备金模型的"PIT 截断"只截 observation_time，不截 release_time**（H-N3）；**TGA 区间发散是算法性的**（H-N4），并被图 5 的硬编码 y 轴裁切掩盖。
+3. ~~**准备金模型的"PIT 截断"只截 observation_time，不截 release_time**（H-N3）。~~ **已修复（2026-11-07 第 3 批）**：`AsOfFrame` 按 `max(observation_time, release_time, revision_time)` 截断；origin 周三收盘只看到上周三观测，FRED `release_time` 与 SOMA `revision_time` 两条链路都参与判断；回测同步按该时点截断，naive 基准也只用最近可知值。模型升级为 `reserve-structural-0.1.2`，回测数字如实变差（同一 703 个 origin：h=1 全样本 MAE 56,089 → 79,597，+41.9%；h=2 +12.8%；h=4 +14.0%）；对 naive / seasonal naive 仍全部显著，currency 消融的显著 horizon 由 h=2 移到 h=1。**TGA 区间发散是算法性的**（H-N4），并被图 5 的硬编码 y 轴裁切掩盖。
 
 ### 0.2 严重级别统计
 
-| 级别 | 本次新增 | 已修复（第 1–2 批） | 现存 | 合计 |
+| 级别 | 本次新增 | 已修复（第 1–3 批） | 现存 | 合计 |
 |---|---|---|---|---|
 | CRITICAL | 2（C-N1、C-N2） | 2（C-N1、C-N2） | **0** | 2 |
-| HIGH | 5 组（H-N1–H-N4、H-N5–H-N9） | 0 | **5 组** | 5 组 |
+| HIGH | 5 组（H-N1–H-N4、H-N5–H-N9） | 1 组（H-N3） | **4 组** | 5 组 |
 | MEDIUM | 10 | 0 | **10** | 10 |
 | LOW | 8 | 0 | **8** | 8 |
-| 合计 | — | 2 | **24 条 / 5 组** | 29 |
+| 合计 | — | 3 | **23 条 / 4 组** | 29 |
 
 > 编号规则：`*-N*` 表示本轮新增（N = new）；`C1/A-1/H1/M1` 等沿用上轮编号。
 > 修复状态以 §17「修复进度」为准（每批完成后更新）。
@@ -43,11 +43,11 @@
 | 门禁 | 结果 | 直接原因 |
 |---|---|---|
 | G1 静态质量 | ❌ 红 | `mypy src` 2 errors、`ruff check src` 1 error（均仍在 `nyfed.py`；第 5 批处理） |
-| G2 测试 | ❌ 红 | `3 failed, 2080 passed`：docs 一致性 1 条 + CLI 源数/源列表 2 条（第 2 批新增用例全绿） |
+| G2 测试 | ❌ 红 | `3 failed, 2086 passed`：docs 一致性 1 条 + CLI 源数/源列表 2 条（第 2–3 批新增用例全绿） |
 | G3 契约测试 | ✅ 绿（第 2 批关闭） | nyfed 已补真实形状 fixture + fetch→normalize 全链路 + 负向用例 |
 | G4 静默丢失 | ✅ 绿（第 2 批方案 B 关闭） | 行单位改为连接器声明，14 个连接器逐一覆盖；取消声明即拒绝执行；错误声明触发门禁；合法空批不误报 |
-| G5 约束核验 | ⚠️ 部分失效 | PIT、发布时刻、区间口径三条硬约束在新增代码上无三方证据 |
-| G6 版本库 | ❌ 红 | 15 个工作区改动 + `nyfed.py`/`reserve_forecast.py`/`visualization/`/`docs/USD_Liquidity/` 全部未跟踪；落后 origin 52 个提交 |
+| G5 约束核验 | ⚠️ 部分恢复 | 准备金 PIT 已在第 3 批修复并有回归测试（6 条）；发布时刻（H-N1）与区间口径（H-N4/M-N2）仍开放 |
+| G6 版本库 | ❌ 红 | 16 项工作区改动；`reserve_forecast.py`/PIT 测试/`visualization/`/`docs/USD_Liquidity/`/`register_nyfed_datasets.py` 未跟踪；领先 origin 54 个提交 |
 | G7 文档一致 | ❌ 红 | README `13 sources` vs 实际 14；新增连接器/模型/站点无有效文档；站点 README 仍写 16 张图、准备金"未实现" |
 
 ### 0.4 相对上一次审计的变化
@@ -467,7 +467,7 @@ revision_time=release_time,
 
 ---
 
-### H-N3. 准备金模型 PIT 只截 `observation_time`，origin 周三使用周四才发布的 H.4.1/SOMA ✅ 已核实
+### H-N3. 准备金模型 PIT 只截 `observation_time`，origin 周三使用周四才发布的 H.4.1/SOMA ✅ 已核实 → ✅ 已修复（2026-11-07 第 3 批）
 
 **位置**：
 - [reserve_forecast.py#L118-L128](file:///Users/horsenli/Works/ChronoForge/scripts/reserve_forecast.py#L118-L128)（只 select `observation_time`/`value`）
@@ -509,6 +509,53 @@ PY
 ```
 
 **判定**：HIGH。PIT 是本项目的核心不变量；文档（`index.html:359`）明确声称"每个 origin 只用该时点之前的数据"，与实现不符。
+
+**修复（第 3 批）**：
+
+- `scripts/reserve_forecast.py` 引入 `AsOfFrame`（`values` + `available`）。每个观测的可得时刻 = `max(observation_time, release_time, revision_time)`；FRED 的 `release_time` 与 SOMA 的 `revision_time` 两条链路都参与截断。
+- `AsOfFrame.history(as_of)` 是唯一取数入口：把 `available > as_of` 的单元格置空后前向填充，得到"该时点最近已知值"；预测与回测都只走这条路径。
+- origin 定义为周三收盘（`_asof_cutoff = 周三 23:59:59`）。H.4.1/SOMA 的当周观测在周四 23:59:59 才可得，因此被排除；`naive` 基准同样只能用上周三的可知值。
+- 缺口周补齐：anchor（上周三）到 origin（本周三）之间漏掉的一周，也按季节中位变化补齐，避免预测水平系统性缺失一周季节项。
+- 模型版本 `reserve-structural-0.1.1 → 0.1.2`；`config_hash` 显式记录 `pit.truncate_by=[release_time, revision_time]`。
+- **不做任何归档回退**：ALFRED 对 H.4.1 的 vintage 归档起点是 2013-04-18，早于此的观测是批量回填，无法重建首次发布值；严格 PIT 下回测 origin 只能从 2013-04-18 之后开始（`_VINTAGE_ARCHIVE_FLOOR`）。曾尝试"滞后 >14 天按发布节奏回退"，但 `WCICL` 有 645 行真实的批量晚修订（如 2013-07-18），回退会偷看修订，MAE 反而从 60,891 涨到 85,995/101,322，已删除。
+- **TCCF 单项**：`H41RESH4ENWW` 的 vintage 归档从 2020-05-14 才开始，严格截断会让 2013–2020 的 origin 因 `other_liabilities` 不可得而整行失效。该科目 2002–2019 实测恒为 0，故对取值为 0 的行按"观测日即已知 0"处理（常数假设，不引入未来 vintage），回测样本恢复到 703 个 origin。
+- **仅此一处需要修**：`tga_forecast.py` / `tga_backtest.py` 已按 `release_time` 做 cutoff；`tga_reconstruct.py` 是历史重建、`plot_*` / `visualization/export_data.py` 是展示，均无 origin 截断语义。SOMA 不参与建模，只在 `check` 交叉校验，但其 `revision_time` 已进入 `AsOfFrame` 并在 `check` 输出"该时点最近可知观测"（`soma_latest_known_observation`）。
+- `benchmark_summary` 的所有对照与消融改为在同一批有效预测行上比较（此前 model 与 naive 可能落在不同子样本上）。
+
+**修复前 vs 修复后（USD 百万；同一 origin 子样本，全样本 n=703，近 5 年 n=258/259/261）**
+
+"修复前"按旧口径在同一批 origin 上复算：`hist = df[df.index <= origin]`（只用观测日截断，origin 当周值直接进入），naive = origin 当周值。旧 0.1.1 原生全样本（n=1138，2003 起）作为参考。
+
+| h | 口径 | 修复前 MAE / RMSE | 修复后 MAE / RMSE | 变化 |
+|---|---|---|---:|---:|
+| 1 | 近5年 | 59,561.8 / 83,654.7 | 81,024.2 / 110,141.8 | +36.0% / +31.7% |
+| 1 | 全样本 | 56,089.4 / 82,205.8 | 79,596.9 / 113,520.8 | +41.9% / +38.1% |
+| 2 | 近5年 | 80,842.0 / 109,949.1 | 92,083.3 / 123,177.6 | +13.9% / +12.0% |
+| 2 | 全样本 | 79,719.8 / 113,581.3 | 89,894.9 / 132,533.5 | +12.8% / +16.7% |
+| 4 | 近5年 | 95,533.0 / 126,851.8 | 106,391.9 / 141,948.2 | +11.4% / +11.9% |
+| 4 | 全样本 | 98,397.3 / 149,106.3 | 112,138.2 / 171,555.0 | +14.0% / +15.1% |
+
+参考（旧 0.1.1 原生全样本 n=1138）：h=1 `44,289.6 / 68,756.4`；h=2 `60,925.1 / 94,351.9`；h=4 `76,745.9 / 125,221.8`。两端样本不同，不与上表直接相减。
+
+- **H-N3 的代价主要在 h=1**：修复后 origin 只能锚定上周三，target 距锚点 2 周，而修复前实际只隔 1 周。h=1 全样本 MAE +41.9%，h=2 +12.8%，h=4 +14.0%。
+- 对 **naive** 仍全部显著（Bonferroni m=3）：h=1 `stat=-6.621, p_bonf=0.0`；h=2 `-5.722, 0.0`；h=4 `-3.987, 0.0003`。修复前为 `-7.889 / -6.650 / -4.402`，显著性结论不变，但优势幅度收窄。
+- 对 **seasonal naive** 仍全部显著：`-9.468 / -9.352 / -9.067`，`p_bonf=0.0`（修复前 `-9.940 / -9.447 / -9.277`）。
+- 对 **0.1.0（currency 消融）**：h=1 由不显著转为显著（`p_bonf=0.2958 → 0.0288`）；h=2 由显著转为不显著（`0.0342 → 0.4347`）；h=4 仍不显著（`0.4746 → 0.486`）。**结论变化**：currency 季节项"去掉更好"的统计支撑从 h=2 移到 h=1，h=2 不再能断言，h=4 一直不能断言。
+- **TGA 增量**（naive MAE − 模型 MAE，近5年/全样本）：h=1 `5,880.3 → 9,216.7 / 3,815.7 → 5,750.1`；h=2 `9,253.3 → 10,013.5 / 5,787.2 → 6,277.9`；h=4 `9,704.8 → 10,439.5 / 5,921.0 → 6,131.5`。TGA 季节项仍是唯一有效增量，PIT 后增量更大。
+- **currency 增量**（0.1.0 − 0.1.2 MAE）：h=1 `142.0 → 373.1 / 164.4 → 485.7`；h=2 `376.0 → 372.5 / 478.6 → 374.5`；h=4 `781.7 → 938.5 / 487.2 → 560.9`。h=2 的增量小幅下降，与 DM 由显著转不显著一致。
+- 误差带同步变宽：h=1 近5年 `[-118,767, +107,937] → [-170,649, +137,839]`，偏差 `-2,950.1 → -5,903.6`（PIT 后模型更偏低，因为锚定在上周三、而准备金近期上行）。
+
+**预测点（origin 2026-11-04，周三收盘）**：
+
+| h | target | 修复前 | 修复后 | 差异 |
+|---|---|---|---:|---:|
+| 1 | 2026-11-11 | 2,962,804 | 2,902,147 | -60,657 |
+| 2 | 2026-11-18 | 2,963,425 | 2,902,768 | -60,657 |
+| 4 | 2026-12-02 | 2,963,749 | 2,903,092 | -60,657 |
+
+修复前的 `origin_reserve` 是周三当周值 2,962,804（周四才发布，属前视）；修复后为 2026-10-28 的 2,895,236。差异 = 锚点水平 -67,568 + TGA 季节项 +6,911。**可视化**：`visualization/export_data.py` 已重新导出（`data.js`，`model_version=0.1.2`），基准文案不再写死 `0.1.1`。图 16 由 `data.js` 驱动、重新导出即刷新；同时把扇图起点改为 origin 之前最近可知的观测（2026-10-28，2,895,236），不再用周三当周已发布值作锚点，从而消除 -60.7B 的伪跳变。实际值曲线仍保留 2026-11-04 的 2,962,804（周四发布后的事实），它与扇图起点之间有约 67.6B 的缺口，这是发布时滞的真实体现。
+
+**验证**：新增 `tests/unit/test_reserve_forecast_pit.py` 6 条（当周排除、污染不生效、revision 延后排除、回测锚点/target、release+revision 取最大、晚修订不做归档回退）；全量 `3 failed, 2086 passed`（3 条仍为第 5 批文档/CLI 范围）；`ruff check scripts/reserve_forecast.py tests/unit/test_reserve_forecast_pit.py` 通过。
 
 ---
 
@@ -1111,8 +1158,8 @@ uv run python scripts/reserve_forecast.py check
 | 批次 | 范围 | 状态 | 门禁影响 |
 |---|---|---|---|
 | 第 1 批 | C-N1 SRF 口径 + 污染数据重采 | ✅ 完成（已提交 `4ab246a`） | G4 的 SRF 子项关闭 |
-| 第 2 批 | C-N2 nyfed 门禁 + 方案 B 行单位契约 + fixture + 注入验证 | ✅ 完成（2026-11-07，未提交） | **G3 转绿；G4 转绿** |
-| 第 3 批 | H-N3 准备金 PIT | 待开始 | G5 部分恢复 |
+| 第 2 批 | C-N2 nyfed 门禁 + 方案 B 行单位契约 + fixture + 注入验证 | ✅ 完成（已提交 `f688c3f`） | **G3 转绿；G4 转绿** |
+| 第 3 批 | H-N3 准备金 PIT | ✅ 完成（2026-11-07，未提交） | G5 部分恢复（PIT 子项关闭） |
 | 第 4 批 | H-N4 TGA 区间 + 图 5 轴 | 待开始 | G5 部分恢复 |
 | 第 5 批 | 失败用例 + mypy/ruff + 文档 | 待开始 | 预计 G1/G2/G7 可转绿 |
 
@@ -1140,7 +1187,7 @@ uv run --with pytest --with pytest-asyncio --with hypothesis \
 
 **未做**：未推送；未删除 `docs/USD_Liquidity/reports/quality_report.md`。
 
-### 第 2 批改动清单（2026-11-07，未提交）
+### 第 2 批改动清单（2026-11-07，已提交 `f688c3f`）
 
 | 文件/对象 | 类型 | 说明 |
 |---|---|---|
@@ -1174,6 +1221,34 @@ uv run mypy src                                                                 
 ```
 
 3 条失败均为 docs/CLI 漂移（README `13 sources`、CLI `13 sources`、源列表缺 `nyfed`），属第 5 批范围；本批新增用例全绿。
+
+### 第 3 批改动清单（2026-11-07，未提交）
+
+| 文件/对象 | 类型 | 说明 |
+|---|---|---|
+| `scripts/reserve_forecast.py` | 修改（此前未跟踪） | `AsOfFrame`（values + available）、`_availability`、`_asof_cutoff`；预测与回测共用 PIT 历史；补缺口周；TCCF 归档起点按 0 处理；版本 `0.1.2`；新增 seasonal-naive DM 与 currency 消融输出；benchmark 统一有效子样本 |
+| `tests/unit/test_reserve_forecast_pit.py` | **新增** | 6 条：当周排除、污染不生效、revision 延后排除、回测锚点/target、release+revision 取最大、晚修订不做归档回退 |
+| `data/derived/reserve_forecast` | 重写 | 3 行，`model_version=reserve-structural-0.1.2`，`origin_reserve` 改为最近可知值 |
+| `data/derived/reserve_forecast_components` | 重写 | 24 行 |
+| `data/derived/reserve_forecast_eval` | 重写 | `2013-04-24` 起 703 origins × 3 horizons = 2109 行，新增 `anchor_date`、seasonal-naive DM 列 |
+| `visualization/data.js` / `data.json` | 重新导出 | `model_version=0.1.2`，图 16 数据已刷新 |
+| `docs/review/2026-11-07-full-audit.md` | 修改 | H-N3 修复记录、§0 统计/门禁、本节 |
+
+**验证命令与结果**：
+
+```bash
+uv run --with pytest --with pytest-asyncio --with hypothesis \
+  python -m pytest tests/unit/test_reserve_forecast_pit.py -q    # 6 passed
+uv run --with pytest --with pytest-asyncio --with hypothesis python -m pytest -q
+                                                                  # 3 failed, 2086 passed
+uv run ruff check scripts/reserve_forecast.py tests/unit/test_reserve_forecast_pit.py
+                                                                  # All checks passed
+uv run ruff check src                                             # 1 error（nyfed E501，第 5 批）
+uv run mypy src                                                   # 2 errors（nyfed，第 5 批）
+uv run python scripts/reserve_forecast.py check                   # PASS；asof=周三，最新可知=上周三
+uv run python scripts/reserve_forecast.py run                     # fc=3 comp=24 eval=2109
+uv run python visualization/export_data.py                        # data.js 刷新
+```
 
 ### G4 行单位覆盖表（✅ 17 个形状全部声明、15 个形状注入验证，第 2 批方案 B）
 
