@@ -113,7 +113,7 @@
           <tr><td class="mono">13</td><td>BTC + 准备金双轴</td><td class="mono">BTCUSDT · WRESBAL</td><td class="mono">2021-01 → 2026-11-05</td><td class="ok">可画</td><td class="small">BTC 对数坐标 · REL_011</td></tr>
           <tr><td class="mono">14</td><td>BTC × 准备金滚动相关</td><td class="mono">派生 · 周频</td><td class="mono">13 / 26 周滚动</td><td class="ok">可画</td><td class="small">样本量有限，仅作观察</td></tr>
           <tr><td class="mono">15</td><td>BTC 三层框架仪表盘</td><td class="mono">准备金 · 走廊 · SRF · DXY · 实际利率 · VIX · 稳定币 · ETF · BTC</td><td class="mono">SRF 2021-07-29 → 2026-11-06 · ETF flow 2024-01 →</td><td class="ok">可画</td><td class="small">10 项指标全部来自真实序列</td></tr>
-          <tr><td class="mono">16</td><td>准备金预测 fan chart</td><td class="mono">reserve-structural-0.1.1 · WRBWFRBL</td><td class="mono">2002-12-18 → 2026-11-04 · 周频</td><td class="ok">可画</td><td class="small">短期路径；增量仅 TGA；残差桶=其他资产；逐 horizon 边际 90% 带</td></tr>
+          <tr><td class="mono">16</td><td>准备金预测 fan chart</td><td class="mono">reserve-structural-0.1.2 · WRBWFRBL</td><td class="mono">2002-12-18 → 2026-11-04 · 周频</td><td class="ok">可画</td><td class="small">短期路径；增量仅 TGA；残差桶=其他资产；逐 horizon 边际 90% 带</td></tr>
           <tr><td class="mono">17</td><td>2Y 美债 × EFFR × BTC 政策传导</td><td class="mono">DGS2 · EFFR · BTCUSDT</td><td class="mono">利率 2019-01 → 2026-11-04 · BTC 2021-01 →</td><td class="ok">可画</td><td class="small">DGS2−EFFR 利差下轨；|ΔEFFR|≥20bp 标注政策动作；BTC 前段不补齐</td></tr>
           <tr><td class="mono">18</td><td>BTC × ETF 日净流入 / 累计净流入</td><td class="mono">BTCUSDT · sosovalue ETF 净流入</td><td class="mono">BTC 2021-01 → 2026-11-05 · ETF 2024-01-11 →</td><td class="ok">可画</td><td class="small">BTC 对数轴覆盖完整历史；ETF 未覆盖区间标「无数据」灰带，不补零；极端流入/流出日 5 天色带高亮</td></tr>
         </tbody>
@@ -346,7 +346,7 @@
         <div class="card-head">
           <div>
             <h3 class="card-title"><span class="num">16</span>准备金预测路径 fan chart</h3>
-            <p class="card-src">reserve-structural-0.1.1 · 周频 h=1/2/4 周 · 周三水平口径 WRBWFRBL</p>
+            <p class="card-src">reserve-structural-0.1.2 · 周频 h=1/2/4 周 · 周三水平口径 WRBWFRBL</p>
           </div>
           <span class="chip ok">可画</span>
         </div>
@@ -356,7 +356,7 @@
           <span id="rfBench"></span><br>
           模型定位：只回答<b>短期（1/2/4 周）准备金路径</b>，<b>不是</b>完整的逐项结构预测。增量来源是 <b>TGA 季节项</b>，其余科目按结构性持平处理。结构恒等式 R = WALCL − 资本 − 现金 − RRP − TGA − 其他负债；SOMA 证券、非 SOMA 资产、RRP（0 下限）、其他负债<b>持有不变</b>；仅 TGA 用<b>季节中位数</b>（同 ISO 周历史周变化，仅用 origin 之前数据）；流通中货币在 0.1.1 改为<b>持有不变</b>（0.1.0 季节项经消融证实为负增量）。<br>
           残差桶：<b>其他资产</b>（WALCL − SOMA 证券 − 非 SOMA 已列示资产），当前约 63B，<b>不可拆项</b>，单独标注并持有不变。<br>
-          置信带：<b>逐 horizon 边际</b>口径——每个 h 单独取近 5 年外推残差的 5–95 分位，未做跨 horizon 同时覆盖校正（不能读作"三个 horizon 同时落入区间"的联合概率）；残差来自完整模型，<b>不是</b>只继承 TGA 模型误差；灰色虚线为 h=1 回测预测，与蓝线实际值事后对照。回测为扩张窗口，每个 origin 只用该时点之前的数据；canonical 单版本存储，回测为最终修订值口径（H.4.1 周频修订极少）。
+          置信带：<b>逐 horizon 边际</b>口径——每个 h 单独取近 5 年外推残差的 5–95 分位，未做跨 horizon 同时覆盖校正（不能读作"三个 horizon 同时落入区间"的联合概率）；残差来自完整模型，<b>不是</b>只继承 TGA 模型误差；灰色虚线为 h=1 回测预测，与蓝线实际值事后对照。回测为扩张窗口，每个 origin 只用到该时点已发布的数据（按 observation / release / revision 的最大可得时刻截断；周三收盘看不到当周 H.4.1）；canonical 单版本存储，回测为最终修订值口径（H.4.1 周频修订极少）。
         </div>
       </div>
 
