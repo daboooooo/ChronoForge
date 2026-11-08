@@ -63,6 +63,7 @@ def cli_env(
         "CHRONOFORGE_RATE_OVERRIDES",
         "CHRONOFORGE_NORMALIZE_ERROR_THRESHOLD",
         "CHRONOFORGE_NORMALIZE_DROP_THRESHOLD",
+        "CHRONOFORGE_NORMALIZE_DROP_MIN_UNITS",
     ):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("CHRONOFORGE_SEC_CONTACT", CONTACT)

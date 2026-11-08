@@ -100,6 +100,14 @@ class Settings(BaseModel):
         le=1,
         description="行级丢弃率阈值（审计 A-8）",
     )
+    normalize_drop_min_units: int = Field(
+        default=10,
+        ge=1,
+        description=(
+            "丢弃率门禁的最小样本量（行单位）；低于此值不做比例判罚，"
+            "非白名单跳过记为源侧异常（审计 A-8 小样本退化）"
+        ),
+    )
     query_max_rows: int = Field(
         default=DEFAULT_QUERY_MAX_ROWS,
         ge=1,
@@ -398,6 +406,7 @@ def _read_env_fields(cls_model: type[BaseModel]) -> dict[str, Any]:
         "quality_block_on": "CHRONOFORGE_QUALITY_BLOCK",
         "normalize_error_threshold": "CHRONOFORGE_NORMALIZE_ERROR_THRESHOLD",
         "normalize_drop_threshold": "CHRONOFORGE_NORMALIZE_DROP_THRESHOLD",
+        "normalize_drop_min_units": "CHRONOFORGE_NORMALIZE_DROP_MIN_UNITS",
         "query_max_rows": "CHRONOFORGE_QUERY_MAX_ROWS",
         "ohlcv_chunk_bars": "CHRONOFORGE_OHLCV_CHUNK_BARS",
         "version": "CHRONOFORGE_VERSION",

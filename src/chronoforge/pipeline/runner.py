@@ -156,6 +156,8 @@ class StageResult:
     output_count: int = 0
     error_count: int = 0
     warning_count: int = 0
+    # 小样本非白名单跳过（源侧异常）：不进丢弃率判罚，但单独计数并落质量 flag
+    source_anomaly_count: int = 0
     # 观测计数（审计 F-01/F-11：howto §34 全字段，随 stage 累加并入 run_log）
     request_count: int = 0
     retry_count: int = 0
@@ -472,10 +474,16 @@ class NormalizeStage:
       settings.normalize_error_threshold → QualityError
     - 失败调用无法回传记录数，按连接器声明的 row_units（下界）计入分子/分母，
       避免全失败时分母退化为 0 而短路阈值判定（审计 C1）
-    - 行级丢弃率 = 非白名单跳过行/(返回行+跳过行) >=
-      settings.normalize_drop_threshold → QualityError（审计 A-8）；
-      跳过原因由连接器经 normalize_stats.note_skip 结构化上报，
-      LEGIT_SKIP_REASONS 白名单内的合法丢弃不计数
+    - 行级丢弃率（审计 A-8）按来源拆分为两类，分母均为
+      ``返回行 + 上报跳过 + 未上报丢失``：
+      * 未上报丢失（静默）：达到 settings.normalize_drop_threshold → QualityError，
+        **不受小样本下限豁免**；
+      * 已上报的非白名单跳过（源侧坏行）：样本量 ≥
+        settings.normalize_drop_min_units 时按同一阈值判罚；低于下限时降级为
+        「源侧异常」——不判失败，但计入 warning_count、写入 run_log
+        error_summary 并落 Q-NORM-SRC-ANOMALY 质量 flag，供报告侧作为缺口读取
+      - 跳过原因由连接器经 normalize_stats.note_skip 结构化上报，
+        LEGIT_SKIP_REASONS 白名单内的合法丢弃不计数
     """
 
     name = "normalize"
@@ -487,25 +495,89 @@ class NormalizeStage:
         failed_units = 0
         # provenance 注入/序列化的记录级失败（已计入 input_count，避免与批次失败重复计数）
         record_errors = 0
-        # 行级丢弃率（A-8）：按 chunk 聚合，白名单外跳过计入无效丢弃
+        # 行级丢弃率（A-8）：按 chunk 聚合。
+        # drop_invalid = 非白名单 skip（已上报的源侧坏行）；
+        # drop_untracked = 未上报丢失（静默）；两者按不同规则判罚。
         drop_attempted = 0
         drop_invalid = 0
+        drop_untracked = 0
+        drop_reasons: dict[str, int] = {}
+        anomaly_seq = 0
         current_chunk: object | None = None
 
+        def _record_source_anomaly() -> None:
+            """小样本非白名单跳过：单独计数 + 质量 flag + 告警。
+
+            不进入 `LEGIT_SKIP_REASONS` 白名单，也不按丢弃率判失败；但必须留痕，
+            供报告侧作为数据缺口读取。
+            """
+            nonlocal anomaly_seq, drop_reasons
+            if drop_invalid <= 0:
+                return
+            anomaly_seq += 1
+            result.source_anomaly_count += drop_invalid
+            result.warning_count += drop_invalid
+            detail = (
+                f"normalize source anomaly: {drop_invalid}/{drop_attempted} "
+                f"non-whitelist skips below min_units="
+                f"{ctx.settings.normalize_drop_min_units}; "
+                f"reasons={dict(sorted(drop_reasons.items()))}"
+            )
+            result.errors.append(detail)
+            ctx._quality_flags.append(
+                {
+                    "record_key": f"normalize-source-anomaly:{ctx.run_id}:{anomaly_seq}",
+                    "dataset_id": ctx.dataset_id,
+                    "rule_id": "Q-NORM-SRC-ANOMALY",
+                    "severity": "WARNING",
+                    "detail": detail,
+                    "raw_ref": "",
+                    "payload_digest": "",
+                    "run_id": ctx.run_id,
+                }
+            )
+            logger.warning(
+                "normalize.source_anomaly",
+                dataset_id=ctx.dataset_id,
+                run_id=ctx.run_id,
+                drop_invalid=drop_invalid,
+                drop_attempted=drop_attempted,
+                min_units=ctx.settings.normalize_drop_min_units,
+                reasons=dict(drop_reasons),
+            )
+            drop_reasons = {}
+
         def _enforce_drop_gate() -> None:
-            nonlocal drop_attempted, drop_invalid
+            nonlocal drop_attempted, drop_invalid, drop_untracked, drop_reasons
+            # 静默丢失不走小样本豁免：A-8 守的正是"正常路径悄悄丢行且返回成功"。
             if (
                 drop_attempted > 0
-                and drop_invalid / drop_attempted
+                and drop_untracked / drop_attempted
                 >= ctx.settings.normalize_drop_threshold
             ):
                 raise QualityError(
-                    f"normalize drop rate {drop_invalid}/{drop_attempted} reaches "
-                    f"threshold {ctx.settings.normalize_drop_threshold}",
+                    f"normalize drop rate {drop_untracked}/{drop_attempted} "
+                    f"(untracked silent loss) reaches threshold "
+                    f"{ctx.settings.normalize_drop_threshold}",
                     context={"stage": self.name, "dataset_id": ctx.dataset_id},
                 )
+            if drop_attempted >= ctx.settings.normalize_drop_min_units:
+                if (
+                    drop_invalid / drop_attempted
+                    >= ctx.settings.normalize_drop_threshold
+                ):
+                    raise QualityError(
+                        f"normalize drop rate {drop_invalid}/{drop_attempted} reaches "
+                        f"threshold {ctx.settings.normalize_drop_threshold}",
+                        context={"stage": self.name, "dataset_id": ctx.dataset_id},
+                    )
+            else:
+                # 小样本比例判罚退化 → 源侧异常（留痕但不失败）
+                _record_source_anomaly()
             drop_attempted = 0
             drop_invalid = 0
+            drop_untracked = 0
+            drop_reasons = {}
 
         for chunk, batch, raw_ref in ctx._raw_refs:
             if chunk is not current_chunk:
@@ -529,11 +601,11 @@ class NormalizeStage:
             reported_skips = sum(skips.values())
             untracked = max(0, units - len(records) - reported_skips)
             drop_attempted += len(records) + reported_skips + untracked
-            drop_invalid += untracked + sum(
-                count
-                for reason, count in skips.items()
-                if reason not in LEGIT_SKIP_REASONS
-            )
+            drop_untracked += untracked
+            for reason, count in skips.items():
+                if reason not in LEGIT_SKIP_REASONS:
+                    drop_invalid += count
+                    drop_reasons[reason] = drop_reasons.get(reason, 0) + count
             for rec in records:
                 result.input_count += 1
                 try:

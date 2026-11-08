@@ -5,7 +5,10 @@
 checkpoint 不推进；合法跳过（未收盘 K 线等）不得误报。
 
 统计口径：连接器经 ``note_skip(reason)`` 上报；NormalizeStage 以
-``返回行 + 跳过行 + 未上报行`` 为分母、``非白名单跳过 + 未上报行`` 为分子。
+``返回行 + 跳过行 + 未上报行`` 为分母。分子按来源拆分：
+- 未上报丢失（静默）→ 始终按丢弃率判罚，不受小样本下限豁免；
+- 已上报的非白名单跳过（源侧坏行）→ 样本量 ≥ min_units 时按丢弃率判罚，
+  低于 min_units 时降级为「源侧异常」：不判失败，但计数 + 质量 flag 留痕。
 """
 
 from __future__ import annotations
@@ -18,7 +21,9 @@ from chronoforge.connectors.normalize_stats import LEGIT_SKIP_REASONS
 from chronoforge.exceptions import QualityError
 from chronoforge.timeutil import to_epoch_milliseconds
 from real_pipeline_harness import (
+    DS_ID,
     FULL_CURSOR,
+    JOB_START,
     build_harness,
     canonical_rows,
     decoded_raw_payloads,
@@ -62,23 +67,58 @@ def _unclosed_row(open_time: datetime) -> list[object]:
     ]
 
 
-def test_all_rows_malformed_blocks_checkpoint(tmp_stores, monkeypatch) -> None:
-    """非空 payload、全部行畸形 → 丢弃率 2/2 → QualityError。"""
+def _bar_row(open_time: datetime, *, bad: bool = False) -> list[object]:
+    """构造一根已收盘 1m K 线；bad=True 时 open 非数值。"""
+    close_time = open_time + timedelta(minutes=1)
+    return [
+        to_epoch_milliseconds(open_time),
+        "bad" if bad else "0.01500000",
+        "0.01600000",
+        "0.01400000",
+        "0.01550000",
+        "100.0",
+        to_epoch_milliseconds(close_time),
+        "0",
+        1,
+        "0",
+        "0",
+        "0",
+    ]
+
+
+def test_below_min_units_malformed_is_source_anomaly(
+    tmp_stores, monkeypatch
+) -> None:
+    """小样本（2 行 < min_units=10）全畸形 → 不按丢弃率判罚，记为源侧异常。"""
     payload = _bad_numeric_rows(load_fixture())
     handler, _requests = make_handler([payload])
-    h = build_harness(tmp_stores, monkeypatch, "a8_all_malformed", handler)
+    h = build_harness(tmp_stores, monkeypatch, "a8_below_min_anomaly", handler)
 
-    with pytest.raises(QualityError, match=r"normalize drop rate 2/2"):
-        h.runner.run(make_job())
+    row = h.runner.run(make_job())
+    # 不判失败（不抛 QualityError），但因存在源侧异常留痕 → PARTIAL_SUCCESS
+    assert row.status == "PARTIAL_SUCCESS"
+    assert row.checkpoint_after == FULL_CURSOR
+    # 门禁不再拦截：canonical 无行（全部源侧异常），但 cursor 照常推进
+    assert canonical_rows(h.data_dir) == []
+    assert get_cursor(h.meta) == FULL_CURSOR
 
     logged = latest_run_log_row(h.meta)
-    assert logged["status"] == "FAILED"
-    assert logged["checkpoint_after"] is None
-    assert "normalize drop rate 2/2" in str(logged["error_summary"])
+    assert logged["status"] == "PARTIAL_SUCCESS"
+    assert logged["warning_count"] == 2
+    assert "normalize source anomaly: 2/2" in str(logged["error_summary"])
+    assert "min_units=10" in str(logged["error_summary"])
+    # Binance 连接器对非数值 open 的上报原因是 non_numeric_value
+    assert "non_numeric_value" in str(logged["error_summary"])
 
-    # 门禁在 canonical 前 → 无 parquet、cursor 不推进
-    assert canonical_rows(h.data_dir) == []
-    assert get_cursor(h.meta) is None
+    # 源侧异常必须落 quality_flags，供报告侧作为缺口读取
+    flags = h.meta.connection.execute(
+        "SELECT rule_id, severity, detail FROM quality_flags WHERE dataset_id = ?",
+        (DS_ID,),
+    ).fetchall()
+    assert any(
+        rule == "Q-NORM-SRC-ANOMALY" and sev == "WARNING"
+        for rule, sev, _detail in flags
+    )
 
     # raw 先落盘且完整保留，可重放定位
     _raw_file, lines = raw_lines(h.data_dir)
@@ -86,22 +126,39 @@ def test_all_rows_malformed_blocks_checkpoint(tmp_stores, monkeypatch) -> None:
     assert lines[0]["ingest_batch_id"] == logged["ingest_batch_id"]
 
 
-def test_drop_rate_above_threshold_blocks_checkpoint(
-    tmp_stores, monkeypatch
-) -> None:
-    """非空 payload、丢弃率 2/3（≥0.5）→ QualityError。"""
-    fixture = load_fixture()
-    payload = [fixture[0], *_bad_numeric_rows([fixture[1], fixture[1]])]
+def test_drop_rate_at_min_units_still_blocks(tmp_stores, monkeypatch) -> None:
+    """样本量达到下限（10 行）且丢弃率 6/10（≥0.5）→ 仍 QualityError。"""
+    payload = [
+        _bar_row(JOB_START + timedelta(minutes=i), bad=(i < 6)) for i in range(10)
+    ]
     handler, _requests = make_handler([payload])
-    h = build_harness(tmp_stores, monkeypatch, "a8_high_drop", handler)
+    h = build_harness(tmp_stores, monkeypatch, "a8_at_min_drop", handler)
 
-    with pytest.raises(QualityError, match=r"normalize drop rate 2/3"):
+    with pytest.raises(QualityError, match=r"normalize drop rate 6/10"):
         h.runner.run(make_job())
 
     logged = latest_run_log_row(h.meta)
     assert logged["status"] == "FAILED"
     assert logged["checkpoint_after"] is None
     assert canonical_rows(h.data_dir) == []
+    assert get_cursor(h.meta) is None
+
+
+def test_small_sample_silent_loss_still_blocks(tmp_stores, monkeypatch) -> None:
+    """小样本静默丢失不走下限豁免：A-8 守的正是"悄悄丢行且返回成功"。"""
+    handler, _requests = make_handler([load_fixture()])
+    h = build_harness(tmp_stores, monkeypatch, "a8_small_silent", handler)
+
+    # 注入坏实现：有输入、normalize 返回 []、不上报 note_skip
+    monkeypatch.setattr(h.connector, "normalize", lambda _raw: [])
+    monkeypatch.setattr(h.connector, "row_units", lambda _raw: 1)
+
+    with pytest.raises(QualityError, match=r"normalize drop rate 1/1"):
+        h.runner.run(make_job())
+
+    logged = latest_run_log_row(h.meta)
+    assert logged["status"] == "FAILED"
+    assert logged["checkpoint_after"] is None
     assert get_cursor(h.meta) is None
 
 
