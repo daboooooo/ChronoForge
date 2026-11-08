@@ -358,7 +358,8 @@ def _known_event_line(
         f"⑤ 下一次已知事件：{events_part}"
         f"H.4.1 {next_h41.isoformat()}（周四 16:30 ET）；"
         "DTS 每交易日 16:00 ET（覆盖前一交易日）；"
-        f"税期参考日 {_date(stats.get('next_tax_ref'))}（手工维护）；"
+        f"税期参考日 {_date(stats.get('next_tax_ref'))}"
+        "（读 config/tga/calendar.yaml，已按联邦工作日顺延）；"
         f"{provenance}"
     )
 

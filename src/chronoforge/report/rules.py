@@ -19,6 +19,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from chronoforge.report.metrics import to_pairs, value_at_or_before
+from chronoforge.report.tax_calendar import next_tax_period, tax_period_dates
 
 BACKTEST_YEARS = 2
 RRP_ZERO_B = 10.0
@@ -106,24 +107,10 @@ def _reserve_changes(frame: _Frame) -> list[tuple[date, float, float | None]]:
     return rows
 
 
-def _tax_refs(start: date, end: date) -> list[date]:
-    refs: list[date] = []
-    for year in range(start.year, end.year + 1):
-        for month in range(1, 13):
-            ref = date(year, month, 15)
-            if start <= ref <= end:
-                refs.append(ref)
-        for month in (3, 6, 9, 12):
-            ref = date(year, month, 25)
-            if start <= ref <= end:
-                refs.append(ref)
-    return sorted(refs)
-
-
 def _tax_rebuilds(frame: _Frame, report_day: date) -> list[tuple[date, float]]:
     start = report_day - timedelta(days=365 * BACKTEST_YEARS)
     rows: list[tuple[date, float]] = []
-    for ref in _tax_refs(start, report_day):
+    for ref in tax_period_dates(start, report_day):
         base = value_at_or_before(frame.tga_d, ref - timedelta(days=3))
         later = value_at_or_before(frame.tga_d, ref + timedelta(days=10))
         if base and later:
@@ -471,7 +458,10 @@ def backtest_rules(payload: dict[str, Any], report_day: date) -> dict[str, Any]:
         rule_id="EV_TGA_TAX",
         label="税期 TGA 重建 ≥ 75 B",
         kind="event",
-        condition="税期（每月 15 日 / 季末）后 10 天内 TGA 上升 ≥ 75 B",
+        condition=(
+            "税期（季度预缴/年度申报与月度存款税截止日，按联邦工作日顺延）后"
+            " 10 天内 TGA 上升 ≥ 75 B"
+        ),
         triggers=[d for d, _ in trig_tax],
         total=len(rebuilds),
         unit="个税期",
@@ -486,7 +476,7 @@ def backtest_rules(payload: dict[str, Any], report_day: date) -> dict[str, Any]:
         },
         current=_current_event(
             False, "无（非税期触发窗口）",
-            f"下一次税期参考日 {_next_tax_ref(report_day).isoformat()}；"
+            f"下一次税期参考日 {next_tax_period(report_day).isoformat()}；"
             f"截至 {tga_asof.isoformat()} 的 10 个交易日 TGA 变化 "
             f"{tga_chg:+.1f} B" if tga_chg is not None else "TGA 日值缺失",
         ),
@@ -510,7 +500,7 @@ def backtest_rules(payload: dict[str, Any], report_day: date) -> dict[str, Any]:
         "last_rrp_20b_date": max(revive).isoformat() if revive else None,
         "rrp_5dma_b": round(rrp_latest, 2) if rrp_latest is not None else None,
         "rrp_last_b": round(rrp_tail, 2) if rrp_tail is not None else None,
-        "next_tax_ref": _next_tax_ref(report_day).isoformat(),
+        "next_tax_ref": next_tax_period(report_day).isoformat(),
     }
     return {
         "window_years": BACKTEST_YEARS,
@@ -535,17 +525,6 @@ def backtest_rules(payload: dict[str, Any], report_day: date) -> dict[str, Any]:
             "cases": "docs/USD_Liquidity/data/cases.json",
         },
     }
-
-
-def _next_tax_ref(report_day: date) -> date:
-    for month_offset in range(0, 13):
-        year = report_day.year + (report_day.month - 1 + month_offset) // 12
-        month = (report_day.month - 1 + month_offset) % 12 + 1
-        for day in (15, 25):
-            ref = date(year, month, day)
-            if ref >= report_day:
-                return ref
-    return report_day
 
 
 def _transitions(frame: _Frame, report_day: date) -> list[str]:
