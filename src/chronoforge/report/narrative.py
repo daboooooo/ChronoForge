@@ -10,6 +10,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from chronoforge.report.freshness import GAP_CATEGORY_LABEL
+from chronoforge.report.judgments import STATUS_LABEL
 
 KNOWLEDGE = {
     "REL_010": "SRF 使用量 >3 B 表示银行开始被动向美联储求助，准备金压力显性化",
@@ -421,8 +422,55 @@ def _known_event_line(
         "DTS 每交易日 16:00 ET（覆盖前一交易日）；"
         f"税期参考日 {_date(stats.get('next_tax_ref'))}"
         "（读 config/tga/calendar.yaml，已按联邦工作日顺延）；"
+        "验证时点：CPI/NFP 为事件当日 08:30 ET，FOMC 为当日 14:00 ET，"
+        "下一份盘前报告即可纳入；H.4.1 为周四 16:30 ET，次日报告纳入；"
         f"{provenance}"
     )
+
+
+def _scorecard_bullets(facts: dict[str, Any]) -> list[str]:
+    card = facts.get("scorecard") or {}
+    if not card.get("available"):
+        return [str(card.get("reason") or "无可结算判断。")]
+
+    summary = card.get("summary") or {}
+    lines = [
+        f"上一份报告（{card.get('prev_date')}）共 {len(card.get('items', []))} 条判断："
+        f"已验证 {summary.get('verified', 0)}、已证伪 {summary.get('falsified', 0)}、"
+        f"未到期 {summary.get('pending', 0)}"
+        + (f"、无法结算 {summary['unsettled']}" if summary.get("unsettled") else "")
+        + "。"
+    ]
+    for item in card.get("items", []):
+        unit = str(item.get("unit") or "")
+        at_creation = item.get("value_at_creation")
+        created_text = (
+            f"{float(at_creation):+.3g} {unit}"
+            if at_creation is not None else "缺失"
+        )
+        lines.append(
+            f"［{STATUS_LABEL.get(str(item.get('status')), item.get('status'))}］"
+            f"{item.get('claim')}｜当时阈值 {item.get('threshold_text')}"
+            f"（当时 {created_text}）→ 今天 {item.get('actual_text')}"
+            f"；到期 {item.get('deadline')}；证伪条件：{item.get('falsify')}"
+            + (f"；{item['note']}" if item.get("note") else "")
+            + "。"
+        )
+    return lines
+
+
+def _judgment_bullets(facts: dict[str, Any]) -> list[str]:
+    items = facts.get("judgments") or []
+    if not items:
+        return ["今日没有新增可结算判断（相关阈值均已满足或指标缺失）。"]
+    lines = [f"今日写入 {len(items)} 条可结算判断，下一份报告逐条结算："]
+    for item in items:
+        lines.append(
+            f"{item.get('claim')}｜阈值 {item.get('threshold_text')}"
+            f"（当前 {item.get('value_at_creation'):+.1f} {item.get('unit')}）；"
+            f"验证日 {item.get('deadline')}；证伪条件：{item.get('falsify')}。"
+        )
+    return lines
 
 
 def _outlook_bullets(facts: dict[str, Any]) -> list[str]:
@@ -639,6 +687,7 @@ def build_narrative(facts: dict[str, Any]) -> dict[str, Any]:
         pool[0],
         funding[1],
         rules[0],
+        _scorecard_bullets(facts)[0],
         novelty[0],
     ]
     pool_title = (
@@ -653,6 +702,8 @@ def build_narrative(facts: dict[str, Any]) -> dict[str, Any]:
         {"title": "资金面与边际工具", "bullets": _funding_bullets(facts)},
         {"title": "市场读数（外围）", "bullets": _market_bullets(facts)},
         {"title": "风险规则（2 年回测）", "bullets": _rule_bullets(facts)},
+        {"title": "昨日计分卡（可结算）", "bullets": _scorecard_bullets(facts)},
+        {"title": "今日判断（明日结算）", "bullets": _judgment_bullets(facts)},
         {"title": "前瞻（五段式）", "bullets": _outlook_bullets(facts)},
         {"title": "昨日对比与新颖度", "bullets": novelty},
         {"title": "数据缺口与新鲜度", "bullets": _gap_bullets(facts)},

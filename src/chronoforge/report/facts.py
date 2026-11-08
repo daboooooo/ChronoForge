@@ -29,6 +29,7 @@ from chronoforge.report.events import (
     summarize_events,
 )
 from chronoforge.report.freshness import build_freshness, build_gaps, classify_gaps
+from chronoforge.report.judgments import build_judgments, build_scorecard
 from chronoforge.report.metrics import compute_metrics, to_pairs
 from chronoforge.report.rules import backtest_rules
 
@@ -251,6 +252,7 @@ def load_previous_report(report_day: date, report_dir: Path | None = None) -> di
         "report_date": data.get("report_date"),
         "metrics": data.get("metrics", {}),
         "rules": data.get("rules", {}),
+        "judgments": data.get("judgments", []),
         "charts": {
             "three_pool": {
                 "onrrp_zero": charts.get("three_pool", {}).get("onrrp_zero"),
@@ -315,7 +317,7 @@ def build_facts(report_day: date, report_dir: Path | None = None) -> dict[str, A
 
     classify_gaps(gaps, {str(item["dataset_id"]) for item in anomalies})
 
-    return {
+    facts: dict[str, Any] = {
         "schema_version": "1.0",
         "report_date": report_day.isoformat(),
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -339,3 +341,6 @@ def build_facts(report_day: date, report_dir: Path | None = None) -> dict[str, A
             "batch_status": "var/run/daily_update.json",
         },
     }
+    facts["judgments"] = build_judgments(facts, report_day)
+    facts["scorecard"] = build_scorecard(facts.get("previous"), facts, report_day)
+    return facts

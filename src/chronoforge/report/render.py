@@ -143,6 +143,20 @@ def render_markdown(
     lines.append(f"> 生成方式：{narrative['mode']}（确定性规则模板，无 LLM）")
     lines.append(f"> {narrative['calendar_line']}")
     lines.append("")
+    lines.append("## 关键序列 as-of")
+    lines.append("")
+    lines.append("| 关键序列 | 实际 as-of | 矩阵下限 | 状态 |")
+    lines.append("| --- | --- | --- | --- |")
+    by_code = {row.get("series"): row for row in facts.get("freshness", [])}
+    for code in KEY_ASOF_SERIES:
+        row = by_code.get(code)
+        if not row:
+            continue
+        lines.append(
+            f"| {row['label']} · {code} | {row['actual_asof'] or '缺失'} | "
+            f"{row['expected_asof'] or '—'} | {row['status_label']} |"
+        )
+    lines.append("")
     lines.append("## 摘要")
     lines.append("")
     lines.extend(f"- {line}" for line in _summary_lines(facts, narrative))
@@ -427,6 +441,34 @@ def _freshness_html(facts: dict[str, Any]) -> str:
     )
 
 
+KEY_ASOF_SERIES = (
+    "WRESBAL", "WTREGEN", "TGA_DAILY", "RRPONTSYD", "EFFR", "SOFR", "SRF",
+    "DGS10", "VIXCLS", "DXY",
+)
+
+
+def _key_asof_html(facts: dict[str, Any]) -> str:
+    """关键序列 as-of 一览（把散在正文的时点收成一张表）。"""
+    by_code = {row.get("series"): row for row in facts.get("freshness", [])}
+    rows: list[str] = []
+    for code in KEY_ASOF_SERIES:
+        row = by_code.get(code)
+        if not row:
+            continue
+        tone = _status_tone(row["status"])
+        rows.append(
+            f"<tr><td>{_esc(row['label'])}<span class=\"muted\"> · {_esc(code)}</span></td>"
+            f"<td class=\"st\">{_esc(row['actual_asof'] or '缺失')}</td>"
+            f"<td class=\"st\">{_esc(row['expected_asof'] or '—')}</td>"
+            f'<td><span class="st {tone}">{_esc(row["status_label"])}</span></td></tr>'
+        )
+    return (
+        '<table><thead><tr><th>关键序列</th><th>实际 as-of</th>'
+        '<th>矩阵下限</th><th>状态</th></tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody></table>'
+    )
+
+
 def _rule_frequency(row: dict[str, Any]) -> str:
     f = row.get("frequency", {})
     return (f"{f.get('triggers', 0)}/{f.get('total', 0)} {f.get('unit', '')}"
@@ -574,6 +616,8 @@ def render_html(
   <div class="cutoff">{_esc(narrative['data_cutoff_line'])}</div>
   <div class="cutoff muted">{_esc(narrative['calendar_line'])}</div>
   {_gap_html(facts)}
+  <h2>关键序列 as-of</h2>
+  <div class="card">{_key_asof_html(facts)}</div>
   <div class="kpis">{kpis}</div>
   <h2>摘要</h2>
   <div class="sect"><ul>{summary}</ul></div>
