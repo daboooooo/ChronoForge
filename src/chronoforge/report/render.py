@@ -272,7 +272,8 @@ border-bottom:1px solid var(--line);font-weight:600}
 .card h3{font-size:12px;margin:0 0 8px;color:#b9cbe2;font-weight:500}
 .chart{height:264px;width:100%}
 .chart.empty{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;
-border:1px dashed var(--line2);border-radius:5px}
+border:1px dashed var(--line2);border-radius:5px;padding:0 12px;text-align:center;line-height:1.6}
+.chart-note{margin:7px 2px 0;color:#8fa3bd;font-size:11.5px;line-height:1.65}
 .sect{background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:13px 16px;margin-bottom:11px}
 .sect h3{font-size:12px;margin:0 0 7px;color:var(--bright);font-weight:600}
 .sect ul{margin:0;padding-left:17px;line-height:1.75;color:#b8c7db}
@@ -287,12 +288,21 @@ tr.missing td{background:rgba(255,92,92,.055)}
 footer{margin-top:34px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:11px;line-height:1.8}
 @media(max-width:900px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
 .grid{grid-template-columns:1fr}.card.wide{grid-column:auto}table{display:block;overflow-x:auto}}
+@media(max-width:640px){.wrap{padding:16px 12px 44px}h1{font-size:20px}
+.kpis{grid-template-columns:1fr 1fr}.kpi .v{font-size:21px}.chart{height:216px}}
 """
 
 _JS_CHARTS = r"""
 (function(){
   const D = window.CF_REPORT_DATA;
-  if (!D || !window.echarts) return;
+  if (!D) return;
+  if (!window.echarts){
+    document.querySelectorAll(".chart").forEach(function(el){
+      el.classList.add("empty");
+      el.textContent = "图表库未加载（assets/echarts.min.js 缺失）；请看卡片下方文字摘要。";
+    });
+    return;
+  }
   const C = {blue:"#3d9bff",orange:"#f7931a",green:"#3ddc97",red:"#ff5c5c",
              purple:"#a78bfa",cyan:"#22d3ee",yellow:"#f5c542",grey:"#6b7a90",
              text:"#c9d4e3",line:"#273345",grid:"#182130"};
@@ -322,28 +332,51 @@ _JS_CHARTS = r"""
     window.addEventListener("resize",()=>inst.resize());
   }
   const c=D.charts;
-  // 1) 准备金水位
+  // 1) 准备金水位：滚动 5 年分位带 + 阈值线 + 转折点
   if(c.reserve&&c.reserve.t.length){
-    init("chart-reserve",base({
-      yAxis:yVal({name:"T"}),
-      series:[{name:"准备金",type:"line",showSymbol:false,lineStyle:{color:C.blue,width:1.4},
-        areaStyle:{color:"rgba(61,155,255,.13)"},data:pairs(c.reserve.t,c.reserve.v),
-        markLine:{silent:true,symbol:"none",label:{color:"#8fa3bd",fontSize:10,formatter:p=>p.value+" T"},
-          data:[{yAxis:c.reserve.thresholds[0],lineStyle:{color:C.red,type:"dashed"}},
-                {yAxis:c.reserve.thresholds[1],lineStyle:{color:C.yellow,type:"dashed"}}]}}]
-    }));
+    const p=c.reserve;
+    const series=[];
+    if(p.bands&&p.bands.p20&&p.bands.p20.length){
+      const bw=p.bands.p80.map((x,i)=>Math.round((x-p.bands.p20[i])*1000)/1000);
+      series.push({name:"P20",type:"line",stack:"band",showSymbol:false,silent:true,
+        lineStyle:{opacity:0},areaStyle:{color:"rgba(61,155,255,.06)"},
+        data:pairs(p.bands.t,p.bands.p20)});
+      series.push({name:"P80-P20",type:"line",stack:"band",showSymbol:false,silent:true,
+        lineStyle:{opacity:0},areaStyle:{color:"rgba(61,155,255,.06)"},
+        data:pairs(p.bands.t,bw)});
+      series.push({name:"P50（滚动 5 年）",type:"line",showSymbol:false,silent:true,
+        lineStyle:{color:C.grey,width:1,type:"dashed"},data:pairs(p.bands.t,p.bands.p50)});
+    }
+    const line={name:"准备金",type:"line",showSymbol:false,lineStyle:{color:C.blue,width:1.4},
+      areaStyle:{color:"rgba(61,155,255,.13)"},data:pairs(p.t,p.v),
+      markLine:{silent:true,symbol:"none",label:{color:"#8fa3bd",fontSize:10,formatter:a=>a.value+" T"},
+        data:[{yAxis:p.thresholds[0],lineStyle:{color:C.red,type:"dashed"}},
+              {yAxis:p.thresholds[1],lineStyle:{color:C.yellow,type:"dashed"}}]}};
+    if(p.turning){
+      line.markPoint={symbol:"circle",symbolSize:7,itemStyle:{color:C.yellow},
+        label:{show:true,position:"top",color:C.yellow,fontSize:10,formatter:p.turning.label},
+        data:[{coord:[p.turning.t,p.turning.v]}]};
+    }
+    series.push(line);
+    init("chart-reserve",base({legend:{show:false},yAxis:yVal({name:"T"}),series:series}));
   }
-  // 2) 两池/三池结构
+  // 2) 两池/三池结构：ON RRP 归零标注
   if(c.three_pool&&c.three_pool.t.length){
     const p=c.three_pool;
+    const marks=[];
+    if(p.zero_since) marks.push({xAxis:p.zero_since,lineStyle:{color:C.cyan,type:"dashed"},
+      label:{show:true,formatter:"ON RRP 低于 1 B",color:C.cyan,fontSize:10}});
+    if(p.onrrp_zero) marks.push({yAxis:0,lineStyle:{color:C.cyan,type:"dotted"},
+      label:{show:true,formatter:"ON RRP = 0",color:C.cyan,fontSize:10,position:"insideEndTop"}});
     const series=[
       {name:"准备金",type:"line",showSymbol:false,lineStyle:{color:C.green,width:1.4},
-       areaStyle:{color:"rgba(61,220,151,.10)"},data:pairs(p.t,p.reserve)},
+       areaStyle:{color:"rgba(61,220,151,.10)"},data:pairs(p.t,p.reserve),
+       markLine:marks.length?{silent:true,symbol:"none",data:marks}:undefined},
       {name:"TGA",type:"line",showSymbol:false,lineStyle:{color:C.orange,width:1.4},data:pairs(p.t,p.tga)}
     ];
     if(!p.onrrp_zero) series.push({name:"ON RRP",type:"line",showSymbol:false,
       lineStyle:{color:C.cyan,width:1.2},data:pairs(p.t,p.onrrp)});
-    init("chart-pool",base({yAxis:yVal({name:"T"}),series:series}));
+    init("chart-pool",base({yAxis:yVal({name:"T",min:0}),series:series}));
   }
   // 3) 周度分解（RRP 归零时不再占一根恒零柱子）
   if(c.decomp&&c.decomp.t.length){
@@ -358,29 +391,62 @@ _JS_CHARTS = r"""
         itemStyle:{color:color},data:p.series[k]}))
     }));
   }
-  // 4) 资金面
+  // 4) 资金面：spread/SRF 阈值线 + 两者同日出现
   if(c.funding&&c.funding.t.length){
+    const f=c.funding;
+    const th=f.thresholds||{};
+    const spreadMarks=[];
+    if(th.spread_warn!=null) spreadMarks.push({yAxis:th.spread_warn,
+      lineStyle:{color:C.yellow,type:"dashed"},label:{formatter:"12 bp"}});
+    if(th.spread_danger!=null) spreadMarks.push({yAxis:th.spread_danger,
+      lineStyle:{color:C.red,type:"dashed"},label:{formatter:"17 bp"}});
+    const srfMarks=[];
+    if(th.srf_warn!=null) srfMarks.push({yAxis:th.srf_warn,
+      lineStyle:{color:C.orange,type:"dashed"},
+      label:{formatter:"SRF 3 B",position:"insideEndTop"}});
+    const spread={name:"SOFR-EFFR (bp)",type:"line",showSymbol:false,
+      lineStyle:{color:C.blue,width:1.5},areaStyle:{color:"rgba(61,155,255,.12)"},
+      data:pairs(f.t,f.spread),
+      markLine:spreadMarks.length?{silent:true,symbol:"none",
+        label:{color:"#8fa3bd",fontSize:9},data:spreadMarks}:undefined};
+    const srf={name:"SRF 用量 (B)",type:"line",yAxisIndex:1,showSymbol:false,
+      lineStyle:{color:C.orange,width:1.4},data:pairs(f.srf_t,f.srf),
+      markLine:srfMarks.length?{silent:true,symbol:"none",
+        label:{color:C.orange,fontSize:9},data:srfMarks}:undefined};
+    const series=[spread,srf];
+    if(f.coincident&&f.coincident.length){
+      const byDay={};
+      f.srf_t.forEach((d,i)=>{byDay[d]=f.srf[i];});
+      series.push({name:"同日 spread≥12bp 且有 SRF",type:"scatter",yAxisIndex:1,
+        symbolSize:7,itemStyle:{color:C.red},
+        data:f.coincident.map(d=>[d,byDay[d]||0])});
+    }
     init("chart-funding",base({
-      yAxis:[yVal({name:"bp"}),yVal({name:"B",position:"right",splitLine:{show:false}} )],
-      series:[
-        {name:"SOFR-EFFR (bp)",type:"line",showSymbol:false,lineStyle:{color:C.blue,width:1.5},
-         areaStyle:{color:"rgba(61,155,255,.12)"},data:pairs(c.funding.t,c.funding.spread)},
-        {name:"SRF 用量 (B)",type:"line",yAxisIndex:1,showSymbol:false,
-         lineStyle:{color:C.orange,width:1.4},data:pairs(c.funding.srf_t,c.funding.srf)}
-      ]
+      yAxis:[yVal({name:"bp"}),yVal({name:"B",position:"right",splitLine:{show:false}})],
+      series:series
     }));
   }
-  // 5) TGA 日值与预测情景
+  // 5) TGA 日值与预测情景：税期竖线 + 预测起点
   if(c.tga_daily&&c.tga_daily.t.length){
+    const g=c.tga_daily;
     const f=c.tga_forecast||{scenarios:{}}, colors={base:C.purple,liquidity_easing:C.green,liquidity_tightening:C.red};
-    const series=[{name:"TGA 实际",type:"line",showSymbol:false,lineStyle:{color:C.cyan,width:1.4},
-      areaStyle:{color:"rgba(34,211,238,.10)"},data:pairs(c.tga_daily.t,c.tga_daily.v)}];
+    const marks=(g.tax_dates||[]).map(d=>({xAxis:d,
+      lineStyle:{color:"rgba(245,197,66,.22)",width:1}}));
+    if(g.next_tax) marks.push({xAxis:g.next_tax,lineStyle:{color:C.yellow,type:"dashed"},
+      label:{show:true,formatter:"下一税期",color:C.yellow,fontSize:10}});
+    if(g.forecast_origin) marks.push({xAxis:g.forecast_origin,
+      lineStyle:{color:C.grey,type:"dotted"},
+      label:{show:true,formatter:"预测起点",color:"#8fa3bd",fontSize:9}});
+    const series=[{name:"TGA 实际",type:"line",showSymbol:false,
+      lineStyle:{color:C.cyan,width:1.4},areaStyle:{color:"rgba(34,211,238,.10)"},
+      data:pairs(g.t,g.v),
+      markLine:marks.length?{silent:true,symbol:"none",data:marks}:undefined}];
     Object.keys(f.scenarios||{}).forEach((name)=>{
       const s=f.scenarios[name];
       series.push({name:"预测:"+name,type:"line",showSymbol:false,lineStyle:{color:colors[name]||C.grey,width:1.2,type:"dashed"},
         data:pairs(s.t,s.v)});
     });
-    init("chart-tga",base({yAxis:yVal({name:"T"}),series:series}));
+    init("chart-tga",base({yAxis:yVal({name:"B"}),series:series}));
   }
 })();
 """
@@ -554,13 +620,98 @@ def _sections_html(narrative: dict[str, Any]) -> str:
     return "".join(blocks)
 
 
-def _chart_card(title: str, element_id: str, data_present: bool, wide: bool = False) -> str:
+def _chart_notes(facts: dict[str, Any]) -> dict[str, str]:
+    """每张图下方的文字摘要：随图始终可见，也是无脚本时的读数兜底。"""
+    charts = facts["charts"]
+    m = facts["metrics"]
+
+    r = m["reserve"]
+    band = charts["reserve"].get("bands") or {}
+    band_text = ""
+    if band.get("p20"):
+        band_text = (
+            f"；滚动 5 年 P20/P50/P80 = {_fmt(band['p20'][-1])}/"
+            f"{_fmt(band['p50'][-1])}/{_fmt(band['p80'][-1])} T"
+        )
+    turning = charts["reserve"].get("turning") or {}
+    turn_text = f"；最近转折 {turning['t']}（{turning['label']}）" if turning else ""
+    reserve_note = (
+        f"最新 {_fmt(r.get('level_t'), 3)} T（{r.get('asof') or '缺失'}），"
+        f"5 年分位 {_pct(r.get('pct_5y'))}，{r.get('zone') or '未知'}"
+        f"{band_text}{turn_text}。红色 3.0 T / 黄色 3.2 T 为阈值线。"
+    )
+
+    t = m["three_pool"]
+    lv = t.get("levels") or {}
+    pool = charts["three_pool"]
+    if pool.get("onrrp_zero"):
+        pool_note = (
+            f"ON RRP 当前连续低于 1 B 自 {pool.get('zero_since') or '未知'} 起，"
+            f"三池实质退化为两池：准备金 {_fmt(lv.get('reserve'), 3)} T、"
+            f"TGA {_fmt(lv.get('tga'), 3)} T。"
+            "缓冲只剩准备金与 TGA，财政抽水直接落在准备金上。"
+        )
+    else:
+        pool_note = (
+            f"准备金 {_fmt(lv.get('reserve'), 3)} T、TGA {_fmt(lv.get('tga'), 3)} T、"
+            f"ON RRP {_fmt(lv.get('onrrp'), 3)} T（{t.get('latest_date') or '缺失'}）。"
+        )
+
+    latest = (m.get("weekly_decomp") or {}).get("latest") or {}
+    labels = {"dA": "ΔA", "tga": "TGA", "onrrp": "ON RRP", "cash": "现金", "other": "其他"}
+    comps = {k: float(latest[k]) for k in labels if latest.get(k) is not None}
+    dominant = max(comps.items(), key=lambda kv: abs(kv[1])) if comps else None
+    dom_text = (
+        f"，最大分项 {labels[dominant[0]]} {_chg(dominant[1])} B" if dominant else ""
+    )
+    decomp_note = (
+        f"最近一周 ΔR {_chg(latest.get('dR'))} B{dom_text}；"
+        "正柱回补准备金，负柱抽水，合计与 ΔR 的差额为不可拆残差。"
+    )
+
+    f = m["funding"]
+    st = charts["funding"].get("stats") or {}
+    peak = st.get("srf_peak") or {}
+    peak_text = (
+        f"，峰值 {_fmt(peak.get('v'))} B（{peak.get('t')}）" if peak else ""
+    )
+    funding_note = (
+        f"SOFR-EFFR {_fmt(f.get('spread_bp'), 1)} bp（阈值 12 / 17 bp），"
+        f"SRF {_fmt(f.get('srf_usage_b'))} B（阈值 3 B）；过去一年 spread≥12 bp 的 "
+        f"{st.get('days_spread_ge_warn', 0)} 天中有 {st.get('days_both', 0)} 天"
+        f"同日出现 SRF 动用{peak_text}。红点即两者同日叠加。"
+    )
+
+    g = charts["tga_daily"]
+    te = g.get("tax_effect") or {}
+    last = g["v"][-1] if g.get("v") else None
+    tga_note = (
+        f"TGA 日值 {_fmt(last, 1)} B（{m['tga'].get('daily_asof') or '缺失'}）；"
+        f"近一年税期参考日 {len(g.get('tax_dates') or [])} 个，"
+        f"税期后一周 TGA 平均变化 {_chg(te.get('avg_chg_b'))} B"
+        f"（{te.get('n', 0)} 次可观测）；下一税期 {g.get('next_tax') or '未配置'}。"
+        "浅黄竖线为税期参考日，灰色点线为预测起点。"
+    )
+    return {
+        "chart-reserve": reserve_note,
+        "chart-pool": pool_note,
+        "chart-decomp": decomp_note,
+        "chart-funding": funding_note,
+        "chart-tga": tga_note,
+    }
+
+
+def _chart_card(
+    title: str, element_id: str, data_present: bool,
+    wide: bool = False, note: str = "",
+) -> str:
     cls = "card wide" if wide else "card"
     if data_present:
         body = f'<div class="chart" id="{element_id}"></div>'
     else:
         body = '<div class="chart empty">无可用序列（显式缺口）</div>'
-    return f'<div class="{cls}"><h3>{_esc(title)}</h3>{body}</div>'
+    note_html = f'<div class="chart-note">{_esc(note)}</div>' if note else ""
+    return f'<div class="{cls}"><h3>{_esc(title)}</h3>{body}{note_html}</div>'
 
 
 def render_html(
@@ -582,18 +733,22 @@ def render_html(
     )
     decomp_title = ("周度流动性分解（近 13 周，B；ON RRP 已归零，不占柱）"
                     if decomp_zero else "周度流动性分解（近 13 周，B）")
+    notes = _chart_notes(facts)
     chart_cards = "".join([
-        _chart_card("准备金水位（5 年，T）", "chart-reserve",
-                    bool(charts["reserve"]["t"])),
+        _chart_card("准备金水位与滚动 5 年分位带（T）", "chart-reserve",
+                    bool(charts["reserve"]["t"]), note=notes["chart-reserve"]),
         _chart_card("两池结构（ON RRP 已归零，2 年，T）"
                     if charts["three_pool"].get("onrrp_zero") else "三池结构（2 年，T）",
-                    "chart-pool", bool(charts["three_pool"]["t"])),
+                    "chart-pool", bool(charts["three_pool"]["t"]),
+                    note=notes["chart-pool"]),
         _chart_card(decomp_title, "chart-decomp",
-                    bool(charts["decomp"]["t"]), wide=decomp_zero),
+                    bool(charts["decomp"]["t"]), wide=decomp_zero,
+                    note=notes["chart-decomp"]),
         _chart_card("SOFR-EFFR 与 SRF 用量（1 年）", "chart-funding",
-                    bool(charts["funding"]["t"])),
-        _chart_card("TGA 日值与预测情景（1 年，T）", "chart-tga",
-                    bool(charts["tga_daily"]["t"]), wide=True),
+                    bool(charts["funding"]["t"]), note=notes["chart-funding"]),
+        _chart_card("TGA 日值、税期与预测情景（1 年，B）", "chart-tga",
+                    bool(charts["tga_daily"]["t"]), wide=True,
+                    note=notes["chart-tga"]),
     ])
 
     return f"""<!doctype html>
@@ -622,6 +777,8 @@ def render_html(
   <h2>摘要</h2>
   <div class="sect"><ul>{summary}</ul></div>
   <h2>图表</h2>
+  <noscript><div class="alert"><div class="alert-title">图表需要 JavaScript</div>
+  <ul><li>当前未启用脚本，图表区为空；上方 KPI、每张图下方的文字摘要与全部表格仍可阅读。</li></ul></div></noscript>
   <div class="grid">{chart_cards}</div>
   <h2>新鲜度矩阵</h2>
   <div class="card">{_freshness_html(facts)}</div>

@@ -32,6 +32,7 @@ from chronoforge.report.freshness import build_freshness, build_gaps, classify_g
 from chronoforge.report.judgments import build_judgments, build_scorecard
 from chronoforge.report.metrics import compute_metrics, to_pairs
 from chronoforge.report.rules import backtest_rules
+from chronoforge.report.tax_calendar import tax_period_dates
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 EXPORT_DATA_PATH = PROJECT_ROOT / "visualization" / "export_data.py"
@@ -100,6 +101,84 @@ def _source_anomalies(report_day: date, window_days: int = 30) -> list[dict[str,
     return out
 
 
+def _quantile(sorted_values: list[float], q: float) -> float:
+    """线性插值分位（输入已排序）。"""
+    n = len(sorted_values)
+    if n == 1:
+        return sorted_values[0]
+    pos = (n - 1) * q
+    lo = int(pos)
+    hi = min(lo + 1, n - 1)
+    frac = pos - lo
+    return sorted_values[lo] * (1 - frac) + sorted_values[hi] * frac
+
+
+def _rolling_bands(
+    t: list[Any], v: list[float], start: date, days: int = 365 * 5
+) -> dict[str, list[Any]]:
+    """滚动 5 年 P20/P50/P80 分位带（只输出展示窗口内的点）。"""
+    dates = [date.fromisoformat(str(x)[:10]) for x in t]
+    out: dict[str, list[Any]] = {"t": [], "p20": [], "p50": [], "p80": []}
+    lo = 0
+    for i, d in enumerate(dates):
+        if d < start:
+            continue
+        while dates[lo] < d - timedelta(days=days):
+            lo += 1
+        window = sorted(v[lo : i + 1])
+        out["t"].append(str(t[i])[:10])
+        out["p20"].append(round(_quantile(window, 0.2), 3))
+        out["p50"].append(round(_quantile(window, 0.5), 3))
+        out["p80"].append(round(_quantile(window, 0.8), 3))
+    return out
+
+
+def _turning_point(
+    t: list[Any], v: list[float], back: int = 26
+) -> dict[str, Any] | None:
+    """最近一次 4 周动量变号（周序列），用于标注转折日。"""
+    if len(v) < 6:
+        return None
+    chg = [v[i] - v[i - 4] for i in range(4, len(v))]
+    for i in range(len(chg) - 1, max(len(chg) - back, 0), -1):
+        if (chg[i] > 0) != (chg[i - 1] > 0):
+            idx = i + 4
+            return {
+                "t": str(t[idx])[:10],
+                "v": v[idx],
+                "label": "4 周动量转正" if chg[i] > 0 else "4 周动量转负",
+            }
+    return None
+
+
+def _value_between(
+    points: list[tuple[date, float]], start: date, end: date
+) -> tuple[date, float] | None:
+    """[start, end] 内最后一个观测。"""
+    found = None
+    for d, v in points:
+        if start <= d <= end:
+            found = (d, v)
+        elif d > end:
+            break
+    return found
+
+
+def _tax_effect(
+    points: list[tuple[date, float]], tax_dates: list[date]
+) -> dict[str, Any]:
+    """税期前后 TGA 变化（B）：截止日前最后观测 → 截止日后第 5 个自然日附近。"""
+    deltas: list[float] = []
+    for d in tax_dates:
+        base = _value_between(points, d - timedelta(days=3), d - timedelta(days=1))
+        after = _value_between(points, d + timedelta(days=3), d + timedelta(days=7))
+        if base and after:
+            deltas.append(after[1] - base[1])
+    if not deltas:
+        return {"n": 0, "avg_chg_b": None}
+    return {"n": len(deltas), "avg_chg_b": round(sum(deltas) / len(deltas) / 1000.0, 1)}
+
+
 def _chart_series(payload: dict[str, Any], report_day: date,
                   rrp_zero: bool = False) -> dict[str, Any]:
     """图表数据子集（沿用站点现有序列形状，只做裁剪/换算）。"""
@@ -112,15 +191,22 @@ def _chart_series(payload: dict[str, Any], report_day: date,
         return {"t": [p[0] for p in pairs], "v": [float(p[1]) for p in pairs]}
 
     wres = _window(payload["series"]["WRESBAL"], hist_start)
+    reserve_t = [str(x)[:10] for x in wres["t"]]
+    reserve_v = [round(v / 1e6, 3) for v in wres["v"]]
+    full = payload["series"]["WRESBAL"]
+    full_t = list(full.get("t", []))
+    full_v = [float(v) / 1e6 for v in full.get("v", [])]
     reserve_chart = {
-        "t": wres["t"],
-        "v": [round(v / 1e6, 3) for v in wres["v"]],
+        "t": reserve_t,
+        "v": reserve_v,
         "thresholds": [3.0, 3.2],
+        "bands": _rolling_bands(full_t, full_v, hist_start),
+        "turning": _turning_point(reserve_t, reserve_v),
     }
 
     pool = payload["weekly"]["three_pool"]
     pool_start = report_day - timedelta(days=365 * 2)
-    pool_chart = {
+    pool_chart: dict[str, Any] = {
         "t": [t for t in pool["t"] if date.fromisoformat(t) >= pool_start],
     }
     for key in ("reserve", "tga", "onrrp"):
@@ -129,6 +215,14 @@ def _chart_series(payload: dict[str, Any], report_day: date,
             for t, v in zip(pool["t"], pool[key], strict=False)
             if date.fromisoformat(t) >= pool_start
         ]
+    zero_since = None
+    onrrp_values = [float(v) for v in pool["onrrp"]]
+    if onrrp_values and onrrp_values[-1] < 0.001:
+        start = len(onrrp_values) - 1
+        while start > 0 and onrrp_values[start - 1] < 0.001:
+            start -= 1
+        zero_since = str(pool["t"][start])[:10]
+    pool_chart["zero_since"] = zero_since
 
     decomp = payload["weekly"]["decomp"][-13:]
     decomp_chart = {
@@ -148,21 +242,49 @@ def _chart_series(payload: dict[str, Any], report_day: date,
     ]
     srf = to_pairs(payload["series"].get("SRF_USAGE"))
     srf_points = [(d, v) for d, v in srf if d >= fund_start]
+    srf_by_day = {d: float(v) for d, v in srf_points}
+    coincident = [
+        d.isoformat() for d, v in spread_points
+        if v >= 12.0 and srf_by_day.get(d, 0.0) > 0.0
+    ]
+    srf_first = next((d for d, v in srf_points if v >= 3.0), None)
+    srf_peak = max(srf_points, key=lambda item: item[1]) if srf_points else None
     funding_chart = {
         "t": [d.isoformat() for d, _ in spread_points],
         "spread": [v for _, v in spread_points],
         "srf_t": [d.isoformat() for d, _ in srf_points],
         "srf": [float(v) for _, v in srf_points],
+        "thresholds": {"spread_warn": 12.0, "spread_danger": 17.0, "srf_warn": 3.0},
+        "coincident": coincident,
+        "stats": {
+            "days_spread_ge_warn": sum(1 for _, v in spread_points if v >= 12.0),
+            "days_srf_ge_warn": sum(1 for _, v in srf_points if v >= 3.0),
+            "days_both": len(coincident),
+            "srf_first_ge_warn": srf_first.isoformat() if srf_first else None,
+            "srf_peak": (
+                {"t": srf_peak[0].isoformat(), "v": round(float(srf_peak[1]), 2)}
+                if srf_peak else None
+            ),
+        },
     }
 
     tga = to_pairs(payload["tga"].get("daily"))
     tga_start = report_day - timedelta(days=365)
     tga_points = [(d, v) for d, v in tga if d >= tga_start]
+    tax_dates = tax_period_dates(tga_start, report_day)
+    next_tax = tax_period_dates(
+        report_day + timedelta(days=1), report_day + timedelta(days=120)
+    )
     daily_chart = {
         "t": [d.isoformat() for d, _ in tga_points],
         "v": [round(v / 1000.0, 3) for _, v in tga_points],
+        "tax_dates": [d.isoformat() for d in tax_dates],
+        "next_tax": next_tax[0].isoformat() if next_tax else None,
+        "tax_effect": _tax_effect(tga_points, tax_dates),
     }
     fc = payload["tga"].get("forecast", {})
+    run_date = str(fc.get("run_date"))[:10] if fc.get("run_date") else None
+    daily_chart["forecast_origin"] = run_date
     scenarios = {}
     for name, block in fc.get("scenarios", {}).items():
         scenarios[name] = {
