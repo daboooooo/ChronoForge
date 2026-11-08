@@ -320,6 +320,49 @@ def _next_thursday(day: date) -> date:
     return day + timedelta(days=(3 - day.weekday()) % 7)
 
 
+def _known_event_line(
+    facts: dict[str, Any], next_h41: date, stats: dict[str, Any]
+) -> str:
+    """「下一次已知事件」：FOMC/CPI/NFP 读配置，H.4.1/DTS 为程序化日程。"""
+    ev = facts.get("events") or {}
+    horizon = int(ev.get("horizon_days", 90))
+    if ev.get("error"):
+        events_part = (
+            f"事件配置读取失败（{ev['error']}），FOMC/CPI/NFP 日程不可用；"
+            "不得据此推断发布日期。"
+        )
+    else:
+        next_by_type = ev.get("next_by_type") or {}
+        rows = sorted(next_by_type.values(), key=lambda r: str(r.get("date", "")))
+        if rows:
+            parts = "；".join(
+                f"{r['type']} {r['date']} {r['time_et']} ET"
+                f"（{r['status']}，{r.get('source_name', r.get('source'))}）"
+                for r in rows
+            )
+            events_part = (
+                f"{parts}。未来 {horizon} 天内共 {ev.get('upcoming_count', 0)} 项"
+                f"（tentative {ev.get('tentative_upcoming', 0)} 项），"
+                f"配置覆盖至 {_date(ev.get('coverage_through'))}。"
+            )
+        else:
+            events_part = (
+                f"未来 {horizon} 天内无已配置的 FOMC/CPI/NFP 事件；"
+                f"配置覆盖至 {_date(ev.get('coverage_through'))}，需人工复核。"
+            )
+    provenance = (
+        f"来源与访问日期见 {ev.get('config_path')}"
+        f"（as_of {_date(ev.get('as_of'))}，访问 {_date(ev.get('accessed_at'))}）。"
+    )
+    return (
+        f"⑤ 下一次已知事件：{events_part}"
+        f"H.4.1 {next_h41.isoformat()}（周四 16:30 ET）；"
+        "DTS 每交易日 16:00 ET（覆盖前一交易日）；"
+        f"税期参考日 {_date(stats.get('next_tax_ref'))}（手工维护）；"
+        f"{provenance}"
+    )
+
+
 def _outlook_bullets(facts: dict[str, Any]) -> list[str]:
     m = facts["metrics"]
     r = m["reserve"]
@@ -385,13 +428,7 @@ def _outlook_bullets(facts: dict[str, Any]) -> list[str]:
         "SRF/SOFR 日值看是否出现 ≥3 B 或 ≥12 bp。任一阈值未到，不得写成「已抽水」或「已紧张」。"
     )
 
-    lines.append(
-        "⑤ 下一次已知事件："
-        f"H.4.1 {next_h41.isoformat()}（周四 16:30 ET）；"
-        "DTS 每交易日 16:00 ET（覆盖前一交易日）；"
-        f"税期参考日 {_date(stats.get('next_tax_ref'))}（手工维护）；"
-        "FOMC/CPI/NFP 日历待接入——仓库无该数据源（V10 已确认），本报告不编造日期。"
-    )
+    lines.append(_known_event_line(facts, next_h41, stats))
     return lines
 
 

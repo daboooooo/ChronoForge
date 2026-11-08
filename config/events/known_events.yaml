@@ -1,0 +1,275 @@
+# 已知发布事件日历（FOMC / CPI / NFP）
+#
+# 用途：日报「前瞻 ⑤ 下一次已知事件」从本文件读取，不再手工写在模板里。
+# 维护规则（不允许推算填充）：
+# - 只写官方日程页上已公布的日期；页面未列出的月份留空并在此说明，不按周几推算。
+# - 每个来源记录 URL 与访问日期（accessed_at）；as_of 表示本配置整理时的数据时点。
+# - 状态语义：confirmed=官方日程已公布且临近会议已确认；tentative=官方已列出但
+#   尚未在会议前确认（美联储 2027 年日期即按此标注）。
+# - 日历会变：BLS 可能因拨款中断/统计推迟改期，美联储日期在会前仍可能微调；
+#   每次修订请同步更新 accessed_at 并重跑报告。
+#
+# 来源（2026-11-08 访问）：
+# - 美联储 FOMC 日历：2026 年 8 次日期已公布，2027 年日期也已列出，
+#   页面注明 "Each meeting date is tentative until confirmed at the meeting
+#   immediately preceding it"，故 2027 年全部标 tentative。
+# - BLS CPI 日程页：已滚动覆盖 2026-10 至 2027-12 的参考月发布日。
+# - BLS 就业形势（NFP）日程页：已滚动覆盖 2026-10 至 2027-11 的参考月发布日。
+#   BLS 按发布日程页滚动给出，本文件不补未公布月份；若后续页面未覆盖，留空即可。
+#
+# 时间均为美国东部时间（ET）；FOMC 取会议第二天（决议/声明日）14:00，
+# CPI 与 NFP 取 08:30。
+
+version: "1"
+as_of: "2026-11-08"
+
+sources:
+  FED_FOMC:
+    name: "美联储 FOMC 日历"
+    url: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+    accessed_at: "2026-11-08"
+  BLS_CPI:
+    name: "BLS CPI 日程"
+    url: "https://www.bls.gov/schedule/news_release/cpi.htm"
+    accessed_at: "2026-11-08"
+  BLS_EMPSIT:
+    name: "BLS 就业形势日程"
+    url: "https://www.bls.gov/schedule/news_release/empsit.htm"
+    accessed_at: "2026-11-08"
+
+# 按日期升序排列（加载器强制校验单调与重复）。
+events:
+  - id: CPI-2026-11-10
+    type: CPI
+    date: "2026-11-10"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_CPI
+  - id: NFP-2026-12-04
+    type: NFP
+    date: "2026-12-04"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_EMPSIT
+  - id: FOMC-2026-12-09
+    type: FOMC
+    date: "2026-12-09"
+    time_et: "14:00"
+    status: confirmed
+    source: FED_FOMC
+    note: "会议 12-08/09，决议日为第二天"
+  - id: CPI-2026-12-10
+    type: CPI
+    date: "2026-12-10"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_CPI
+
+  - id: NFP-2027-01-08
+    type: NFP
+    date: "2027-01-08"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_EMPSIT
+  - id: CPI-2027-01-13
+    type: CPI
+    date: "2027-01-13"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_CPI
+  - id: FOMC-2027-01-27
+    type: FOMC
+    date: "2027-01-27"
+    time_et: "14:00"
+    status: tentative
+    source: FED_FOMC
+    note: "会议 01-26/27；会前确认前按 tentative"
+  - id: NFP-2027-02-05
+    type: NFP
+    date: "2027-02-05"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_EMPSIT
+  - id: CPI-2027-02-11
+    type: CPI
+    date: "2027-02-11"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_CPI
+
+  - id: NFP-2027-03-05
+    type: NFP
+    date: "2027-03-05"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_EMPSIT
+  - id: CPI-2027-03-10
+    type: CPI
+    date: "2027-03-10"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_CPI
+  - id: FOMC-2027-03-17
+    type: FOMC
+    date: "2027-03-17"
+    time_et: "14:00"
+    status: tentative
+    source: FED_FOMC
+    note: "会议 03-16/17；含经济预测"
+  - id: NFP-2027-04-02
+    type: NFP
+    date: "2027-04-02"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_EMPSIT
+  - id: CPI-2027-04-13
+    type: CPI
+    date: "2027-04-13"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_CPI
+  - id: FOMC-2027-04-28
+    type: FOMC
+    date: "2027-04-28"
+    time_et: "14:00"
+    status: tentative
+    source: FED_FOMC
+    note: "会议 04-27/28"
+
+  - id: NFP-2027-05-07
+    type: NFP
+    date: "2027-05-07"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_EMPSIT
+  - id: CPI-2027-05-12
+    type: CPI
+    date: "2027-05-12"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_CPI
+  - id: NFP-2027-06-04
+    type: NFP
+    date: "2027-06-04"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_EMPSIT
+  - id: FOMC-2027-06-09
+    type: FOMC
+    date: "2027-06-09"
+    time_et: "14:00"
+    status: tentative
+    source: FED_FOMC
+    note: "会议 06-08/09；含经济预测"
+  - id: CPI-2027-06-10
+    type: CPI
+    date: "2027-06-10"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_CPI
+
+  - id: NFP-2027-07-02
+    type: NFP
+    date: "2027-07-02"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_EMPSIT
+  - id: CPI-2027-07-14
+    type: CPI
+    date: "2027-07-14"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_CPI
+  - id: FOMC-2027-07-28
+    type: FOMC
+    date: "2027-07-28"
+    time_et: "14:00"
+    status: tentative
+    source: FED_FOMC
+    note: "会议 07-27/28"
+
+  - id: NFP-2027-08-06
+    type: NFP
+    date: "2027-08-06"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_EMPSIT
+  - id: CPI-2027-08-11
+    type: CPI
+    date: "2027-08-11"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_CPI
+
+  - id: NFP-2027-09-03
+    type: NFP
+    date: "2027-09-03"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_EMPSIT
+  - id: CPI-2027-09-14
+    type: CPI
+    date: "2027-09-14"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_CPI
+  - id: FOMC-2027-09-15
+    type: FOMC
+    date: "2027-09-15"
+    time_et: "14:00"
+    status: tentative
+    source: FED_FOMC
+    note: "会议 09-14/15；含经济预测"
+
+  - id: NFP-2027-10-08
+    type: NFP
+    date: "2027-10-08"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_EMPSIT
+  - id: CPI-2027-10-14
+    type: CPI
+    date: "2027-10-14"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_CPI
+  - id: FOMC-2027-10-27
+    type: FOMC
+    date: "2027-10-27"
+    time_et: "14:00"
+    status: tentative
+    source: FED_FOMC
+    note: "会议 10-26/27"
+
+  - id: NFP-2027-11-05
+    type: NFP
+    date: "2027-11-05"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_EMPSIT
+  - id: CPI-2027-11-10
+    type: CPI
+    date: "2027-11-10"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_CPI
+
+  - id: NFP-2027-12-03
+    type: NFP
+    date: "2027-12-03"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_EMPSIT
+  - id: FOMC-2027-12-08
+    type: FOMC
+    date: "2027-12-08"
+    time_et: "14:00"
+    status: tentative
+    source: FED_FOMC
+    note: "会议 12-07/08；含经济预测"
+  - id: CPI-2027-12-10
+    type: CPI
+    date: "2027-12-10"
+    time_et: "08:30"
+    status: confirmed
+    source: BLS_CPI

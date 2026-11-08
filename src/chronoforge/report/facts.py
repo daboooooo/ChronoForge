@@ -17,6 +17,12 @@ from typing import Any, cast
 
 from chronoforge.cli._wiring import open_meta
 from chronoforge.config.settings import Settings
+from chronoforge.report.events import (
+    EVENTS_PATH,
+    EventConfigError,
+    load_known_events,
+    summarize_events,
+)
 from chronoforge.report.freshness import build_freshness, build_gaps
 from chronoforge.report.metrics import compute_metrics, to_pairs
 from chronoforge.report.rules import backtest_rules
@@ -170,6 +176,22 @@ def _chart_series(payload: dict[str, Any], report_day: date,
     }
 
 
+def load_events_block(report_day: date) -> dict[str, Any]:
+    """读取 FOMC/CPI/NFP 事件配置；配置损坏时降级为显式缺口，不阻断报告。"""
+    try:
+        return summarize_events(load_known_events(), report_day)
+    except EventConfigError as exc:
+        return {
+            "config_path": str(EVENTS_PATH),
+            "error": str(exc),
+            "horizon_days": 90,
+            "upcoming_count": 0,
+            "tentative_upcoming": 0,
+            "next_by_type": {},
+            "items": [],
+        }
+
+
 def _freshness_summary(rows: list[Any]) -> dict[str, Any]:
     core = [r for r in rows if r.core]
     return {
@@ -237,6 +259,14 @@ def build_facts(report_day: date, report_dir: Path | None = None) -> dict[str, A
     for item in anomalies:
         gaps.append(item)
 
+    events = load_events_block(report_day)
+    if events.get("error"):
+        gaps.append({
+            "kind": "events_config_invalid",
+            "label": "已知事件配置无效",
+            "detail": events["error"],
+        })
+
     batch = load_batch_status()
     if batch and batch.get("status") not in {"success", "ok"}:
         gaps.append({
@@ -277,6 +307,7 @@ def build_facts(report_day: date, report_dir: Path | None = None) -> dict[str, A
         "freshness_summary": _freshness_summary(rows),
         "metrics": metrics,
         "rules": rules,
+        "events": events,
         "previous": load_previous_report(report_day, report_dir),
         "gaps": gaps,
         "charts": _chart_series(payload, report_day, _rrp_zero(rules)),
