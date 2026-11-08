@@ -173,3 +173,73 @@ def test_h41_narrative_degrades_without_detail() -> None:
         {"h41_detail": {"error": "H.4.1 明细观测不足两周"}}, -5.0
     )
     assert lines[0].startswith("H.4.1 明细不可用")
+
+
+# ── 缺口分类：等发布 vs 需核查 ──────────────────────────────────────────
+def _series_gap(code: str) -> dict[str, object]:
+    return {
+        "kind": "series_lagged",
+        "series": code,
+        "label": "美元指数",
+        "expected_asof": "2026-11-06",
+        "actual_asof": "2026-11-05",
+        "detail": "比矩阵下限滞后 1 天",
+    }
+
+
+def test_gap_classification_uses_quality_flags_not_dataset_allowlist() -> None:
+    from chronoforge.report.freshness import classify_gaps
+
+    gaps = [_series_gap("DXY"), _series_gap("SPX")]
+    classify_gaps(gaps, {"YAHOO:DX-Y.NYB:OHLCV:1d"})
+    assert [g["category"] for g in gaps] == ["needs_check", "await_release"]
+    assert len(gaps) == 2  # 分类不删除任何条目
+    assert "上游" in str(gaps[0]["next_step"])
+    assert "等待下一次官方发布" in str(gaps[1]["next_step"])
+
+
+def test_gap_classification_without_flags_treats_lag_as_awaiting_release() -> None:
+    from chronoforge.report.freshness import classify_gaps
+
+    gaps = [_series_gap("DXY")]
+    classify_gaps(gaps, set())
+    assert gaps[0]["category"] == "await_release"
+
+
+def test_gap_narrative_keeps_both_categories_and_next_steps() -> None:
+    from chronoforge.report.freshness import classify_gaps
+
+    gaps = [
+        _series_gap("SPX"),
+        {
+            "kind": "source_anomaly",
+            "dataset_id": "YAHOO:DX-Y.NYB:OHLCV:1d",
+            "count": 1,
+            "last_at": "2026-11-08T13:08:34Z",
+            "detail": "reasons={'invalid_bar': 1}",
+        },
+        {
+            "kind": "batch_status",
+            "status": "partial",
+            "finished_at": "2026-11-08T13:14:50Z",
+            "exit_code": 1,
+            "detail": "最近一次数据更新批次非成功态",
+        },
+    ]
+    classify_gaps(gaps, {"YAHOO:DX-Y.NYB:OHLCV:1d"})
+    facts = {
+        "freshness_summary": {"core_ok": 7, "core_total": 7, "total": 17,
+                              "ok": 16, "lagged": 1, "missing": 0},
+        "batch_status": {"status": "partial", "finished_at": "2026-11-08T13:14:50Z",
+                         "exit_code": 1},
+        "gaps": gaps,
+    }
+    lines = narrative._gap_bullets(facts)
+    joined = "\n".join(lines)
+    assert "未到发布时点（正常）：1 项。" in joined
+    assert "源侧数据异常或批次问题（需查）：2 项。" in joined
+    assert joined.count("下一步：") == 3
+    assert "YAHOO:DX-Y.NYB:OHLCV:1d" in joined
+    assert "等待下一次官方发布" in joined
+    assert "检查 var/log/daily_batch.log" in joined
+

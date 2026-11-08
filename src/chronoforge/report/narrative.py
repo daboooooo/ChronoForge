@@ -9,6 +9,8 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any
 
+from chronoforge.report.freshness import GAP_CATEGORY_LABEL
+
 KNOWLEDGE = {
     "REL_010": "SRF 使用量 >3 B 表示银行开始被动向美联储求助，准备金压力显性化",
     "REL_015": "其他项目不变时 ΔR≈−ΔTGA，TGA 上升具有抽水效应",
@@ -556,6 +558,29 @@ def _novelty_bullets(facts: dict[str, Any]) -> list[str]:
     ]
 
 
+def _gap_text(gap: dict[str, Any]) -> str:
+    kind = str(gap.get("kind") or "")
+    if kind == "source_anomaly":
+        return (
+            f"{gap['dataset_id']} 最近 {gap['count']} 条质量标记（{gap['last_at']}）"
+            f"；{gap.get('detail')}"
+        )
+    if kind in {"series_lagged", "series_missing"}:
+        head = f"{gap.get('label')}（{gap.get('series')}）"
+        if kind == "series_missing":
+            return f"{head} 缺失，矩阵下限 {gap.get('expected_asof')}"
+        return (
+            f"{head} 实际 as-of {gap.get('actual_asof')}，"
+            f"矩阵下限 {gap.get('expected_asof')}；{gap.get('detail')}"
+        )
+    if kind == "batch_status":
+        return (
+            f"批次状态 {gap.get('status')}（{gap.get('finished_at')}，"
+            f"exit {gap.get('exit_code')}）：{gap.get('detail')}"
+        )
+    return f"{gap.get('label') or kind}：{gap.get('detail')}"
+
+
 def _gap_bullets(facts: dict[str, Any]) -> list[str]:
     summary = facts["freshness_summary"]
     lines = [
@@ -571,15 +596,20 @@ def _gap_bullets(facts: dict[str, Any]) -> list[str]:
         )
     else:
         lines.append("未找到批次状态文件 var/run/daily_update.json；报告以各序列实际 as-of 为准。")
+
+    grouped: dict[str, list[dict[str, Any]]] = {"await_release": [], "needs_check": []}
     for gap in facts.get("gaps", []):
-        if gap.get("kind") == "source_anomaly":
-            lines.append(
-                f"源侧异常：{gap['dataset_id']} 最近 {gap['count']} 条（{gap['last_at']}）"
-                f"；{gap.get('detail')}"
-            )
-        elif gap.get("kind") in {"batch_stale", "batch_status_missing",
-                                 "data_build_error"}:
-            lines.append(f"{gap.get('label')}：{gap.get('detail')}")
+        grouped.setdefault(str(gap.get("category") or "needs_check"), []).append(gap)
+    lines.append("缺口按事实分两类，两类都保留展示：")
+    for key in ("await_release", "needs_check"):
+        label = GAP_CATEGORY_LABEL[key]
+        items = grouped[key]
+        if not items:
+            lines.append(f"{label}：无。")
+            continue
+        lines.append(f"{label}：{len(items)} 项。")
+        for gap in items:
+            lines.append(f"{_gap_text(gap)}；下一步：{gap.get('next_step')}")
     if not any(g.get("kind") == "source_anomaly" for g in facts.get("gaps", [])):
         lines.append("最近 30 天未记录 Q-NORM-SRC-ANOMALY 源侧异常。")
     return lines

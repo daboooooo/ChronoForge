@@ -28,27 +28,58 @@ class SeriesSpec:
     group: str
     rule: str
     core: bool = False
+    datasets: tuple[str, ...] = ()
 
 
 SERIES_SPECS: tuple[SeriesSpec, ...] = (
-    SeriesSpec("WRESBAL", "准备金余额（周均）", "H.4.1（周）", "weekly_h41", True),
-    SeriesSpec("WALCL", "美联储总资产", "H.4.1（周）", "weekly_h41"),
-    SeriesSpec("WTREGEN", "TGA（周均）", "H.4.1（周）", "weekly_h41", True),
-    SeriesSpec("TGA_DAILY", "TGA（日值）", "TGA", "trading_lag_2", True),
-    SeriesSpec("RRPONTSYD", "ON RRP", "资金面", "trading_lag_1", True),
-    SeriesSpec("EFFR", "EFFR", "资金面", "trading_lag_2", True),
-    SeriesSpec("SOFR", "SOFR", "资金面", "trading_lag_2", True),
-    SeriesSpec("IORB", "IORB", "资金面", "trading_lag_1"),
-    SeriesSpec("SRF", "SRF 用量", "资金面", "trading_lag_1", True),
-    SeriesSpec("DGS10", "10Y 名义利率", "H.15（日）", "trading_lag_2"),
-    SeriesSpec("DGS2", "2Y 名义利率", "H.15（日）", "trading_lag_2"),
-    SeriesSpec("DFII10", "10Y 实际利率", "H.15（日）", "trading_lag_2"),
-    SeriesSpec("T10YIE", "10Y 盈亏平衡", "H.15（日）", "trading_lag_2"),
-    SeriesSpec("VIXCLS", "VIX（FRED）", "行情", "trading_lag_2"),
-    SeriesSpec("DXY", "美元指数", "行情", "trading_lag_1"),
-    SeriesSpec("SPX", "S&P 500", "行情", "trading_lag_1"),
-    SeriesSpec("TLT", "TLT（20Y+ 美债 ETF）", "行情", "trading_lag_1"),
+    SeriesSpec("WRESBAL", "准备金余额（周均）", "H.4.1（周）", "weekly_h41", True,
+               ("fred_series_WRESBAL",)),
+    SeriesSpec("WALCL", "美联储总资产", "H.4.1（周）", "weekly_h41",
+               datasets=("fred_series_WALCL",)),
+    SeriesSpec("WTREGEN", "TGA（周均）", "H.4.1（周）", "weekly_h41", True,
+               ("fred_series_WTREGEN",)),
+    SeriesSpec("TGA_DAILY", "TGA（日值）", "TGA", "trading_lag_2", True,
+               ("treasury_fiscal_dts_operating_cash_balance",)),
+    SeriesSpec("RRPONTSYD", "ON RRP", "资金面", "trading_lag_1", True,
+               ("fred_series_RRPONTSYD",)),
+    SeriesSpec("EFFR", "EFFR", "资金面", "trading_lag_2", True,
+               ("fred_series_EFFR",)),
+    SeriesSpec("SOFR", "SOFR", "资金面", "trading_lag_2", True,
+               ("fred_series_SOFR",)),
+    SeriesSpec("IORB", "IORB", "资金面", "trading_lag_1",
+               datasets=("fred_series_IORB",)),
+    SeriesSpec("SRF", "SRF 用量", "资金面", "trading_lag_1", True,
+               ("nyfed_repo_srf_usage",)),
+    SeriesSpec("DGS10", "10Y 名义利率", "H.15（日）", "trading_lag_2",
+               datasets=("fred_series_DGS10",)),
+    SeriesSpec("DGS2", "2Y 名义利率", "H.15（日）", "trading_lag_2",
+               datasets=("fred_series_DGS2",)),
+    SeriesSpec("DFII10", "10Y 实际利率", "H.15（日）", "trading_lag_2",
+               datasets=("fred_series_DFII10",)),
+    SeriesSpec("T10YIE", "10Y 盈亏平衡", "H.15（日）", "trading_lag_2",
+               datasets=("fred_series_T10YIE",)),
+    SeriesSpec("VIXCLS", "VIX（FRED）", "行情", "trading_lag_2",
+               datasets=("fred_series_VIXCLS",)),
+    SeriesSpec("DXY", "美元指数", "行情", "trading_lag_1",
+               datasets=("YAHOO:DX-Y.NYB:OHLCV:1d",)),
+    SeriesSpec("SPX", "S&P 500", "行情", "trading_lag_1",
+               datasets=("YAHOO:^GSPC:OHLCV:1d",)),
+    SeriesSpec("TLT", "TLT（20Y+ 美债 ETF）", "行情", "trading_lag_1",
+               datasets=("YAHOO:TLT:OHLCV:1d",)),
 )
+
+# 缺口分类：两类都显示，只影响读者该「等」还是该「查」。
+GAP_CATEGORY_LABEL = {
+    "await_release": "未到发布时点（正常）",
+    "needs_check": "源侧数据异常或批次问题（需查）",
+}
+
+
+def series_datasets(code: object) -> tuple[str, ...]:
+    for spec in SERIES_SPECS:
+        if spec.code == code:
+            return spec.datasets
+    return ()
 
 
 @dataclass(frozen=True)
@@ -150,4 +181,50 @@ def build_gaps(rows: list[FreshnessRow]) -> list[dict[str, object]]:
             "actual_asof": row.actual.isoformat() if row.actual else None,
             "detail": row.note,
         })
+    return gaps
+
+
+def _next_step(category: str, gap: dict[str, object]) -> str:
+    if category == "await_release":
+        expected = gap.get("expected_asof") or "矩阵下限"
+        if gap.get("kind") == "series_missing":
+            return f"确认该序列是否已注册采集；按矩阵下限 {expected} 应已可得"
+        return f"等待下一次官方发布（矩阵下限 {expected}），无需人工干预"
+    kind = str(gap.get("kind") or "")
+    if kind == "source_anomaly":
+        return (
+            "检查上游返回是否已修正；本地已丢弃坏行并保留上一有效观测，"
+            "必要时重跑该数据集并核对 canonical"
+        )
+    if kind == "events_config_invalid":
+        return "修正 config/events/known_events.yaml 后重新生成报告"
+    if kind.startswith("batch_"):
+        return "检查 var/log/daily_batch.log 与 run_log 中的 PARTIAL/FAILED 数据集及退出码"
+    return "检查上游与批次日志，确认是否为一次性异常"
+
+
+def classify_gaps(
+    gaps: list[dict[str, object]], anomaly_datasets: set[str]
+) -> list[dict[str, object]]:
+    """按事实把缺口分成「等发布」与「需核查」两类。
+
+    判定依据只有两条：
+    - 该缺口本身来自 Q-NORM-SRC-ANOMALY（source_anomaly），或同一序列的
+      数据集在窗口内出现过该质量标记 → 需核查；
+    - 其余按 as-of 矩阵滞后/缺失 → 未到发布时点。
+    分类不删除任何条目。
+    """
+    for gap in gaps:
+        kind = str(gap.get("kind") or "")
+        if kind == "source_anomaly":
+            category = "needs_check"
+        elif kind.startswith("series_"):
+            linked = series_datasets(gap.get("series"))
+            category = "needs_check" if any(d in anomaly_datasets for d in linked) \
+                else "await_release"
+        else:
+            category = "needs_check"
+        gap["category"] = category
+        gap["category_label"] = GAP_CATEGORY_LABEL[category]
+        gap["next_step"] = _next_step(category, gap)
     return gaps

@@ -23,7 +23,7 @@ from chronoforge.report.events import (
     load_known_events,
     summarize_events,
 )
-from chronoforge.report.freshness import build_freshness, build_gaps
+from chronoforge.report.freshness import build_freshness, build_gaps, classify_gaps
 from chronoforge.report.metrics import compute_metrics, to_pairs
 from chronoforge.report.rules import backtest_rules
 
@@ -294,6 +294,8 @@ def build_facts(report_day: date, report_dir: Path | None = None) -> dict[str, A
             "actual_asof": None,
             "detail": "未找到 var/run/daily_update.json；报告以各序列 as-of 为准",
         })
+
+    classify_gaps(gaps, {str(item["dataset_id"]) for item in anomalies})
 
     return {
         "schema_version": "1.0",
