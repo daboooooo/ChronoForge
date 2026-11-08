@@ -35,7 +35,7 @@ import httpx
 import structlog
 
 from chronoforge.config.settings import Settings
-from chronoforge.config.update_schedule import publish_time_utc
+from chronoforge.config.update_schedule import TREASURY_DTS_RELEASE_TIME_UTC
 from chronoforge.connectors.base import (
     CapabilityMatrix,
     DataConnector,
@@ -587,12 +587,12 @@ class TreasuryFiscalConnector(DataConnector):
         src_line: int,
         fetched_at: datetime | None,
     ) -> dict[str, Any]:
-        publish = publish_time_utc("treasury_fiscal")
+        publish_hour, publish_minute = TREASURY_DTS_RELEASE_TIME_UTC
         release_time, release_source = _release_time(
             record_date,
             fetched_at,
-            publish_hour=publish.hour,
-            publish_minute=publish.minute,
+            publish_hour=publish_hour,
+            publish_minute=publish_minute,
         )
         return {
             "schema_version": "1.0",

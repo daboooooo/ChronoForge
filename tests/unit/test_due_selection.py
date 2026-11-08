@@ -3,8 +3,8 @@
 覆盖 select_due_datasets 的到期谓词：
 - 从未成功（无 last_success_time / 不可解析）→ 到期（补历史）
 - frequency 未知（空值 / tick / 未注册写法）→ 每轮到期（fail-open）
-- now − last_success ≥ cadence → 到期（含边界等值）
-- 未到期 → skipped 且 next_due_at = last_success + cadence
+- 小时级对齐 UTC 周期网格；日频及以上统一对齐每日批次 07:40 UTC
+- 未到期 → skipped 且 next_due_at 正确
 - 时间字符串兼容 SQLite datetime('now') 空格格式与 ISO Z 后缀
 """
 
@@ -49,7 +49,7 @@ class TestParseUtc:
 
 
 class TestNextDueAt:
-    """下次到期时刻：小时级对齐 UTC 整点网格，日频及以上对齐源发布时刻。"""
+    """下次到期时刻：小时级对齐 UTC 整点网格，日频及以上对齐每日批次。"""
 
     @pytest.mark.parametrize(
         ("last", "expected"),
@@ -63,7 +63,7 @@ class TestNextDueAt:
     )
     def test_hourly_aligns_to_next_hour(self, last: datetime, expected: datetime):
         """1h 周期：每小时整点更新（跨日正确进位）。"""
-        assert _next_due_at(last, 3600, "binance_spot") == expected
+        assert _next_due_at(last, 3600) == expected
 
     @pytest.mark.parametrize(
         ("last", "expected"),
@@ -77,62 +77,54 @@ class TestNextDueAt:
     )
     def test_4h_aligns_to_utc_grid(self, last: datetime, expected: datetime):
         """4h 周期：00 时起每隔 4 小时更新。"""
-        assert _next_due_at(last, 14400, "binance_spot") == expected
+        assert _next_due_at(last, 14400) == expected
 
-    def test_sub_daily_ignores_source_publish_time(self):
-        """小时级不受源发布时刻影响（FRED 与 Binance 同规则）。"""
-        last = datetime(2026, 9, 29, 10, 30)
-        assert _next_due_at(last, 3600, "fred") == datetime(2026, 9, 29, 11, 0)
-        assert _next_due_at(last, 3600, "yahoo") == datetime(2026, 9, 29, 11, 0)
-
-    def test_fred_daily_after_publish_rolls_to_next_day(self):
-        """FRED 08:10 UTC 发布：08:15 已成功 → 次日 08:10。"""
-        last = datetime(2026, 9, 29, 8, 15)
-        assert _next_due_at(last, 86400, "fred") == datetime(2026, 9, 30, 8, 10)
-
-    def test_fred_daily_before_publish_stays_same_day(self):
-        """FRED 08:10 UTC 发布：00:30 已成功（发布前）→ 当日 08:10 仍会再抓。"""
+    def test_batch_is_0740_utc_for_all_daily_sources(self):
+        """日频及以上统一对齐 07:40 UTC（北京 15:40），与数据源无关。"""
         last = datetime(2026, 9, 29, 0, 30)
-        assert _next_due_at(last, 86400, "fred") == datetime(2026, 9, 29, 8, 10)
+        assert _next_due_at(last, 86400) == datetime(2026, 9, 29, 7, 40)
 
-    def test_binance_daily_at_utc_midnight(self):
-        """Binance 日线 00:00 UTC（北京 08:00）收线。"""
-        last = datetime(2026, 9, 29, 0, 5)
-        assert _next_due_at(last, 86400, "binance_spot") == datetime(2026, 9, 30, 0, 0)
-        last_early = datetime(2026, 9, 28, 20, 0)
-        assert _next_due_at(last_early, 86400, "ccxt") == datetime(2026, 9, 29, 0, 0)
+    def test_daily_after_batch_rolls_to_next_day(self):
+        """批次 07:40 之后已成功 → 次日 07:40。"""
+        last = datetime(2026, 9, 29, 8, 15)
+        assert _next_due_at(last, 86400) == datetime(2026, 9, 30, 7, 40)
 
-    def test_default_source_aligned_to_beijing_midnight(self):
-        """未配置数据源：北京 00:00 = 16:00 UTC。"""
-        last = datetime(2026, 9, 29, 11, 0)
-        assert _next_due_at(last, 86400, "yahoo") == datetime(2026, 9, 29, 16, 0)
+    def test_daily_exactly_at_batch_rolls_to_next_day(self):
+        """批次时刻当刻已成功 → 次日 07:40（同批次只补一次）。"""
+        last = datetime(2026, 9, 29, 7, 40)
+        assert _next_due_at(last, 86400) == datetime(2026, 9, 30, 7, 40)
 
-    def test_weekly_uses_day_arithmetic(self):
-        """1W：last 日期 + 7 天的发布时刻。"""
+    def test_weekly_aligns_to_batch_day(self):
+        """1W：last 日期 + 7 天的批次时刻。"""
         last = datetime(2026, 9, 22, 10, 0)
-        assert _next_due_at(last, 604800, "fred") == datetime(2026, 9, 29, 8, 10)
+        assert _next_due_at(last, 604800) == datetime(2026, 9, 29, 7, 40)
+
+    def test_weekly_before_batch_same_day_stays_same_day(self):
+        """周频：批次前已跑过 → 当天批次时刻再补一次。"""
+        last = datetime(2026, 9, 22, 0, 30)
+        assert _next_due_at(last, 604800) == datetime(2026, 9, 22, 7, 40)
 
     def test_monthly_uses_30_day_approximation(self):
-        """1M：固定 30 天近似 + 发布时刻。"""
+        """1M：固定 30 天近似 + 批次时刻。"""
         last = datetime(2026, 8, 29, 12, 0)
-        assert _next_due_at(last, 2592000, "fred") == datetime(2026, 9, 28, 8, 10)
+        assert _next_due_at(last, 2592000) == datetime(2026, 9, 28, 7, 40)
 
 
-class TestSelectDueDatasetsPublishAlignment:
-    """发布时刻对齐对到期判定的影响（now = 2026-09-29 12:00 UTC）。"""
+class TestSelectDueDatasetsDailyBatch:
+    """每日单一批次对到期判定的影响（now = 2026-09-29 12:00 UTC）。"""
 
-    def test_fred_just_fetched_is_skipped_until_next_publish(self):
-        """FRED 日频 08:15 刚成功 → 未到期，next_due = 次日 08:10。"""
+    def test_fetched_after_batch_is_skipped_until_next_batch(self):
+        """日频 08:15 刚成功 → 未到期，next_due = 次日 07:40。"""
         due, skipped = select_due_datasets(
             [_ds("FRED:X", "1d", "fred")],
             {"FRED:X": "2026-09-29 08:15:00"},
             now=_NOW,
         )
         assert due == []
-        assert skipped[0]["next_due_at"] == datetime(2026, 9, 30, 8, 10)
+        assert skipped[0]["next_due_at"] == datetime(2026, 9, 30, 7, 40)
 
-    def test_fred_fetched_before_publish_is_due_after_publish(self):
-        """FRED 日频 00:30 成功（发布前）→ 当日 08:10 后再次到期。"""
+    def test_fetched_before_batch_is_due_after_batch(self):
+        """日频 00:30 成功（批次前）→ 当日 07:40 后再次到期。"""
         due, _ = select_due_datasets(
             [_ds("FRED:X", "1d", "fred")],
             {"FRED:X": "2026-09-29 00:30:00"},
@@ -140,102 +132,41 @@ class TestSelectDueDatasetsPublishAlignment:
         )
         assert [d["dataset_id"] for d in due] == ["FRED:X"]
 
-    def test_binance_daily_not_due_before_utc_midnight(self):
-        """Binance 日频 00:05 成功 → 当日 12:00 未到期（次日 00:00 才到期）。"""
-        due, skipped = select_due_datasets(
-            [_ds("CCXT:BTC:OHLCV:1d", "1d", "ccxt")],
-            {"CCXT:BTC:OHLCV:1d": "2026-09-29 00:05:00"},
-            now=_NOW,
-        )
-        assert due == []
-        assert skipped[0]["next_due_at"] == datetime(2026, 9, 30, 0, 0)
+    def test_all_sources_share_same_batch_time(self):
+        """fred/ccxt/yahoo/nyfed 的日频到期时刻一致，不存在分散缝隙。"""
+        datasets = [
+            _ds("FRED:X", "1d", "fred"),
+            _ds("CCXT:BTC:OHLCV:1d", "1d", "ccxt"),
+            _ds("YAHOO:AAPL:OHLCV:1d", "1d", "yahoo"),
+            _ds("nyfed_repo_srf_usage", "1d", "nyfed"),
+        ]
+        success = {d["dataset_id"]: "2026-09-28 20:00:00" for d in datasets}
+        due, _ = select_due_datasets(datasets, success, now=_NOW)
+        assert [d["dataset_id"] for d in due] == [d["dataset_id"] for d in datasets]
 
-    def test_equal_boundary_is_due_inclusive(self):
-        """now == 下次到期时刻 → 到期（>= 语义）。"""
+    def test_equal_batch_boundary_is_due_inclusive(self):
+        """now == 07:40 → 到期（>= 语义）。"""
         due, _ = select_due_datasets(
             [_ds("YAHOO:AAPL:OHLCV:1d", "1d", "yahoo")],
             {"YAHOO:AAPL:OHLCV:1d": "2026-09-28 20:00:00"},
-            now=datetime(2026, 9, 29, 16, 0, 0),
+            now=datetime(2026, 9, 29, 7, 40, 0),
         )
         assert [d["dataset_id"] for d in due] == ["YAHOO:AAPL:OHLCV:1d"]
 
+    def test_weekly_soma_aligns_to_batch_day(self):
+        """SOMA 周频：上周四批次后成功 → 本周四 07:40。"""
+        last = datetime(2026, 9, 17, 7, 45)
+        assert _next_due_at(last, 604800) == datetime(2026, 9, 24, 7, 40)
 
-class TestNyfedPublishAlignment:
-    """nyfed 发布时刻：SOMA 周四 23:00 UTC / SRF 操作日 22:00 UTC。
+    def test_weekly_soma_at_batch_rolls_to_next_week(self):
+        """SOMA 周频：周四 07:40 当刻成功 → 下周四 07:40。"""
+        last = datetime(2026, 9, 24, 7, 40)
+        assert _next_due_at(last, 604800) == datetime(2026, 10, 1, 7, 40)
 
-    修复前 update_schedule 无 nyfed 条目 → 落到默认 16:00 UTC（北京次日
-    00:00），SOMA 周四 16:00–23:00 之间（源尚未发布）会被判定到期并抓取
-    上一周的旧快照，推进 last_success_time 后整周滞后一天；SRF 在 16:00
-    就会抓到操作尚未执行的占位行。两档发布时刻都必须按 dataset_id 生效。
-    """
-
-    def test_nyfed_source_fallback_is_2200_not_default_1600(self):
-        """未配置数据集级覆盖时，nyfed 源级回退 22:00 UTC（不是默认 16:00）。"""
-        last = datetime(2026, 9, 29, 15, 23)
-        assert _next_due_at(last, 86400, "nyfed") == datetime(2026, 9, 29, 22, 0)
-
-    def test_soma_same_day_before_release_waits_for_thursday_2300(self):
-        """SOMA 周频：周四 16:00 已跑过（发布前）→ 当天 23:00 再到期。"""
-        last = datetime(2026, 9, 24, 16, 0)  # 周四，SOMA 尚未发布
-        assert _next_due_at(last, 604800, "nyfed", "nyfed_soma_holdings") == datetime(
-            2026, 9, 24, 23, 0
-        )
-
-    def test_soma_after_release_rolls_to_next_thursday(self):
-        """SOMA 周频：上周四 23:30 已抓到 → 下周四 23:00。"""
-        last = datetime(2026, 9, 17, 23, 30)
-        assert _next_due_at(last, 604800, "nyfed", "nyfed_soma_holdings") == datetime(
-            2026, 9, 24, 23, 0
-        )
-
-    @pytest.mark.parametrize(
-        "last",
-        [datetime(2026, 9, 24, 23, 0), datetime(2026, 9, 24, 23, 30)],
-    )
-    def test_soma_at_or_after_release_rolls_to_next_week(self, last: datetime):
-        """发布时刻当刻及之后成功 → 下一个周四 23:00（同日对齐只补一次）。"""
-        assert _next_due_at(last, 604800, "nyfed", "nyfed_soma_holdings") == datetime(
-            2026, 10, 1, 23, 0
-        )
-
-    def test_srf_same_day_before_release_waits_for_2200(self):
-        """SRF 日频：15:23（操作已执行但未公布）→ 当天 22:00 才到期。"""
-        last = datetime(2026, 9, 29, 15, 23)
-        assert _next_due_at(last, 86400, "nyfed", "nyfed_repo_srf_usage") == datetime(
-            2026, 9, 29, 22, 0
-        )
-
-    def test_srf_after_release_rolls_to_next_day(self):
-        """SRF 日频：22:05 已抓到当日定稿值 → 次日 22:00。"""
-        last = datetime(2026, 9, 29, 22, 5)
-        assert _next_due_at(last, 86400, "nyfed", "nyfed_repo_srf_usage") == datetime(
-            2026, 9, 30, 22, 0
-        )
-
-    def test_soma_not_due_between_1600_and_2300(self):
-        """周四 20:00：默认 16:00 会误判到期，SOMA 23:00 语义应跳过。"""
-        due, skipped = select_due_datasets(
-            [_ds("nyfed_soma_holdings", "1W", "nyfed")],
-            {"nyfed_soma_holdings": "2026-09-17 23:30:00"},
-            now=datetime(2026, 9, 24, 20, 0),
-        )
-        assert due == []
-        assert skipped[0]["next_due_at"] == datetime(2026, 9, 24, 23, 0)
-
-    def test_srf_not_due_before_release_but_due_after(self):
-        """SRF 15:23 成功：21:30 未到期、22:10 到期（当日定稿值）。"""
-        datasets = [_ds("nyfed_repo_srf_usage", "1d", "nyfed")]
-        success = {"nyfed_repo_srf_usage": "2026-09-29 15:23:00"}
-        due, skipped = select_due_datasets(
-            datasets, success, now=datetime(2026, 9, 29, 21, 30)
-        )
-        assert due == []
-        assert skipped[0]["next_due_at"] == datetime(2026, 9, 29, 22, 0)
-
-        due_after, _ = select_due_datasets(
-            datasets, success, now=datetime(2026, 9, 29, 22, 10)
-        )
-        assert [d["dataset_id"] for d in due_after] == ["nyfed_repo_srf_usage"]
+    def test_srf_daily_after_batch_rolls_to_next_day(self):
+        """SRF 日频：07:45 已抓到当日定稿值 → 次日 07:40。"""
+        last = datetime(2026, 9, 29, 7, 45)
+        assert _next_due_at(last, 86400) == datetime(2026, 9, 30, 7, 40)
 
 
 class TestSelectDueDatasets:
@@ -282,7 +213,7 @@ class TestSelectDueDatasets:
         assert [d["dataset_id"] for d in due] == ["hourly"]
 
     def test_overdue_is_due(self):
-        """日频 dataset 已 25 小时未成功 → 到期。"""
+        """日频 dataset 在批次后仍未成功 → 到期。"""
         datasets = [_ds("daily", "1d")]
         due, skipped = select_due_datasets(
             datasets, {"daily": "2026-09-28 11:00:00"}, now=_NOW
@@ -294,7 +225,7 @@ class TestSelectDueDatasets:
         """混合批次：1h 到期、1d 未到期、1M 到期、tick 到期、无记录到期。"""
         datasets = [
             _ds("kline_1h", "1h"),       # 2h 前成功 → 到期
-            _ds("fred_daily", "1d"),     # 1h 前成功 → 跳过
+            _ds("fred_daily", "1d"),     # 1h 前成功（批次后）→ 跳过
             _ds("fred_monthly", "1M"),   # 31 天前成功 → 到期
             _ds("trades", "tick"),       # 事件型 → 到期
             _ds("brand_new", "1d"),      # 从无成功 → 到期
