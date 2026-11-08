@@ -19,6 +19,7 @@ from chronoforge.cli._wiring import open_meta
 from chronoforge.config.settings import Settings
 from chronoforge.report.freshness import build_freshness, build_gaps
 from chronoforge.report.metrics import compute_metrics, to_pairs
+from chronoforge.report.rules import backtest_rules
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 EXPORT_DATA_PATH = PROJECT_ROOT / "visualization" / "export_data.py"
@@ -87,7 +88,8 @@ def _source_anomalies(report_day: date, window_days: int = 30) -> list[dict[str,
     return out
 
 
-def _chart_series(payload: dict[str, Any], report_day: date) -> dict[str, Any]:
+def _chart_series(payload: dict[str, Any], report_day: date,
+                  rrp_zero: bool = False) -> dict[str, Any]:
     """图表数据子集（沿用站点现有序列形状，只做裁剪/换算）。"""
     hist_start = report_day - timedelta(days=365 * 5)
 
@@ -159,8 +161,8 @@ def _chart_series(payload: dict[str, Any], report_day: date) -> dict[str, Any]:
         }
     return {
         "reserve": reserve_chart,
-        "three_pool": pool_chart,
-        "decomp": decomp_chart,
+        "three_pool": {**pool_chart, "onrrp_zero": rrp_zero},
+        "decomp": {**decomp_chart, "onrrp_zero": rrp_zero},
         "funding": funding_chart,
         "tga_daily": daily_chart,
         "tga_forecast": {"run_date": fc.get("run_date"), "scenarios": scenarios},
@@ -182,11 +184,19 @@ def _freshness_summary(rows: list[Any]) -> dict[str, Any]:
     }
 
 
+def _rrp_zero(rules: dict[str, Any]) -> bool:
+    for row in rules.get("rows", []):
+        if row.get("id") == "BG_ONRRP_ZERO":
+            return bool(row.get("current", {}).get("active"))
+    return False
+
+
 def build_facts(report_day: date) -> dict[str, Any]:
     payload = build_payload()
     cutoffs = payload.get("cutoffs", {})
     rows = build_freshness(cutoffs, report_day)
     metrics = compute_metrics(payload)
+    rules = backtest_rules(payload, report_day)
     gaps = build_gaps(rows)
     anomalies = _source_anomalies(report_day)
     for item in anomalies:
@@ -231,8 +241,9 @@ def build_facts(report_day: date) -> dict[str, Any]:
         "freshness": [r.to_dict() for r in rows],
         "freshness_summary": _freshness_summary(rows),
         "metrics": metrics,
+        "rules": rules,
         "gaps": gaps,
-        "charts": _chart_series(payload, report_day),
+        "charts": _chart_series(payload, report_day, _rrp_zero(rules)),
         "source": {
             "payload": "visualization/export_data.py::build_payload",
             "quality_flags": "meta/chronoforge.db::quality_flags",

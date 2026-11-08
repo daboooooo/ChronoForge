@@ -158,6 +158,7 @@ def render_markdown(
         lines.append("")
         lines.extend(f"- {line}" for line in section["bullets"])
         lines.append("")
+    lines.extend(_rules_md(facts))
     lines.append("## 新鲜度矩阵")
     lines.append("")
     lines.append("| 序列 | 分组 | 矩阵下限 | 实际 as-of | 状态 | 说明 |")
@@ -308,23 +309,24 @@ _JS_CHARTS = r"""
                 {yAxis:c.reserve.thresholds[1],lineStyle:{color:C.yellow,type:"dashed"}}]}}]
     }));
   }
-  // 2) 三池结构
+  // 2) 两池/三池结构
   if(c.three_pool&&c.three_pool.t.length){
     const p=c.three_pool;
-    init("chart-pool",base({
-      yAxis:yVal({name:"T"}),
-      series:[
-        {name:"准备金",type:"line",showSymbol:false,lineStyle:{color:C.green,width:1.4},
-         areaStyle:{color:"rgba(61,220,151,.10)"},data:pairs(p.t,p.reserve)},
-        {name:"TGA",type:"line",showSymbol:false,lineStyle:{color:C.orange,width:1.4},data:pairs(p.t,p.tga)},
-        {name:"ON RRP",type:"line",showSymbol:false,lineStyle:{color:C.cyan,width:1.2},data:pairs(p.t,p.onrrp)}
-      ]
-    }));
+    const series=[
+      {name:"准备金",type:"line",showSymbol:false,lineStyle:{color:C.green,width:1.4},
+       areaStyle:{color:"rgba(61,220,151,.10)"},data:pairs(p.t,p.reserve)},
+      {name:"TGA",type:"line",showSymbol:false,lineStyle:{color:C.orange,width:1.4},data:pairs(p.t,p.tga)}
+    ];
+    if(!p.onrrp_zero) series.push({name:"ON RRP",type:"line",showSymbol:false,
+      lineStyle:{color:C.cyan,width:1.2},data:pairs(p.t,p.onrrp)});
+    init("chart-pool",base({yAxis:yVal({name:"T"}),series:series}));
   }
-  // 3) 周度分解
+  // 3) 周度分解（RRP 归零时不再占一根恒零柱子）
   if(c.decomp&&c.decomp.t.length){
-    const p=c.decomp, keys=[["dR","ΔR",C.blue],["dA","ΔA",C.grey],["tga","TGA",C.orange],
-                            ["onrrp","ON RRP",C.cyan],["cash","现金",C.purple],["other","其他",C.yellow]];
+    const p=c.decomp;
+    const keys=[["dR","ΔR",C.blue],["dA","ΔA",C.grey],["tga","TGA",C.orange],
+                ["cash","现金",C.purple],["other","其他",C.yellow]];
+    if(!p.onrrp_zero) keys.splice(3,0,["onrrp","ON RRP",C.cyan]);
     init("chart-decomp",base({
       xAxis:xCat(p.t),
       yAxis:yVal({name:"B"}),
@@ -415,6 +417,81 @@ def _freshness_html(facts: dict[str, Any]) -> str:
     )
 
 
+def _rule_frequency(row: dict[str, Any]) -> str:
+    f = row.get("frequency", {})
+    return (f"{f.get('triggers', 0)}/{f.get('total', 0)} {f.get('unit', '')}"
+            f"（{f.get('pct', 0)}%，{f.get('per_year', 0)}/年）")
+
+
+def _rule_corroboration(row: dict[str, Any]) -> str:
+    c = row.get("corroboration", {})
+    if row.get("kind") == "background":
+        return str(c.get("note") or "状态型，不作独立警报")
+    lift = f"；lift {c.get('lift')}×" if c.get("lift") else ""
+    return (f"{c.get('indicator')}：{c.get('hits')}/{c.get('n')}"
+            f"（{c.get('pct')}%），基础 {c.get('base_pct')}%{lift}")
+
+
+def _rule_current(row: dict[str, Any]) -> str:
+    cur = row.get("current", {})
+    value = cur.get("value") or "缺失"
+    detail = cur.get("detail") or ""
+    if row.get("kind") == "background":
+        head = "状态中" if cur.get("active") else "未处于该状态"
+    else:
+        head = "触发" if cur.get("active") else "未触发"
+    return f"{head} · {value}" + (f"；{detail}" if detail else "")
+
+
+def _rules_md(facts: dict[str, Any]) -> list[str]:
+    rules = facts.get("rules", {})
+    rows = rules.get("rows", [])
+    lines = [
+        "## 风险规则回测",
+        "",
+        f"回测窗口：近 {rules.get('window_years', 2)} 年；"
+        f"数据截至 {rules.get('asof') or '缺失'}。"
+        "频率过高的规则只在状态转换时提示，不逐日告警。",
+        "",
+        "| 规则 | 类型 | 触发条件 | 近两年触发 | 区分度（触发时对应 / 基础） | 当前 |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for row in rows:
+        kind = "事件" if row.get("kind") == "event" else "背景"
+        lines.append(
+            f"| {row.get('label')} | {kind} | {row.get('condition')} | "
+            f"{_rule_frequency(row)} | {_rule_corroboration(row)} | {_rule_current(row)} |"
+        )
+    lines.append("")
+    return lines
+
+
+def _rules_html(facts: dict[str, Any]) -> str:
+    rules = facts.get("rules", {})
+    rows = rules.get("rows", [])
+    if not rows:
+        return '<div class="card muted">规则回测不可用（数据链路缺口）。</div>'
+    body: list[str] = []
+    for row in rows:
+        kind = "事件" if row.get("kind") == "event" else "背景"
+        tone = "danger" if row.get("current", {}).get("active") and row.get("kind") == "event" else ""
+        body.append(
+            f"<tr><td>{_esc(row.get('label'))}</td><td>{kind}</td>"
+            f"<td class=\"muted\">{_esc(row.get('condition'))}</td>"
+            f"<td class=\"st\">{_esc(_rule_frequency(row))}</td>"
+            f"<td class=\"muted\">{_esc(_rule_corroboration(row))}</td>"
+            f"<td><span class=\"st {tone}\">{_esc(_rule_current(row))}</span></td></tr>"
+        )
+    return (
+        f'<div class="card"><div class="sect" style="border:0;padding:0;background:transparent">'
+        f"<span class=\"muted\">回测窗口近 {rules.get('window_years', 2)} 年；"
+        f"数据截至 {_esc(rules.get('asof') or '缺失')}。频率过高的规则只在状态转换时提示。</span>"
+        f'</div><table><thead><tr><th>规则</th><th>类型</th><th>触发条件</th>'
+        f"<th>近两年触发</th><th>区分度（触发时对应 / 基础）</th><th>当前</th>"
+        f'</tr></thead><tbody>{"".join(body)}</tbody></table></div>'
+    )
+
+
 def _sections_html(narrative: dict[str, Any]) -> str:
     blocks: list[str] = []
     for section in narrative["sections"]:
@@ -446,13 +523,17 @@ def render_html(
     batch = facts.get("batch_status") or {}
     batch_status = str(batch.get("status", "缺失"))
     batch_tone = "ok" if batch_status in {"success", "ok"} else "warn"
+    decomp_zero = bool(charts["decomp"].get("onrrp_zero"))
+    decomp_title = ("周度流动性分解（近 13 周，B；ON RRP 已归零，不占柱）"
+                    if decomp_zero else "周度流动性分解（近 13 周，B）")
     chart_cards = "".join([
         _chart_card("准备金水位（5 年，T）", "chart-reserve",
                     bool(charts["reserve"]["t"])),
-        _chart_card("三池结构（2 年，T）", "chart-pool",
-                    bool(charts["three_pool"]["t"])),
-        _chart_card("周度流动性分解（近 13 周，B）", "chart-decomp",
-                    bool(charts["decomp"]["t"])),
+        _chart_card("两池结构（ON RRP 已归零，2 年，T）"
+                    if charts["three_pool"].get("onrrp_zero") else "三池结构（2 年，T）",
+                    "chart-pool", bool(charts["three_pool"]["t"])),
+        _chart_card(decomp_title, "chart-decomp",
+                    bool(charts["decomp"]["t"]), wide=decomp_zero),
         _chart_card("SOFR-EFFR 与 SRF 用量（1 年）", "chart-funding",
                     bool(charts["funding"]["t"])),
         _chart_card("TGA 日值与预测情景（1 年，T）", "chart-tga",
@@ -484,6 +565,8 @@ def render_html(
   <div class="grid">{chart_cards}</div>
   <h2>新鲜度矩阵</h2>
   <div class="card">{_freshness_html(facts)}</div>
+  <h2>风险规则回测</h2>
+  {_rules_html(facts)}
   <h2>分项说明</h2>
   {_sections_html(narrative)}
   <footer>
