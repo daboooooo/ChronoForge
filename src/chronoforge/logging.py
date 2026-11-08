@@ -70,6 +70,8 @@ EVENT_VOCABULARY: frozenset[str] = frozenset(
         "report.generated",
         "report.data_build_failed",
         "report.skipped_non_trading_day",
+        "report.write_failed",
+        "report.pruned",
         # treasury_fiscal 域（TGA 子系统，Phase 1）
         "treasury_fiscal.normalize_skipped",
         "treasury_fiscal.table_code_variant",

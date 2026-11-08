@@ -26,6 +26,11 @@ from __future__ import annotations
 # 每日统一更新批次（UTC）：北京时间 15:40 → 07:40 UTC。
 DAILY_UPDATE_TIME_UTC: tuple[int, int] = (7, 40)
 
+# 每日流动性报告触发时刻（UTC）：北京时间 16:10 → 08:10 UTC。
+# 批次实测约 320s（5 分半），08:10 距批次开始 30 分钟，留足抖动缓冲；
+# 报告只读，不获取更新写锁，因此不受 loop 后续轮次影响。
+DAILY_REPORT_TIME_UTC: tuple[int, int] = (8, 10)
+
 # U.S. Treasury DTS 的公开可用时刻（UTC）：记录日次一工作日约 16:00 ET，
 # 保守取 21:00 UTC（北京次日 05:00）。仅用于 canonical release_time（PIT），
 # 不参与抓取调度。

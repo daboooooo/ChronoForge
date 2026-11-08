@@ -1,22 +1,28 @@
 #!/usr/bin/env python
-"""每日流动性简报入口（Phase 1 手动运行）。
+"""每日流动性简报入口。
 
 用法：
   uv run python scripts/daily_liquidity_report.py                  # 按美东当前日期
   uv run python scripts/daily_liquidity_report.py --date 2026-11-09
   uv run python scripts/daily_liquidity_report.py --output-dir reports/daily_liquidity
 
-非交易日直接退出（exit 0），不生成任何文件。报告触发/调度串联留待后续迭代。
+退出码：0 已生成 / 非交易日跳过；2 数据降级但仍产出（显式缺口）；3 生成失败。
+非交易日不写任何文件；失败时三件产物保持上一次的完整状态（原子写）。
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+import traceback
 from datetime import date
 from pathlib import Path
 
+import structlog
+
 from chronoforge.report import run_report
+
+logger = structlog.get_logger()
 
 
 def _parse_date(value: str) -> date:
@@ -42,7 +48,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    result = run_report(report_day=args.date, output_dir=args.output_dir)
+    try:
+        result = run_report(report_day=args.date, output_dir=args.output_dir)
+    except Exception as exc:
+        logger.error("report.failed", report_date=str(args.date), exc_info=True)
+        print(f"报告生成失败：{type(exc).__name__}: {exc}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return 3
     if result.status == "skipped":
         print(result.message)
         return 0

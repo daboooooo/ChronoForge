@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  每日流动性简报（北京时间 16:10 = 08:10 UTC）。
+  批次实测约 320s，08:10 距批次开始约 30 分钟，留足抖动缓冲。
+  这是样例：不会自动安装。使用前把 __PROJECT_DIR__ 替换为仓库绝对路径。
+  日报只读，不获取更新写锁；退出码 2=降级、3=失败，均会写入 var/log/report.log。
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.chronoforge.report</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>__PROJECT_DIR__/scripts/hourly_update.sh report</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__PROJECT_DIR__</string>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>16</integer>
+    <key>Minute</key><integer>10</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>__PROJECT_DIR__/var/log/launchd_report.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>__PROJECT_DIR__/var/log/launchd_report.err.log</string>
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>

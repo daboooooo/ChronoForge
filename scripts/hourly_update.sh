@@ -3,7 +3,8 @@
 #
 # 执行模型（2026-11-08 起）：
 #   - 每日单一批次：北京时间 15:40（07:40 UTC）执行一次批次更新，
-#     随后 16:00（08:00 UTC）触发日报。批次完成状态写入
+#     随后 16:10（08:10 UTC）生成日报。批次实测约 320s，08:10 留约
+#     24 分钟缓冲吸收抖动，保证报告读到当批数据。批次完成状态写入
 #     var/run/daily_update.json，日报以该文件为前置条件，不能只靠日历
 #     时刻硬碰；超时/失败时报告使用最近一次成功批次并显式标注 as-of。
 #   - 每日批次默认只刷新日报输入源（fred/treasury_fiscal/nyfed/yahoo/sosovalue，
@@ -26,6 +27,9 @@
 # 用法:
 #   ./scripts/hourly_update.sh daily [透传参数]
 #       执行每日全量批次（带超时与状态文件），完成后退出；供 15:40 调度调用。
+#   ./scripts/hourly_update.sh report [透传参数]
+#       生成当日日报（只读，不获取更新写锁）；供 16:10 调度调用。
+#       退出码：0 已生成/非交易日跳过，2 数据降级，3 生成失败。
 #   ./scripts/hourly_update.sh [loop] [透传参数]
 #       前台常驻：启动立即轮询一次，之后每整点轮询；每轮仅更新到期
 #       dataset（--due-only），成功后更新分析图；Ctrl+C 退出。
@@ -43,6 +47,7 @@
 # 日志:
 #   - shell 自身的轮次/调度事件 → var/log/hourly_update.log
 #   - daily 批次的 backfill 输出 → var/log/daily_batch.log
+#   - 日报生成输出 → var/log/report.log（失败时同样落盘，便于排查）
 #   - Python pipeline 日志走 chronoforge 统一方案（CHRONOFORGE_LOG_FILE）：
 #     终端直连 TTY → rich 彩色渲染；同时全量 DEBUG 写 JSONL 轮转文件
 #     var/log/chronoforge.jsonl（10MB×5）。
@@ -62,11 +67,12 @@ WRITE_LOCK_DIR="$RUN_DIR/update-write.lock"
 # daily 批次完成状态：日报前置条件
 DAILY_STATUS_FILE="$RUN_DIR/daily_update.json"
 DAILY_BATCH_LOG="$LOG_DIR/daily_batch.log"
+REPORT_LOG="$LOG_DIR/report.log"
 # READY-006：1h 调度 → 窗口取调度周期 ×6（21600s = 6h）
 WINDOW_SECONDS="${WINDOW_SECONDS:-21600}"
 # 前台循环调度周期（默认 1h，触发点对齐到周期整点边界）
 INTERVAL_SECONDS="${INTERVAL_SECONDS:-3600}"
-# daily 批次硬超时：15:40 起算，留 5 分钟余量给 16:00 报告
+# daily 批次硬超时：15:40 起算，16:10 报告前留足余量
 BATCH_TIMEOUT_SECONDS="${BATCH_TIMEOUT_SECONDS:-900}"
 # 等待写锁上限：超过则放弃本轮，避免阻塞报告触发
 LOCK_WAIT_SECONDS="${LOCK_WAIT_SECONDS:-300}"
@@ -333,6 +339,22 @@ do_daily() {
     exit "$rc"
 }
 
+# 生成日报：只读链路，不获取更新写锁（与 daily/loop 互不阻塞）。
+do_report() {
+    require_uv
+    mkdir -p "$LOG_DIR" "$RUN_DIR"
+
+    log "=== 日报生成开始（只读，不取写锁）==="
+    local rc=0
+    set +e
+    "$UV_BIN" run python "$PROJECT_DIR/scripts/daily_liquidity_report.py" "$@" \
+        2>&1 | tee -a "$REPORT_LOG"
+    rc=${PIPESTATUS[0]}
+    set -e
+    log "=== 日报生成结束 (rc=$rc)，日志: $REPORT_LOG ==="
+    exit "$rc"
+}
+
 # 手动一轮全量：不写日报状态文件。
 do_once() {
     require_uv
@@ -386,9 +408,14 @@ case "${1:-loop}" in
         shift
         do_once "$@"
         ;;
+    report)
+        shift
+        do_report "$@"
+        ;;
     *)
-        echo "用法: $0 [daily|loop|run] [透传给 backfill_datasets.py 的额外参数，如 --dry-run]" >&2
+        echo "用法: $0 [daily|loop|run|report] [透传给 Python 的额外参数]" >&2
         echo "  daily（15:40 调度）: 全量更新 + 硬超时 + 写日报状态文件" >&2
+        echo "  report（16:10 调度）: 生成当日日报（只读，不取写锁）" >&2
         echo "  loop（默认）      : 前台常驻，每小时到期轮询（子日频数据集）" >&2
         echo "  run               : 手动执行一轮全量更新后退出" >&2
         exit 2

@@ -243,3 +243,83 @@ def test_gap_narrative_keeps_both_categories_and_next_steps() -> None:
     assert "等待下一次官方发布" in joined
     assert "检查 var/log/daily_batch.log" in joined
 
+
+# ── 阶段 A：调度与运维闭环 ────────────────────────────────────────────
+def test_calendar_block_marks_early_close_and_next_events() -> None:
+    from chronoforge.report import facts
+
+    normal = facts._calendar_block(date(2026, 11, 9))
+    assert normal["early_close"] is False
+    assert normal["next_early_close"] == "2026-11-27"
+    assert normal["next_holiday"] == "2026-11-26"
+
+    early = facts._calendar_block(date(2026, 11, 27))
+    assert early["early_close"] is True
+    assert early["early_close_time_et"] == "13:00"
+    assert early["next_early_close"] == "2026-12-24"
+
+
+def test_run_report_skips_holiday_without_writing_files(tmp_path) -> None:
+    r = run_report(report_day=date(2026, 11, 26), output_dir=tmp_path)
+    assert r.status == "skipped"
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_write_set_keeps_previous_products_on_failure(tmp_path, monkeypatch) -> None:
+    from chronoforge.report import pipeline
+
+    html = tmp_path / "a.html"
+    html.write_text("old", encoding="utf-8")
+    md = tmp_path / "b.md"
+
+    real_write = pipeline.Path.write_text
+
+    def flaky(self, content, encoding=None, **kwargs):
+        if self.name == "b.md.tmp":
+            raise OSError("disk full")
+        return real_write(self, content, encoding=encoding, **kwargs)
+
+    monkeypatch.setattr(pipeline.Path, "write_text", flaky)
+    with pytest.raises(OSError):
+        pipeline._write_set({html: "new", md: "new"})
+    assert html.read_text(encoding="utf-8") == "old"
+    assert not (tmp_path / "a.html.tmp").exists()
+    assert not md.exists()
+
+
+def test_prune_reports_removes_only_expired(tmp_path) -> None:
+    from chronoforge.report.pipeline import _prune_reports
+
+    for day in ("2026-11-09", "2026-01-01"):
+        for suffix in (".html", ".md", ".json"):
+            (tmp_path / f"{day}{suffix}").write_text("x", encoding="utf-8")
+    removed = _prune_reports(tmp_path, date(2026, 11, 9))
+    assert removed == ["2026-01-01"]
+    assert not (tmp_path / "2026-01-01.html").exists()
+    assert (tmp_path / "2026-11-09.json").exists()
+
+
+def test_index_lists_reports_and_survives_bad_json(tmp_path) -> None:
+    import json
+
+    from chronoforge.report.pipeline import _index_entries
+    from chronoforge.report.render import render_index
+
+    good = {
+        "report_date": "2026-11-09",
+        "status": "generated",
+        "metrics": {"reserve": {"level_t": 2.95, "chg_4w_b": -125.0}},
+        "freshness_summary": {"core_ok": 7, "core_total": 7},
+        "gaps": [],
+    }
+    (tmp_path / "2026-11-09.json").write_text(json.dumps(good), encoding="utf-8")
+    (tmp_path / "2026-11-08.json").write_text("{not json", encoding="utf-8")
+
+    entries = _index_entries(tmp_path)
+    assert [item["date"] for item in entries] == ["2026-11-09"]
+    html = render_index(entries, date(2026, 11, 9))
+    assert "2026-11-09.html" in html
+    assert "已生成" in html
+    assert "保留最近 180 天" in html
+
+

@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
 import structlog
 
-from chronoforge.quality.calendar import is_trading_day
+from chronoforge.quality.calendar import is_early_close, is_trading_day
 from chronoforge.report.facts import PROJECT_ROOT, build_facts
 from chronoforge.report.freshness import build_freshness, build_gaps
 from chronoforge.report.metrics import compute_metrics
@@ -19,6 +20,7 @@ from chronoforge.report.narrative import build_narrative
 from chronoforge.report.render import (
     dump_json,
     render_html,
+    render_index,
     render_json,
     render_markdown,
 )
@@ -28,6 +30,9 @@ logger = structlog.get_logger()
 
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "reports" / "daily_liquidity"
 ECHARTS_SOURCE = PROJECT_ROOT / "visualization" / "vendor" / "echarts.min.js"
+
+# 产物保留：默认保留 180 天（约 6 个月）的三件套；index.html 始终保留。
+REPORT_RETENTION_DAYS = 180
 
 
 @dataclass(frozen=True)
@@ -58,6 +63,12 @@ def _degraded_facts(report_day: date, exc: Exception) -> dict[str, Any]:
         "mode": "template",
         "payload_meta": {"data_cutoff": None},
         "cutoffs": {},
+        "calendar": {
+            "early_close": is_early_close(report_day),
+            "early_close_time_et": "13:00" if is_early_close(report_day) else None,
+            "next_early_close": None,
+            "next_holiday": None,
+        },
         "batch_status": None,
         "freshness": [r.to_dict() for r in rows],
         "freshness_summary": {
@@ -108,6 +119,69 @@ def _write_atomic(path: Path, content: str) -> None:
     os.replace(tmp, path)
 
 
+def _write_set(contents: dict[Path, str]) -> None:
+    """三件产物一起落盘：先全部写临时文件，再统一 replace。
+
+    任何一步渲染/写临时文件失败都会清掉临时文件，已有产物保持原样，
+    不会出现「html 更新了、json 还是旧的」这种半份产物。
+    """
+    staged: list[tuple[Path, Path]] = []
+    try:
+        for path, content in contents.items():
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(content, encoding="utf-8")
+            staged.append((tmp, path))
+    except Exception:
+        for tmp, _ in staged:
+            tmp.unlink(missing_ok=True)
+        raise
+    for tmp, path in staged:
+        os.replace(tmp, path)
+
+
+def _prune_reports(out_dir: Path, report_day: date) -> list[str]:
+    """删除超出保留窗口的日报三件套；返回被删除的日期。"""
+    cutoff = report_day - timedelta(days=REPORT_RETENTION_DAYS)
+    removed: list[str] = []
+    for path in sorted(out_dir.glob("*.json")):
+        try:
+            day = date.fromisoformat(path.stem)
+        except ValueError:
+            continue
+        if day >= cutoff:
+            continue
+        for suffix in (".json", ".md", ".html"):
+            (out_dir / f"{day.isoformat()}{suffix}").unlink(missing_ok=True)
+        removed.append(day.isoformat())
+    return removed
+
+
+def _index_entries(out_dir: Path) -> list[dict[str, Any]]:
+    """扫描历史 JSON，供索引页使用；坏文件跳过而不是让整页失败。"""
+    entries: list[dict[str, Any]] = []
+    for path in out_dir.glob("*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        day = data.get("report_date") or path.stem
+        metrics = data.get("metrics") or {}
+        reserve = metrics.get("reserve") or {}
+        summary = data.get("freshness_summary") or {}
+        entries.append({
+            "date": str(day),
+            "status": str(data.get("status") or "unknown"),
+            "generated_at": data.get("generated_at"),
+            "reserve_t": reserve.get("level_t"),
+            "reserve_chg_4w_b": reserve.get("chg_4w_b"),
+            "core_ok": summary.get("core_ok"),
+            "core_total": summary.get("core_total"),
+            "gaps": len(data.get("gaps") or []),
+        })
+    entries.sort(key=lambda item: item["date"], reverse=True)
+    return entries
+
+
 def run_report(
     report_day: date | None = None,
     output_dir: Path | None = None,
@@ -146,10 +220,28 @@ def run_report(
     html_path = out_dir / f"{day.isoformat()}.html"
     md_path = out_dir / f"{day.isoformat()}.md"
     json_path = out_dir / f"{day.isoformat()}.json"
+    audit = render_json(facts, narrative, day)
+    audit["status"] = status
 
-    _write_atomic(html_path, render_html(facts, narrative, day))
-    _write_atomic(md_path, render_markdown(facts, narrative, day))
-    _write_atomic(json_path, dump_json(render_json(facts, narrative, day)))
+    try:
+        _write_set({
+            html_path: render_html(facts, narrative, day),
+            md_path: render_markdown(facts, narrative, day),
+            json_path: dump_json(audit),
+        })
+        _write_atomic(
+            out_dir / "index.html",
+            render_index(_index_entries(out_dir), day),
+        )
+    except Exception:
+        logger.error(
+            "report.write_failed", report_date=day.isoformat(), exc_info=True
+        )
+        raise
+
+    removed = _prune_reports(out_dir, day)
+    if removed:
+        logger.info("report.pruned", report_date=day.isoformat(), removed=removed)
 
     logger.info(
         "report.generated",

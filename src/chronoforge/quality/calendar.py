@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 from chronoforge.exceptions import ConfigError
 
@@ -159,6 +159,31 @@ class MarketCalendar:
 
 
 US_MARKET_CALENDAR = MarketCalendar(holidays_by_year=_NYSE_HOLIDAYS)
+
+
+def is_early_close(d: date) -> bool:
+    """是否为提前闭市日（13:00 ET 收盘；仍是交易日）。"""
+    return d in EARLY_CLOSINGS
+
+
+def next_early_close(d: date, horizon_days: int = 400) -> date | None:
+    """返回 d 起（含当日）horizon_days 内最近的早闭日；无则 None。"""
+    for offset in range(horizon_days + 1):
+        candidate = d + timedelta(days=offset)
+        if candidate in EARLY_CLOSINGS:
+            return candidate
+    return None
+
+
+def next_market_holiday(d: date, horizon_days: int = 400) -> date | None:
+    """返回 d 之后 horizon_days 内最近的 NYSE 全日休市日；无则 None。"""
+    for offset in range(1, horizon_days + 1):
+        candidate = d + timedelta(days=offset)
+        if candidate.weekday() >= 5:
+            continue
+        if candidate in US_MARKET_CALENDAR.holidays_for(candidate.year):
+            return candidate
+    return None
 
 
 def is_trading_day(d: date) -> bool:

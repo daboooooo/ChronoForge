@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  子日频数据集的前台循环（1h/4h 等，由 hourly_update.sh loop 内部按整点轮询）。
+  这是样例：不会自动安装。使用前把 __PROJECT_DIR__ 替换为仓库绝对路径。
+  KeepAlive 让 launchd 在进程退出后自动拉起；如不需要常驻，删掉 KeepAlive 并改用
+  StartInterval（例如 3600）。
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.chronoforge.loop</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>__PROJECT_DIR__/scripts/hourly_update.sh loop</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__PROJECT_DIR__</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>__PROJECT_DIR__/var/log/launchd_loop.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>__PROJECT_DIR__/var/log/launchd_loop.err.log</string>
+</dict>
+</plist>

@@ -70,6 +70,18 @@ def _data_cutoff_line(facts: dict[str, Any]) -> str:
     )
 
 
+def _calendar_line(facts: dict[str, Any]) -> str:
+    cal = facts.get("calendar") or {}
+    bits: list[str] = []
+    if cal.get("early_close"):
+        bits.append("今日为半日市（13:00 ET 收盘），盘后行情与 H.15 观测时点相应提前。")
+    if cal.get("next_early_close"):
+        bits.append(f"下一个半日市：{cal['next_early_close']}（13:00 ET 收盘）。")
+    if cal.get("next_holiday"):
+        bits.append(f"下一个全日休市：{cal['next_holiday']}。")
+    return " ".join(bits) if bits else "交易日历：近期无半日市或全日休市。"
+
+
 def _reserve_bullets(facts: dict[str, Any]) -> list[str]:
     r = facts["metrics"]["reserve"]
     if r.get("level_t") is None:
@@ -648,6 +660,7 @@ def build_narrative(facts: dict[str, Any]) -> dict[str, Any]:
     return {
         "mode": "template",
         "data_cutoff_line": _data_cutoff_line(facts),
+        "calendar_line": _calendar_line(facts),
         "summary": summary,
         "sections": sections,
         "scope_note": "H.8（商业银行存款/贷款）本轮未注册，不作为本报告输入。",

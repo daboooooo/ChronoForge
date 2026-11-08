@@ -17,6 +17,11 @@ from typing import Any, cast
 
 from chronoforge.cli._wiring import open_meta
 from chronoforge.config.settings import Settings
+from chronoforge.quality.calendar import (
+    is_early_close,
+    next_early_close,
+    next_market_holiday,
+)
 from chronoforge.report.events import (
     EVENTS_PATH,
     EventConfigError,
@@ -192,6 +197,19 @@ def load_events_block(report_day: date) -> dict[str, Any]:
         }
 
 
+def _calendar_block(report_day: date) -> dict[str, Any]:
+    """报告日与近期的交易日历状态（半日市/假期标注）。"""
+    early = is_early_close(report_day)
+    nxt_early = next_early_close(report_day + timedelta(days=1))
+    nxt_holiday = next_market_holiday(report_day)
+    return {
+        "early_close": early,
+        "early_close_time_et": "13:00" if early else None,
+        "next_early_close": nxt_early.isoformat() if nxt_early else None,
+        "next_holiday": nxt_holiday.isoformat() if nxt_holiday else None,
+    }
+
+
 def _freshness_summary(rows: list[Any]) -> dict[str, Any]:
     core = [r for r in rows if r.core]
     return {
@@ -304,6 +322,7 @@ def build_facts(report_day: date, report_dir: Path | None = None) -> dict[str, A
         "mode": "template",
         "payload_meta": payload.get("meta", {}),
         "cutoffs": cutoffs,
+        "calendar": _calendar_block(report_day),
         "batch_status": batch,
         "freshness": [r.to_dict() for r in rows],
         "freshness_summary": _freshness_summary(rows),

@@ -13,6 +13,7 @@ import json
 from datetime import date
 from typing import Any, cast
 
+from chronoforge.report.freshness import GAP_CATEGORY_LABEL
 from chronoforge.report.session import weekday_cn
 
 # ── 格式化 ────────────────────────────────────────────────────────
@@ -140,6 +141,7 @@ def render_markdown(
         f"（{batch.get('finished_at') or '无状态文件'}）"
     )
     lines.append(f"> 生成方式：{narrative['mode']}（确定性规则模板，无 LLM）")
+    lines.append(f"> {narrative['calendar_line']}")
     lines.append("")
     lines.append("## 摘要")
     lines.append("")
@@ -174,22 +176,30 @@ def render_markdown(
     lines.append("")
     gaps = facts.get("gaps", [])
     if gaps:
+        grouped: dict[str, list[dict[str, Any]]] = {"await_release": [], "needs_check": []}
         for gap in gaps:
-            if gap["kind"] == "source_anomaly":
-                text = (f"[源侧异常] {gap['dataset_id']}，{gap['count']} 条，"
-                        f"最近 {gap['last_at']}：{gap['detail']}")
-            elif gap["kind"] == "batch_status":
-                text = (f"[批次状态] {gap['status']}（{gap['finished_at']}，"
-                        f"exit {gap['exit_code']}）")
-            else:
-                label = gap.get("label") or gap.get("series") or gap["kind"]
-                text = (f"[{gap['kind']}] {label}：预期 "
-                        f"{gap.get('expected_asof') or '缺失'}，实际 "
-                        f"{gap.get('actual_asof') or '缺失'}；{gap.get('detail', '')}")
-            lines.append(f"- {text}")
+            grouped.setdefault(str(gap.get("category") or "needs_check"), []).append(gap)
+        for key in ("await_release", "needs_check"):
+            if not grouped[key]:
+                continue
+            lines.append(f"### {GAP_CATEGORY_LABEL[key]}")
+            lines.append("")
+            for gap in grouped[key]:
+                if gap["kind"] == "source_anomaly":
+                    text = (f"{gap['dataset_id']}，{gap['count']} 条质量标记，"
+                            f"最近 {gap['last_at']}：{gap['detail']}")
+                elif gap["kind"] == "batch_status":
+                    text = (f"批次 {gap['status']}（{gap['finished_at']}，"
+                            f"exit {gap['exit_code']}）：{gap.get('detail', '')}")
+                else:
+                    label = gap.get("label") or gap.get("series") or gap["kind"]
+                    text = (f"{label}：预期 {gap.get('expected_asof') or '缺失'}，实际 "
+                            f"{gap.get('actual_asof') or '缺失'}；{gap.get('detail', '')}")
+                lines.append(f"- {text}。下一步：{gap.get('next_step')}")
+            lines.append("")
     else:
         lines.append("- 未发现显式缺口。")
-    lines.append("")
+        lines.append("")
     lines.append(f"> {narrative['scope_note']}")
     lines.append("")
     lines.append(f"> {narrative['method_note']}")
@@ -524,6 +534,10 @@ def render_html(
     batch_status = str(batch.get("status", "缺失"))
     batch_tone = "ok" if batch_status in {"success", "ok"} else "warn"
     decomp_zero = bool(charts["decomp"].get("onrrp_zero"))
+    early_badge = (
+        '<span class="badge warn">半日市 13:00 ET 收盘</span>'
+        if (facts.get("calendar") or {}).get("early_close") else ""
+    )
     decomp_title = ("周度流动性分解（近 13 周，B；ON RRP 已归零，不占柱）"
                     if decomp_zero else "周度流动性分解（近 13 周，B）")
     chart_cards = "".join([
@@ -554,9 +568,11 @@ def render_html(
   <h1>每日流动性简报</h1>
   <div class="sub">{report_day.isoformat()} · {weekday_cn(report_day)} · 美股盘前（手动运行）
     <span class="badge {batch_tone}">批次 {_esc(batch_status)}</span>
+    {early_badge}
     <span class="badge">模板模式</span>
   </div>
   <div class="cutoff">{_esc(narrative['data_cutoff_line'])}</div>
+  <div class="cutoff muted">{_esc(narrative['calendar_line'])}</div>
   {_gap_html(facts)}
   <div class="kpis">{kpis}</div>
   <h2>摘要</h2>
@@ -573,7 +589,7 @@ def render_html(
     {_esc(narrative['scope_note'])}<br>
     {_esc(narrative['method_note'])}<br>
     数据源：visualization/export_data.py::build_payload；质量 flag：meta/chronoforge.db；
-    批次状态：var/run/daily_update.json。
+    批次状态：var/run/daily_update.json。· <a href="index.html">历史报告索引</a>
   </footer>
 </div>
 <script>window.CF_REPORT_DATA = {js_data};</script>
@@ -582,6 +598,69 @@ def render_html(
 </body>
 </html>
 """
+
+
+def render_index(entries: list[dict[str, Any]], report_day: date) -> str:
+    """历史报告索引页（静态，无 JS 也能读）。"""
+    rows: list[str] = []
+    for item in entries:
+        day = str(item["date"])
+        status = str(item.get("status") or "unknown")
+        tone = {"generated": "ok", "degraded": "danger"}.get(status, "muted")
+        label = {"generated": "已生成", "degraded": "降级产出"}.get(status, status)
+        core = (
+            f"{item['core_ok']}/{item['core_total']}"
+            if item.get("core_ok") is not None else "—"
+        )
+        chg = item.get("reserve_chg_4w_b")
+        rows.append(
+            "<tr>"
+            f"<td><a href=\"{_esc(day)}.html\">{_esc(day)}</a></td>"
+            f"<td class=\"muted\">{_esc(weekday_cn(date.fromisoformat(day)) if _is_date(day) else '—')}</td>"
+            f"<td><span class=\"st {tone}\">{_esc(label)}</span></td>"
+            f"<td class=\"num\">{_fmt(item.get('reserve_t'), 3)}</td>"
+            f"<td class=\"num\">{_chg(chg)}</td>"
+            f"<td class=\"num\">{_esc(core)}</td>"
+            f"<td class=\"num\">{_esc(item.get('gaps', 0))}</td>"
+            f"<td class=\"muted\"><a href=\"{_esc(day)}.md\">MD</a> · "
+            f"<a href=\"{_esc(day)}.json\">JSON</a></td>"
+            "</tr>"
+        )
+    latest = entries[0]["date"] if entries else "—"
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>每日流动性简报 · 历史索引</title>
+<style>{_CSS}</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><span class="dot"></span>CHRONOFORGE · DAILY LIQUIDITY</div>
+  <h1>日报历史索引</h1>
+  <div class="sub">共 {len(entries)} 份 · 最新 {_esc(latest)} · 索引随每次生成刷新</div>
+  <div class="cutoff">报告在北京时间 16:10（08:10 UTC）批次完成后生成；非交易日不生成、不写文件。
+  保留最近 180 天，更早的三件套自动清理；索引本身始终保留。</div>
+  <div class="card" style="margin-top:14px">
+    <table>
+      <thead><tr><th>日期</th><th>星期</th><th>状态</th><th>准备金（T）</th>
+      <th>4 周变化（B）</th><th>核心完整度</th><th>缺口数</th><th>其他格式</th></tr></thead>
+      <tbody>{''.join(rows) if rows else '<tr><td colspan="8" class="muted">暂无报告</td></tr>'}</tbody>
+    </table>
+  </div>
+</div>
+</body>
+</html>
+"""
+
+
+def _is_date(value: str) -> bool:
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
 
 
 def render_json(
