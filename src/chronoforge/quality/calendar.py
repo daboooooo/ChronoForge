@@ -126,7 +126,6 @@ EARLY_CLOSINGS: frozenset[date] = frozenset({
     date(2026, 11, 27),  # Thanksgiving 次日
     date(2026, 12, 24),  # Christmas Eve
     date(2027, 11, 26),  # Thanksgiving 次日
-    date(2027, 12, 23),  # Christmas Eve observed 前一日
 })
 
 

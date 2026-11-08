@@ -137,7 +137,6 @@ NYSE_EARLY_CLOSINGS = [
     date(2026, 11, 27),
     date(2026, 12, 24),
     date(2027, 11, 26),
-    date(2027, 12, 23),
 ]
 
 
@@ -231,6 +230,14 @@ class TestIsTradingDay:
         """HOLIDAY 与早闭表分离：早闭日不全是假日（M9 修复 7/3、7/5、12/24 误标）。"""
         assert set(EARLY_CLOSINGS) == set(NYSE_EARLY_CLOSINGS)
         assert all(is_trading_day(d) for d in EARLY_CLOSINGS)
+
+    def test_2027_early_closings_pinned(self):
+        """2027 早闭日钉死为感恩节次日（11-26）。
+
+        NYSE 官方 2027 年只为 11-26 标注早闭；2027 圣诞日为 12-24（observed），
+        不存在 12-23 早闭。此用例防止后续手写日历表时多补非法日期。
+        """
+        assert {d for d in EARLY_CLOSINGS if d.year == 2027} == {date(2027, 11, 26)}
 
     def test_calendar_is_configurable(self):
         """假日表可按年份外置配置（新增年份仅需显式补表）。"""
