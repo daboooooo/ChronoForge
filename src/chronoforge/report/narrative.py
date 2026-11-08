@@ -43,7 +43,10 @@ def _asof_note(value: Any) -> str:
 def _signed(value: Any, digits: int = 1, unit: str = "B") -> str:
     if value is None:
         return "缺失"
-    return f"{float(value):+.{digits}f} {unit}"
+    number = float(value)
+    if number == 0:
+        number = 0.0  # 避免 -0.0 显示成「-0.0」
+    return f"{number:+.{digits}f} {unit}"
 
 
 def _data_cutoff_line(facts: dict[str, Any]) -> str:
@@ -161,6 +164,48 @@ def _causal_headline(facts: dict[str, Any]) -> str:
     return f"{head}；4 周累计 {_chg((d.get('sum_4w') or {}).get('dR'))}。"
 
 
+def _h41_split_lines(facts: dict[str, Any], other_contrib: float | None) -> list[str]:
+    """用 H.4.1 明细把分解里的「其他」拆开，并单列周均/时点差。"""
+    h = facts.get("h41_detail") or {}
+    if h.get("error") or not h.get("items"):
+        return [
+            "H.4.1 明细不可用（观测不足或读取失败），「其他」不做强行归因，仍记为不可拆残差。"
+        ]
+    items = h["items"]
+    parts = "、".join(
+        f"{item['label']} {_signed(item.get('contribution_b'))}" for item in items
+    )
+    lines = [
+        f"「其他」按 H.4.1 明细拆到可归因项（{_asof_note(h.get('asof'))}，"
+        f"共 {len(items)} 项，负号表示对准备金的抽水贡献）：{parts}；"
+        f"经济科目合计 {_signed(h.get('named_sum_b'))}。"
+    ]
+    timing = h.get("timing") or {}
+    cross = (
+        f"经济科目合计 {_signed(h.get('named_sum_b'))} 加时点差后与分解「其他」"
+        f"{_signed(h.get('other_reported_b'))} 对上，残差 {_signed(h.get('residual_b'))}"
+        if other_contrib is not None
+        else "分解「其他」为缺失，只列时点差，不做闭合核对"
+    )
+    lines.append(
+        f"时点核对：主口径准备金/TGA 用周均（WRESBAL/WTREGEN），WALCL 与各明细用周三时点"
+        f"（{_date(h.get('asof'))}，前值 {_date(h.get('prev_asof'))}）。"
+        f"准备金周均与时点差 {_signed(timing.get('reserve_diff_b'))}，"
+        f"TGA 周均与时点差 {_signed(timing.get('tga_diff_b'))}，合计 "
+        f"{_signed(timing.get('sum_b'))}；{cross}。"
+        "主口径不替换，时点差不并入任何经济科目。"
+    )
+    repo = next((item for item in items if item.get("key") == "foreign_repo"), None)
+    if repo:
+        lines.append(
+            "口径说明：WLRRAL 是逆回购负债（外国官方与国际账户），与国内 ON RRP 分属不同"
+            f"科目。该项贡献 {_signed(repo.get('contribution_b'))}（余额 "
+            f"{_num(repo.get('level_b'), 1)} B），说明外国官方设施仍有余额；"
+            "ON RRP 零值判断不受影响，两池框架不变。"
+        )
+    return lines
+
+
 def _causal_bullets(facts: dict[str, Any]) -> list[str]:
     d = facts["metrics"]["weekly_decomp"]
     latest = d.get("latest")
@@ -231,10 +276,11 @@ def _causal_bullets(facts: dict[str, Any]) -> list[str]:
                 if latest.get("dR") else None
             )
             lines.append(
-                f"无法进一步归因的部分是「其他」{_chg(latest.get('other'))}"
-                f"（占 |ΔR| 的 {other_share:.0f}%）；export_data 以残差计入，"
-                f"本报告不猜测其构成。"
+                f"分解里的「其他」{_chg(latest.get('other'))}"
+                f"（占 |ΔR| 的 {other_share:.0f}%）不再笼统写「无法归因」，"
+                "按 H.4.1 明细拆解如下。"
             )
+            lines.extend(_h41_split_lines(facts, float(latest["other"])))
 
     s4 = d.get("sum_4w")
     if s4:
@@ -250,7 +296,8 @@ def _causal_bullets(facts: dict[str, Any]) -> list[str]:
                     f"4 周维度上 TGA 贡献 {_chg(tga4)}，占 |ΔR| 的 "
                     f"{abs(float(tga4)) / abs(float(s4['dR'])) * 100:.0f}%；"
                     f"这是持续抽水，不是单周噪音。"
-                    f"其他项 {_chg(s4.get('other'))} 仍为不可拆分残差。"
+                    f"其他项 {_chg(s4.get('other'))} 为 4 周累计，"
+                    "H.4.1 明细只覆盖最新一周，不逐周拆分。"
                 )
     lines.append(
         "结构含义：RRP 已归零（见「两池结构」），REL_015 中原本可由 RRP 吸收的那部分"

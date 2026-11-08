@@ -62,7 +62,24 @@ FRED = {
     "VIXCLS": "fred_series_VIXCLS",
     "WALCL": "fred_series_WALCL",
     "WCURCIR": "fred_series_WCURCIR",
+    "WDTGAL": "fred_series_WDTGAL",
 }
+
+# H.4.1 明细（周三时点，百万美元）：用于把周度分解的「其他」拆开。
+# 均为已入库的 FRED 序列，不新增数据源；缺失的 TCCF 恒为 0 时省略。
+H41_DETAIL = {
+    "WLTLECL": "fred_series_WLTLECL",
+    "WLDLCL": "fred_series_WLDLCL",
+    "WLAD": "fred_series_WLAD",
+    "WLDACLC": "fred_series_WLDACLC",
+    "TERMT": "fred_series_TERMT",
+    "WLRRAL": "fred_series_WLRRAL",
+    "WLFN": "fred_series_WLFN",
+}
+H41_DISTRICTS = {f"D{i}WLFOL": f"fred_series_D{i}WLFOL" for i in range(1, 13)}
+
+# 周频 FRED 序列（H.4.1 口径）；其余按日频起点加载。
+WEEKLY_NUM = {"WRESBAL", "WRBWFRBL", "WTREGEN", "WALCL", "WCURCIR", "WDTGAL"}
 
 # canonical OHLCV 目录名（与 registry entity_id 不同）
 OHLCV = {
@@ -466,6 +483,114 @@ def compute_weekly_decomp(wres: pd.Series, walcl: pd.Series, tga: pd.Series,
     return rows[-26:]
 
 
+def compute_h41_detail(
+    wres: pd.Series,
+    wtreg: pd.Series,
+    walcl: pd.Series,
+    wcurcir: pd.Series,
+    wrbwfrbl: pd.Series,
+    wdtgal: pd.Series,
+    rrp: pd.Series,
+    detail: dict[str, pd.Series],
+    districts: dict[str, pd.Series],
+) -> dict[str, Any]:
+    """按 H.4.1 明细拆分周度分解里的「其他」（单位为十亿美元）。
+
+    口径：R/TGA 用周均（WRESBAL/WTREGEN），WALCL 与各明细用周三时点
+    （WALCL/WLTLECL/WLDLCL/WLAD/WLDACLC/TERMT/WLRRAL/WLFN/D*WLFOL）。
+    差额不强行抹平：周均与周三的时点差单列为 ``timing``，剩余才记 ``residual``。
+    """
+    cols: dict[str, pd.Series] = {
+        "R_avg": weekly(wres),
+        "TGA_avg": weekly(wtreg),
+        "WALCL": weekly(walcl),
+        "WCURCIR": weekly(wcurcir),
+        "R_wd": weekly(wrbwfrbl),
+        "TGA_wd": weekly(wdtgal),
+        "RRP": weekly(rrp) * 1000.0,
+    }
+    for name, series in detail.items():
+        cols[name] = weekly(series)
+    cols["WDFOL"] = sum(weekly(series) for series in districts.values())
+
+    df = pd.DataFrame(cols).dropna()
+    if len(df) < 2:
+        return {"error": "H.4.1 明细观测不足两周"}
+
+    df["capital"] = df["WALCL"] - df["WLTLECL"]
+    df["cash_gap"] = df["WLFN"] - df["WCURCIR"]
+    df["foreign_repo"] = df["WLRRAL"] - df["RRP"]
+    df["other_dep"] = (
+        df["WLDLCL"] - df["R_wd"] - df["TGA_wd"] - df["WDFOL"] - df["TERMT"]
+    )
+
+    cur = df.iloc[-1]
+    prev = df.iloc[-2]
+
+    def _chg(key: str) -> float:
+        return float(cur[key] - prev[key])
+
+    specs = [
+        ("capital", "资本项（WALCL−WLTLECL）", "capital"),
+        ("cash_gap", "纸币净额口径差（WLFN−WCURCIR）", "cash_gap"),
+        ("foreign_repo", "外国官方回购池（WLRRAL−ON RRP）", "foreign_repo"),
+        ("foreign_official", "外国官方存款（D1–D12WLFOL）", "WDFOL"),
+        ("other_deposits", "其他存款（WLDLCL 扣准备金/TGA/外国官方/定期）", "other_dep"),
+        ("term_deposits", "定期存款（TERMT）", "TERMT"),
+        ("deferred", "递延可用现金（WLDACLC）", "WLDACLC"),
+        ("other_liabilities", "其他负债与应计股息（WLAD）", "WLAD"),
+    ]
+    items = []
+    named_sum = 0.0
+    for key, label, column in specs:
+        chg = _chg(column)
+        # 「其他」是分解里的贡献项：负债增加对应负贡献。
+        contribution = round(-chg / 1000.0, 2)
+        named_sum += contribution
+        items.append(
+            {
+                "key": key,
+                "label": label,
+                "level_b": round(float(cur[column]) / 1000.0, 1),
+                "chg_b": round(chg / 1000.0, 2),
+                "contribution_b": contribution,
+            }
+        )
+
+    reserve_timing = round((_chg("R_avg") - _chg("R_wd")) / 1000.0, 2)
+    tga_timing = round((_chg("TGA_avg") - _chg("TGA_wd")) / 1000.0, 2)
+    timing_sum = round(reserve_timing + tga_timing, 2)
+    other_reported = round(
+        (_chg("R_avg") - _chg("WALCL") + _chg("TGA_avg") + _chg("RRP")
+         + _chg("WCURCIR")) / 1000.0,
+        2,
+    )
+    residual = round(other_reported - named_sum - timing_sum, 2) + 0.0
+
+    return {
+        "asof": cur.name.strftime("%Y-%m-%d"),
+        "prev_asof": prev.name.strftime("%Y-%m-%d"),
+        "unit": "B",
+        "items": items,
+        "named_sum_b": round(named_sum, 2),
+        "timing": {
+            "reserve_avg_chg_b": round(_chg("R_avg") / 1000.0, 2),
+            "reserve_wd_chg_b": round(_chg("R_wd") / 1000.0, 2),
+            "reserve_diff_b": reserve_timing,
+            "tga_avg_chg_b": round(_chg("TGA_avg") / 1000.0, 2),
+            "tga_wd_chg_b": round(_chg("TGA_wd") / 1000.0, 2),
+            "tga_diff_b": tga_timing,
+            "sum_b": timing_sum,
+        },
+        "other_reported_b": other_reported,
+        "residual_b": residual,
+        "note": (
+            "主口径为 WRESBAL/WTREGEN 周均；WALCL 与明细为周三时点。"
+            "时点差单列，不并入经济科目；残差为四舍五入或未列示项。"
+        ),
+    }
+
+
 def compute_three_pool(wres: pd.Series, tga: pd.Series, rrp: pd.Series) -> dict[str, list]:
     """TGA / ON RRP / 准备金三池周度对齐（万亿美元）。"""
     df = pd.concat(
@@ -653,12 +778,20 @@ def build_payload() -> dict[str, Any]:
 
         num: dict[str, pd.Series] = {}
         for name, dataset_id in FRED.items():
-            start = WEEKLY_START if name in {"WRESBAL", "WRBWFRBL", "WTREGEN", "WALCL", "WCURCIR"} else DAILY_START
+            start = WEEKLY_START if name in WEEKLY_NUM else DAILY_START
             entity = "RRPONTSYAWARD" if name == "RRP_AWARD" else name
             num[name] = load_number(service, dataset_id, entity, start)
 
         rrp = load_number(service, FRED["RRPONTSYD"], "RRPONTSYD", WEEKLY_START)
         srf = load_number(service, SRF_DATASET, SRF_ENTITY, SRF_START)
+        h41_detail = {
+            name: load_number(service, dataset_id, name, WEEKLY_START)
+            for name, dataset_id in H41_DETAIL.items()
+        }
+        h41_districts = {
+            name: load_number(service, dataset_id, name, WEEKLY_START)
+            for name, dataset_id in H41_DISTRICTS.items()
+        }
 
         ohlcv: dict[str, pd.Series] = {}
         for name, entity in OHLCV.items():
@@ -685,6 +818,17 @@ def build_payload() -> dict[str, Any]:
 
     decomp = compute_weekly_decomp(
         num["WRESBAL"], num["WALCL"], num["WTREGEN"], rrp, num["WCURCIR"]
+    )
+    h41_split = compute_h41_detail(
+        num["WRESBAL"],
+        num["WTREGEN"],
+        num["WALCL"],
+        num["WCURCIR"],
+        num["WRBWFRBL"],
+        num["WDTGAL"],
+        rrp,
+        h41_detail,
+        h41_districts,
     )
     reserve_diff = compute_reserve_diff(num["WRESBAL"])
     corr = compute_btc_reserve_corr(ohlcv["BTC"], num["WRESBAL"])
@@ -838,6 +982,7 @@ def build_payload() -> dict[str, Any]:
             "reserve_diff": reserve_diff,
             "three_pool": compute_three_pool(num["WRESBAL"], num["WTREGEN"], rrp),
         },
+        "h41_detail": h41_split,
         "btc_res": compute_btc_res(ohlcv["BTC"], num["WRESBAL"]),
         "corr": corr,
         "macro": macro,

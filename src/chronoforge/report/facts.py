@@ -308,6 +308,7 @@ def build_facts(report_day: date, report_dir: Path | None = None) -> dict[str, A
         "metrics": metrics,
         "rules": rules,
         "events": events,
+        "h41_detail": payload.get("h41_detail", {}),
         "previous": load_previous_report(report_day, report_dir),
         "gaps": gaps,
         "charts": _chart_series(payload, report_day, _rrp_zero(rules)),
