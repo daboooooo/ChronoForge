@@ -24,7 +24,7 @@ from chronoforge.report.rules import backtest_rules
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 EXPORT_DATA_PATH = PROJECT_ROOT / "visualization" / "export_data.py"
 BATCH_STATUS_PATH = PROJECT_ROOT / "var" / "run" / "daily_update.json"
-
+REPORT_DIR = PROJECT_ROOT / "reports" / "daily_liquidity"
 _EXPORT_MODULE: Any | None = None
 
 
@@ -184,6 +184,41 @@ def _freshness_summary(rows: list[Any]) -> dict[str, Any]:
     }
 
 
+def load_previous_report(report_day: date, report_dir: Path | None = None) -> dict[str, Any] | None:
+    """读取报告日之前最近一份日报 JSON（用于昨日对比与新颖度检查）。"""
+    folder = Path(report_dir) if report_dir else REPORT_DIR
+    if not folder.exists():
+        return None
+    candidates: list[tuple[date, Path]] = []
+    for path in folder.glob("*.json"):
+        try:
+            day = date.fromisoformat(path.stem)
+        except ValueError:
+            continue
+        if day < report_day:
+            candidates.append((day, path))
+    if not candidates:
+        return None
+    _, path = max(candidates, key=lambda item: item[0])
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    charts = data.get("charts", {})
+    return {
+        "report_date": data.get("report_date"),
+        "metrics": data.get("metrics", {}),
+        "rules": data.get("rules", {}),
+        "charts": {
+            "three_pool": {
+                "onrrp_zero": charts.get("three_pool", {}).get("onrrp_zero"),
+            },
+        },
+    }
+
+
 def _rrp_zero(rules: dict[str, Any]) -> bool:
     for row in rules.get("rows", []):
         if row.get("id") == "BG_ONRRP_ZERO":
@@ -191,7 +226,7 @@ def _rrp_zero(rules: dict[str, Any]) -> bool:
     return False
 
 
-def build_facts(report_day: date) -> dict[str, Any]:
+def build_facts(report_day: date, report_dir: Path | None = None) -> dict[str, Any]:
     payload = build_payload()
     cutoffs = payload.get("cutoffs", {})
     rows = build_freshness(cutoffs, report_day)
@@ -242,6 +277,7 @@ def build_facts(report_day: date) -> dict[str, Any]:
         "freshness_summary": _freshness_summary(rows),
         "metrics": metrics,
         "rules": rules,
+        "previous": load_previous_report(report_day, report_dir),
         "gaps": gaps,
         "charts": _chart_series(payload, report_day, _rrp_zero(rules)),
         "source": {

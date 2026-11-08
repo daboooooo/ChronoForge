@@ -73,6 +73,7 @@ def _degraded_facts(report_day: date, exc: Exception) -> dict[str, Any]:
         "metrics": compute_metrics({}),
         "rules": {"window_years": 2, "asof": None, "rows": [], "transitions": [],
                   "stats": {}, "deleted": []},
+        "previous": None,
         "gaps": gaps,
         "charts": {
             "reserve": {"t": [], "v": [], "thresholds": [3.0, 3.2]},
@@ -133,7 +134,7 @@ def run_report(
 
     status = "generated"
     try:
-        facts = build_facts(day)
+        facts = build_facts(day, out_dir)
     except Exception as exc:  # 数据链路失败仍需产出报告（显式缺口）
         logger.error(
             "report.data_build_failed", report_date=day.isoformat(), exc_info=True
