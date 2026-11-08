@@ -66,6 +66,10 @@ EVENT_VOCABULARY: frozenset[str] = frozenset(
         "connector.fetch_truncated",  # 分页回溯达到上限（数据可能不完整）
         # normalize 门禁域（A-8 小样本退化为源侧异常，留痕不判失败）
         "normalize.source_anomaly",
+        # report 域（每日流动性简报，Phase 1）
+        "report.generated",
+        "report.data_build_failed",
+        "report.skipped_non_trading_day",
         # treasury_fiscal 域（TGA 子系统，Phase 1）
         "treasury_fiscal.normalize_skipped",
         "treasury_fiscal.table_code_variant",
