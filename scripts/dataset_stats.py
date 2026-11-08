@@ -13,12 +13,20 @@ dataset 关联策略（两级，取先命中者）：
    （binance/ccxt 等 market_id 分区）。
 
 用法:
-    # 全部类型
+    # 全部类型（仅打印到终端）
     python scripts/dataset_stats.py
+
+    # 生成仓库内的快照文件（供文档引用；带生成时间头）
+    python scripts/dataset_stats.py --out dataset_states.txt
 
     # 只看指定类型 / 数据源
     python scripts/dataset_stats.py --types OHLCV
     python scripts/dataset_stats.py --types FLOW NUMBER --sources sosovalue
+
+运行时机:
+    在 07:40 数据更新批次成功结束后运行（或需要核对各序列 as-of 时手动运行）。
+    dataset_states.txt 是快照而非实时状态；引用前先看文件头的生成时间，
+    不要拿旧快照当作当前 as-of 的证据。
 
 输出:
     按 canonical 类型分节，每节先给汇总行（实体数 / dataset 数 / 总行数 /
@@ -32,10 +40,12 @@ dataset 关联策略（两级，取先命中者）：
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import sys
 import time
 from collections import defaultdict
+from contextlib import redirect_stdout
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -298,10 +308,11 @@ def print_report(
     for key in groups:
         by_type[key[0]].append(key)
 
+    skip_part = f" | 跳过 {skipped} 个" if skipped else ""
     print(f"{'=' * 100}")
     print(
         f"Canonical 数据集统计  数据目录: {args.data_dir}"
-        f" | 文件 {n_files} 个{' | 跳过 %d 个' % skipped if skipped else ''}"
+        f" | 文件 {n_files} 个{skip_part}"
         f" | 耗时 {elapsed:.1f}s"
     )
     print(f"{'=' * 100}")
@@ -400,6 +411,10 @@ def parse_args() -> argparse.Namespace:
         "--data-dir", type=str, default=None,
         help="数据目录（默认取 Settings.data_dir）",
     )
+    parser.add_argument(
+        "--out", type=str, default=None,
+        help="把统计报告写入文件（默认只打印到终端；文件带生成时间头）",
+    )
     return parser.parse_args()
 
 
@@ -428,7 +443,33 @@ def run(args: argparse.Namespace) -> int:
         meta.close()
 
     print_report(groups, idx, args, n_files, skipped, time.perf_counter() - t0)
+    if args.out:
+        _write_snapshot(args, groups, idx, n_files, skipped, t0)
     return 0
+
+
+def _write_snapshot(
+    args: argparse.Namespace,
+    groups: dict[GroupKey, dict[str, Any]],
+    idx: dict[str, list[dict[str, Any]]],
+    n_files: int,
+    skipped: int,
+    t0: float,
+) -> None:
+    """把报告写入快照文件；进度输出不落入文件，只保留报告与生成时间头。"""
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        print_report(groups, idx, args, n_files, skipped, time.perf_counter() - t0)
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    header = (
+        f"# 由 scripts/dataset_stats.py --out {args.out} 生成\n"
+        f"# 生成时间: {datetime.now().astimezone().isoformat(timespec='seconds')}\n"
+        "# 运行时机: 07:40 数据更新批次成功结束后（或核对 as-of 时手动运行）\n"
+        "# 本文件是快照，引用前确认生成时间，不要拿旧快照当作当前 as-of。\n"
+    )
+    out_path.write_text(header + buffer.getvalue(), encoding="utf-8")
+    print(f"已写入快照: {out_path}")
 
 
 def main() -> None:
